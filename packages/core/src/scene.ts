@@ -22,14 +22,20 @@ export interface ResponsiveMap<T> {
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info" | "muted";
 export type Paint = Tone | SemanticColorToken | "none";
-export type Length = number | "fill" | "hug";
+/** Pixels, share of surplus, content size, or a percentage of the parent content box. */
+export type Length = number | "fill" | "hug" | `${number}%`;
 export type Insets =
   | number
   | readonly [vertical: number, horizontal: number]
   | readonly [top: number, right: number, bottom: number, left: number];
 export type Align = "start" | "center" | "end" | "stretch";
 export type Justify = "start" | "center" | "end" | "between" | "around" | "evenly";
-export type GroupLayout = "stack" | "row" | "grid" | "overlay" | "absolute";
+/**
+ * `coordinates` is a normalised space: children are placed by fractional `position` (0..1 of the
+ * content box) and may size themselves with percentages, so the same fragment resolves at any
+ * width without scaling glyphs or strokes. Overlaps inside overlay/coordinates groups are intended.
+ */
+export type GroupLayout = "stack" | "row" | "grid" | "overlay" | "absolute" | "coordinates";
 export type Anchor =
   | "top-left"
   | "top"
@@ -42,6 +48,15 @@ export type Anchor =
   | "bottom-right";
 
 export type SceneMetadata = Readonly<Record<string, string | number | boolean | null>>;
+
+/** Structured inspection copy rendered by runtimes as a generic definition list. */
+export interface InspectInfo {
+  /** Short role shown as the eyebrow, e.g. "Series", "Stage", "Connector", "Cell". */
+  readonly role?: string;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly fields?: readonly { readonly label: string; readonly value: string }[];
+}
 
 /** Signal-driven properties. Values are signal or variable ids from the scene's state machine. */
 export interface NodeBindings {
@@ -109,6 +124,15 @@ interface BaseNode {
   readonly minHeight?: Responsive<number>;
   /** Share of surplus main-axis space in a row or stack parent. */
   readonly grow?: Responsive<number>;
+  /** Structured inspection copy (falls back to label/description). */
+  readonly inspect?: InspectInfo;
+  /**
+   * Makes this group a single tab stop whose interactive descendants are reached with the arrow
+   * keys (roving focus), so dense data marks do not add one tab stop per datum.
+   */
+  readonly focusGroup?: boolean;
+  /** Side a revealX/revealY timeline track grows from (default: left / bottom). */
+  readonly revealAnchor?: "left" | "right" | "top" | "bottom";
 }
 
 export interface GroupNode extends BaseNode {
@@ -173,6 +197,23 @@ export interface PathMark extends BaseNode {
   readonly dash?: "solid" | "dashed" | "dotted";
 }
 
+export interface PolylineMark extends BaseNode {
+  readonly type: "polyline";
+  /** Points as [x, y]; fractions of the node box when `space` is "fraction" (default), else pixels. */
+  readonly points: readonly (readonly [number, number])[];
+  readonly space?: "fraction" | "px";
+  readonly curve?: "linear" | "monotone" | "step";
+  /** Close the shape back to the first point. */
+  readonly closed?: boolean;
+  /** Close down/up to a horizontal baseline (fraction or px, matching `space`) to make an area. */
+  readonly baseline?: number;
+  readonly fill?: Paint;
+  readonly stroke?: Paint;
+  readonly strokeWidth?: number;
+  readonly dash?: "solid" | "dashed" | "dotted";
+  readonly lineCap?: "round" | "square" | "butt";
+}
+
 export interface ImageMark extends BaseNode {
   readonly type: "image";
   readonly src: string;
@@ -223,6 +264,7 @@ export type SceneNode =
   | TextMark
   | IconMark
   | PathMark
+  | PolylineMark
   | ImageMark
   | BadgeMark
   | LegendMark

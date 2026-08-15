@@ -349,7 +349,7 @@ describe("mountKineglyph", () => {
           isIntersecting: true,
           intersectionRatio: 0.07,
           target: element,
-        } as IntersectionObserverEntry,
+        } as unknown as IntersectionObserverEntry,
       ],
       {} as IntersectionObserver,
     );
@@ -359,7 +359,7 @@ describe("mountKineglyph", () => {
           isIntersecting: true,
           intersectionRatio: 0.5,
           target: element,
-        } as IntersectionObserverEntry,
+        } as unknown as IntersectionObserverEntry,
       ],
       {} as IntersectionObserver,
     );

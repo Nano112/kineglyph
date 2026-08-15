@@ -34,7 +34,16 @@ export type SemanticColorToken =
   | "warning"
   | "danger"
   | "connector"
-  | "border";
+  | "border"
+  | "chart1"
+  | "chart2"
+  | "chart3"
+  | "chart4"
+  | "chart5"
+  | "chart6"
+  | "chartPositive"
+  | "chartNegative"
+  | "chartNeutral";
 
 export type SemanticSpacingToken = "none" | "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
 export type SemanticRadiusToken = "none" | "sm" | "md" | "lg" | "pill";

@@ -117,7 +117,7 @@ describe("KineglyphFigure in React StrictMode", () => {
     });
 
     expect(node?.style.opacity).toBe("1");
-    expect(node?.style.transform).toContain("scale(1)");
+    expect(node?.style.transform).toBe("none");
 
     act(() => handle.current?.restart());
     expect(node?.style.opacity).toBe("0");
@@ -128,7 +128,7 @@ describe("KineglyphFigure in React StrictMode", () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
     });
     expect(node?.style.opacity).toBe("1");
-    expect(node?.style.transform).toContain("scale(1)");
+    expect(node?.style.transform).toBe("none");
   });
 
   it("drives a scene state machine through the handle and its controls under StrictMode", () => {

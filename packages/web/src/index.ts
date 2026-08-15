@@ -60,10 +60,23 @@ export interface MountOptions {
   readonly onStateChange?: (step: MachineStep, scene: ResolvedScene) => void;
 }
 
+export interface InspectField {
+  readonly label: string;
+  readonly value: string;
+}
+
+/** Structured, framework-neutral inspection payload rendered as a generic definition list. */
 export interface InspectTarget {
   readonly kind: "node" | "edge";
   readonly id: string;
+  /** Short role for the eyebrow (e.g. "Series", "Stage", "Cell", "Connector"). */
+  readonly role: string;
+  readonly title: string;
+  readonly summary?: string;
+  readonly fields: readonly InspectField[];
+  /** @deprecated use title */
   readonly label: string;
+  /** @deprecated use summary */
   readonly description?: string;
   readonly node?: ResolvedNode;
   readonly edge?: ResolvedEdge;
@@ -108,7 +121,7 @@ export interface KineglyphController {
   /** Resets the machine to its initial state and the timeline to the start. */
   reset(): void;
   setTheme(theme: ThemeTokens): void;
-  setScene(scene: FigureSource): void;
+  setScene(scene: FigureSource, options?: { readonly initialState?: MachineState }): void;
   setReducedMotion(reduced: boolean): void;
   /** Programmatic inspection; pass `null` to clear. Returns the current inspection target. */
   inspect(id?: string | null): InspectTarget | undefined;
@@ -678,8 +691,30 @@ class FigureRuntime implements KineglyphController {
     stage.addEventListener("pointerout", clear);
     stage.addEventListener("focusin", inspect);
     stage.addEventListener("focusout", clear);
+    const rove = (event: Event): void => {
+      if (!(event instanceof KeyboardEvent)) return;
+      const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
+      if (!keys.includes(event.key)) return;
+      const active = event.target instanceof Element ? event.target : null;
+      const group = active?.closest("[data-focus-group]");
+      if (group === null || group === undefined) return;
+      const members = [...group.querySelectorAll<HTMLElement>("[data-node-id][tabindex]")].filter(
+        (member) => member !== group,
+      );
+      if (members.length === 0) return;
+      const index = members.findIndex((member) => member === active);
+      let next: number;
+      if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = members.length - 1;
+      else if (event.key === "ArrowRight" || event.key === "ArrowDown")
+        next = index < 0 ? 0 : (index + 1) % members.length;
+      else next = index < 0 ? members.length - 1 : (index - 1 + members.length) % members.length;
+      event.preventDefault();
+      members[next]?.focus({ preventScroll: true });
+    };
     stage.addEventListener("click", activate);
     stage.addEventListener("keydown", activate);
+    stage.addEventListener("keydown", rove);
     this.#cleanups.push(() => {
       stage.removeEventListener("pointerover", inspect);
       stage.removeEventListener("pointerout", clear);
@@ -687,6 +722,7 @@ class FigureRuntime implements KineglyphController {
       stage.removeEventListener("focusout", clear);
       stage.removeEventListener("click", activate);
       stage.removeEventListener("keydown", activate);
+      stage.removeEventListener("keydown", rove);
     });
     void doc;
   }
@@ -726,23 +762,43 @@ class FigureRuntime implements KineglyphController {
 
   #targetFor(id: string): InspectTarget | undefined {
     const node = this.#resolved.nodes.find((entry) => entry.id === id);
-    if (node !== undefined)
+    if (node !== undefined) {
+      const info = node.inspect ?? {};
+      const metaRole = node.metadata.role;
+      const role =
+        info.role ?? (typeof metaRole === "string" && metaRole.length > 0 ? metaRole : "Element");
+      const title = info.title ?? node.label;
+      const summary = info.summary ?? node.description;
       return {
         kind: "node",
         id,
-        label: node.label,
-        ...(node.description === undefined ? {} : { description: node.description }),
+        role,
+        title,
+        ...(summary === undefined ? {} : { summary }),
+        fields: info.fields ?? [],
+        label: title,
+        ...(summary === undefined ? {} : { description: summary }),
         node,
       };
+    }
     const edge = this.#resolved.edges.find((entry) => entry.id === id);
-    if (edge !== undefined)
+    if (edge !== undefined) {
+      const title = edge.label ?? edge.description ?? id;
       return {
         kind: "edge",
         id,
-        label: edge.label ?? edge.description ?? id,
+        role: "Connection",
+        title,
+        ...(edge.description === undefined ? {} : { summary: edge.description }),
+        fields: [
+          { label: "From", value: edge.from },
+          { label: "To", value: edge.to },
+        ],
+        label: title,
         ...(edge.description === undefined ? {} : { description: edge.description }),
         edge,
       };
+    }
     return undefined;
   }
 
@@ -771,24 +827,32 @@ class FigureRuntime implements KineglyphController {
     if (readout === undefined) return;
     const [eyebrow, strong, body] = readout.children;
     const inspected = this.#inspected;
+    const doc = readout.ownerDocument;
     if (inspected === undefined) {
-      const order = undefined;
-      if (eyebrow) eyebrow.textContent = order ?? "Inspect a stage";
+      if (eyebrow) eyebrow.textContent = "Inspect";
       if (strong) strong.textContent = this.#resolved.title;
       if (body) body.textContent = this.#resolved.description ?? "";
       return;
     }
-    const meta = inspected.node?.metadata;
-    const stage = meta?.stage ?? meta?.order;
-    if (eyebrow)
-      eyebrow.textContent =
-        inspected.kind === "edge"
-          ? "Connector"
-          : stage !== undefined && stage !== null
-            ? `Stage ${String(stage)}`
-            : "Inspecting";
-    if (strong) strong.textContent = inspected.label;
-    if (body) body.textContent = inspected.description ?? "";
+    if (eyebrow) eyebrow.textContent = inspected.role;
+    if (strong) strong.textContent = inspected.title;
+    if (body) {
+      body.replaceChildren();
+      if (inspected.summary !== undefined && inspected.summary.length > 0)
+        body.append(doc.createTextNode(inspected.summary));
+      if (inspected.fields.length > 0) {
+        const list = doc.createElement("dl");
+        list.className = "kg-figure__fields";
+        for (const field of inspected.fields) {
+          const term = doc.createElement("dt");
+          term.textContent = field.label;
+          const value = doc.createElement("dd");
+          value.textContent = field.value;
+          list.append(term, value);
+        }
+        body.append(list);
+      }
+    }
   }
 
   #focusedNodeId(): string | undefined {

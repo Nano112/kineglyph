@@ -613,11 +613,20 @@ function renderStructuredNodes(nodes: UnknownRecord[], context: RenderContext): 
     return parent === undefined || !known.has(parent);
   });
   const rootIds = new Set(roots.map((node, index) => nodeId(node, index)));
-  const render = (node: UnknownRecord): string =>
-    renderStructuredNode(node, ordered(nodeId(node, 0)).map(render).join(""), context);
+  const render = (node: UnknownRecord, insideFocusGroup: boolean): string => {
+    const nested = insideFocusGroup || node.focusGroup === true;
+    return renderStructuredNode(
+      node,
+      ordered(nodeId(node, 0))
+        .map((child) => render(child, nested))
+        .join(""),
+      context,
+      insideFocusGroup,
+    );
+  };
   return ordered(undefined)
     .filter((node) => rootIds.has(nodeId(node, 0)))
-    .map(render)
+    .map((node) => render(node, false))
     .join("");
 }
 
@@ -625,6 +634,7 @@ function renderStructuredNode(
   node: UnknownRecord,
   childrenMarkup: string,
   context: RenderContext,
+  insideFocusGroup = false,
 ): string {
   const { rootId, precision } = context;
   const id = nodeId(node, 0);
@@ -633,7 +643,8 @@ function renderStructuredNode(
   const label = firstString(node.label);
   const description = firstString(node.description);
   const interactive = isInteractive(node);
-  const focusable = boolean(node.focusable) ?? interactive;
+  const focusGroup = node.focusGroup === true;
+  const focusable = (boolean(node.focusable) ?? interactive) || focusGroup;
   const state = record(node.state);
   const appearance = record(node.appearance);
   const opacity = unit(firstNumber(state.opacity), 1);
@@ -644,14 +655,12 @@ function renderStructuredNode(
   const scale = Math.max(0, finiteNumber(state.scale, 1));
   const geometry = nodeGeometry(node);
   const hidden = node.hidden === true;
-  const transforms = [
-    translateX !== 0 || translateY !== 0
-      ? `translate(${number(translateX, precision)} ${number(translateY, precision)})`
-      : "",
-    scale !== 1 ? `scale(${number(scale, precision)})` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision);
+  const revealX = unit(firstNumber(state.revealX), 1);
+  const revealY = unit(firstNumber(state.revealY), 1);
+  const revealAnchor = string(node.revealAnchor);
+  const revealable =
+    revealAnchor !== undefined || state.revealX !== undefined || state.revealY !== undefined;
   const meaningful =
     interactive ||
     (label !== undefined &&
@@ -681,13 +690,17 @@ function renderStructuredNode(
       "role",
       interactive
         ? "button"
-        : meaningful && labelledBy
-          ? kind === "image"
-            ? "img"
-            : "group"
-          : undefined,
+        : focusGroup
+          ? "group"
+          : meaningful && labelledBy
+            ? kind === "image"
+              ? "img"
+              : "group"
+            : undefined,
     ],
-    ["tabindex", focusable ? "0" : undefined],
+    // Inside a focus group only the group is a tab stop; descendants are reached with arrow keys.
+    ["tabindex", focusable ? (insideFocusGroup && !focusGroup ? "-1" : "0") : undefined],
+    ["data-focus-group", focusGroup ? "true" : undefined],
     ["focusable", focusable ? "true" : undefined],
     ["aria-labelledby", labelledBy || undefined],
     ["transform", transforms || undefined],
@@ -745,7 +758,87 @@ function renderStructuredNode(
   const content = clip
     ? element("g", [["clip-path", `url(#${clipId})`]], childrenMarkup)
     : childrenMarkup;
-  return element("g", attrs, accessible + clipMarkup + shape + content);
+  if (!revealable) return element("g", attrs, accessible + clipMarkup + shape + content);
+  // Anchored reveal: a clip rectangle that grows from the anchor side (renderer and runtime share it).
+  const revealClipId = `${groupId}-reveal`;
+  const revealRect = revealClipRect(geometry, revealX, revealY, revealAnchor);
+  const revealMarkup = element(
+    "clipPath",
+    [["id", revealClipId]],
+    element(
+      "rect",
+      [
+        ["x", number(revealRect.x, precision)],
+        ["y", number(revealRect.y, precision)],
+        ["width", number(Math.max(0, revealRect.width), precision)],
+        ["height", number(Math.max(0, revealRect.height), precision)],
+        ["data-reveal-clip", id],
+      ],
+      "",
+    ),
+  );
+  return element(
+    "g",
+    [
+      ...attrs,
+      ["data-reveal-x", number(revealX, precision)],
+      ["data-reveal-y", number(revealY, precision)],
+    ],
+    accessible +
+      clipMarkup +
+      revealMarkup +
+      element("g", [["clip-path", `url(#${revealClipId})`]], shape + content),
+  );
+}
+
+/** Centre-origin transform components shared by the static renderer and the live runtime. */
+export function nodeTransformParts(
+  geometry: { x: number; y: number; width: number; height: number },
+  translateX: number,
+  translateY: number,
+  scale: number,
+): { tx: number; ty: number; scale: number } {
+  const cx = geometry.x + geometry.width / 2;
+  const cy = geometry.y + geometry.height / 2;
+  return { tx: translateX + cx * (1 - scale), ty: translateY + cy * (1 - scale), scale };
+}
+
+/** SVG `transform` attribute: translate + scale about the node centre. */
+export function nodeTransform(
+  geometry: { x: number; y: number; width: number; height: number },
+  translateX: number,
+  translateY: number,
+  scale: number,
+  precision: number,
+): string {
+  const { tx, ty } = nodeTransformParts(geometry, translateX, translateY, scale);
+  const parts = [
+    tx !== 0 || ty !== 0 ? `translate(${number(tx, precision)} ${number(ty, precision)})` : "",
+    scale !== 1 ? `scale(${number(scale, precision)})` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+/** Clip rectangle for anchored reveals; both axes intersect. */
+export function revealClipRect(
+  geometry: { x: number; y: number; width: number; height: number },
+  revealX: number,
+  revealY: number,
+  anchor: string | undefined,
+): { x: number; y: number; width: number; height: number } {
+  const rx = Math.max(0, Math.min(1, revealX));
+  const ry = Math.max(0, Math.min(1, revealY));
+  const width = geometry.width * rx;
+  const height = geometry.height * ry;
+  const x = anchor === "right" ? geometry.x + geometry.width - width : geometry.x;
+  const y = anchor === "top" ? geometry.y : geometry.y + geometry.height - height;
+  // Horizontal reveals anchor left unless "right"; vertical reveals anchor bottom unless "top".
+  return {
+    x: rx < 1 ? x : geometry.x,
+    y: ry < 1 ? y : geometry.y,
+    width: rx < 1 ? width : geometry.width,
+    height: ry < 1 ? height : geometry.height,
+  };
 }
 
 function renderStructuredShape(
@@ -1252,19 +1345,12 @@ function renderLegacyNode(
   const translateX = finiteNumber(state.translateX, 0);
   const translateY = finiteNumber(state.translateY, 0);
   const scale = Math.max(0, finiteNumber(state.scale, 1));
-  const transforms = [
-    translateX !== 0 || translateY !== 0
-      ? `translate(${number(translateX, precision)} ${number(translateY, precision)})`
-      : "",
-    scale !== 1 ? `scale(${number(scale, precision)})` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const geometry = nodeGeometry(node);
+  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision);
   const labelledBy = [label && `${groupId}-title`, description && `${groupId}-description`]
     .filter(Boolean)
     .join(" ");
   const metadata = mergeRecords(record(node.metadata), record(node.data));
-  const geometry = nodeGeometry(node);
   const contentClipId = `${groupId}-content-clip`;
   const attrs: Attrs = [
     ["id", groupId],

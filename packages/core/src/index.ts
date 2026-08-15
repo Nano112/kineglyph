@@ -1,5 +1,6 @@
 export * from "./authoring.js";
 export * from "./edges.js";
+export * from "./fragment.js";
 export * from "./geometry.js";
 export * from "./layout.js";
 export * from "./machine.js";

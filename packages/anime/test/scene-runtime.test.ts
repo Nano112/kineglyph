@@ -54,7 +54,7 @@ describe("KineglyphSceneAnimator terminal state", () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     expect(node?.style.opacity).toBe("1");
-    expect(node?.style.transform).toContain("scale(1)");
+    expect(node?.style.transform).toBe("none");
     expect(seekTimeline(scene, 48).nodes[0]?.state.opacity).toBe(1);
 
     animator.restart(false);
@@ -63,7 +63,7 @@ describe("KineglyphSceneAnimator terminal state", () => {
 
     animator.play();
     await vi.waitFor(() => expect(node?.style.opacity).toBe("1"), { timeout: 1_000 });
-    expect(node?.style.transform).toContain("scale(1)");
+    expect(node?.style.transform).toBe("none");
     animator.dispose();
   });
 });

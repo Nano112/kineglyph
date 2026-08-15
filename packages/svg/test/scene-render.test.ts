@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createTheme, resolveScene, seekTimeline, type SceneDefinition } from "@kineglyph/core";
-import { edgeDashArray, markerId, renderSvg } from "../src/index.js";
+import {
+  edgeDashArray,
+  markerId,
+  nodeTransform,
+  nodeTransformParts,
+  renderSvg,
+  revealClipRect,
+} from "../src/index.js";
 
 const theme = createTheme();
 
@@ -226,5 +233,91 @@ describe("structured scene rendering", () => {
     expect(svg).toContain('class="kg-canvas"');
     const again = renderSvg(resolved, { idPrefix: "kinds" });
     expect(again).toBe(svg);
+  });
+
+  it("emits anchored reveal clips, roving focus groups, and centre-origin transforms", () => {
+    const scene: SceneDefinition = {
+      schemaVersion: 2,
+      id: "reveal",
+      title: "Reveal and focus",
+      root: {
+        id: "root",
+        type: "group",
+        layout: "coordinates",
+        height: 100,
+        focusGroup: true,
+        label: "Bars",
+        children: [
+          {
+            id: "bar",
+            type: "rect",
+            position: { x: 0.1, y: 1, anchor: "bottom-left" },
+            width: "20%",
+            height: "80%",
+            revealAnchor: "bottom",
+            interactive: true,
+            label: "Bar",
+          },
+          {
+            id: "bar2",
+            type: "rect",
+            position: { x: 0.5, y: 1, anchor: "bottom-left" },
+            width: "20%",
+            height: "40%",
+            revealAnchor: "bottom",
+            interactive: true,
+            label: "Bar 2",
+          },
+        ],
+      },
+      timeline: {
+        duration: 100,
+        tracks: [
+          {
+            id: "grow",
+            target: "bar",
+            property: "revealY",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 100, value: 1 },
+            ],
+          },
+          {
+            id: "pop",
+            target: "bar2",
+            property: "scale",
+            keyframes: [
+              { time: 0, value: 0.5 },
+              { time: 100, value: 1 },
+            ],
+          },
+        ],
+      },
+    };
+    const resolved = resolveScene(scene, { width: 400, theme });
+    const half = renderSvg(seekTimeline(resolved, 50), { idPrefix: "r" });
+    // Half revealed from the bottom: the clip rect covers the lower half of the bar box.
+    const bar = resolved.nodes.find((node) => node.id === "bar");
+    expect(bar).toBeDefined();
+    if (bar === undefined) return;
+    const clip = revealClipRect(bar, 1, 0.5, "bottom");
+    expect(clip.height).toBeCloseTo(bar.height / 2, 3);
+    expect(clip.y).toBeCloseTo(bar.y + bar.height / 2, 3);
+    expect(half).toContain(`<clipPath id="r-node-bar-reveal"><rect x="${clip.x}" y="${clip.y}"`);
+    expect(half).toContain('data-reveal-clip="bar"');
+    expect(half).toMatch(/data-node-id="bar"[^>]*data-reveal-y="0.5"/);
+    // Focus group: the group is the tab stop; interactive members are reachable by arrow keys.
+    expect(half).toMatch(/<g[^>]*data-focus-group="true"[^>]*data-node-id="root"/);
+    expect(half).toMatch(/role="group" tabindex="0"[^>]*data-node-id="root"/);
+    expect(half).toMatch(/tabindex="-1"[^>]*data-node-id="bar"/);
+    // Static scale is applied about the node centre so exported frames match the runtime.
+    const bar2 = resolved.nodes.find((node) => node.id === "bar2");
+    if (bar2 === undefined) return;
+    const parts = nodeTransformParts(bar2, 0, 0, 0.75);
+    expect(parts.tx).toBeCloseTo((bar2.x + bar2.width / 2) * 0.25, 5);
+    expect(nodeTransform(bar2, 0, 0, 0.75, 3)).toBe(
+      `translate(${Number(parts.tx.toFixed(3))} ${Number(parts.ty.toFixed(3))}) scale(0.75)`,
+    );
+    expect(half).toContain(`transform="${nodeTransform(bar2, 0, 0, 0.75, 3)}"`);
   });
 });

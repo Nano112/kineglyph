@@ -2,11 +2,12 @@ import type { Point, Rect } from "./schema.js";
 import type { ThemeTokens } from "./theme.js";
 import type { TextLine } from "./text.js";
 import type {
+  EdgeRoute,
+  InspectInfo,
   LayoutName,
+  MarkerKind,
   SceneControl,
   SceneDiagnostic,
-  EdgeRoute,
-  MarkerKind,
   StrokeStyle,
 } from "./scene.js";
 import type { MachineState, StateMachineDefinition, VariableValue } from "./machine.js";
@@ -34,6 +35,10 @@ export interface ResolvedNodeState {
   readonly progress: number;
   /** Emphasis 0..1 driven by timelines, state machines, or inspection. */
   readonly highlight?: number;
+  /** Anchored horizontal reveal 0..1 (clip grows from `revealAnchor`, default left). */
+  readonly revealX?: number;
+  /** Anchored vertical reveal 0..1 (clip grows from `revealAnchor`, default bottom). */
+  readonly revealY?: number;
 }
 
 export interface ResolvedEdgeState {
@@ -97,6 +102,11 @@ export interface ResolvedNode extends Rect {
   readonly clip?: boolean;
   /** Machine event to send when activated. */
   readonly onActivate?: string;
+  /** Structured inspection copy. */
+  readonly inspect?: InspectInfo;
+  /** Single tab stop whose interactive descendants are reached with arrow keys. */
+  readonly focusGroup?: boolean;
+  readonly revealAnchor?: "left" | "right" | "top" | "bottom";
   readonly text?: ResolvedText;
   readonly icon?: {
     readonly name: string;
@@ -224,7 +234,9 @@ export type TimelineProperty =
   | "progress"
   | "edgeReveal"
   | "highlight"
-  | "flow";
+  | "flow"
+  | "revealX"
+  | "revealY";
 
 export interface TimelineKeyframe {
   readonly time: number;

@@ -173,7 +173,8 @@ describe("renderSvg", () => {
       edges: [],
     } as never);
 
-    expect(svg).toContain('transform="translate(4 -2) scale(0.9)"');
+    // Scale is applied about the node centre (10,10 120x60 → centre 70,40), matching the runtime.
+    expect(svg).toContain('transform="translate(11 2) scale(0.9)"');
     expect(svg).toContain(">Build</tspan>");
     expect(svg).toContain(">Compile and test</desc>");
     expect(svg).toContain(">Compile and</tspan>");

@@ -13,7 +13,9 @@ import {
   edgeDashArray,
   highlightStroke,
   markerId,
+  nodeTransformParts,
   renderMarkerDefinition,
+  revealClipRect,
   type EdgeDashKind,
   type EdgeMarkerKind,
 } from "@kineglyph/svg";
@@ -483,9 +485,36 @@ export class KineglyphSceneAnimator {
     for (const element of this.#find(`[data-node-id="${cssEscape(node.id)}"]`)) {
       if (!(element instanceof SVGElement)) continue;
       element.style.opacity = String(node.state.opacity);
-      element.style.transformBox = "fill-box";
-      element.style.transformOrigin = "center";
-      element.style.transform = `translate(${round(node.state.translateX)}px, ${round(node.state.translateY)}px) scale(${round(node.state.scale)})`;
+      // Same centre-origin math as the static renderer, so browser and export frames match.
+      element.style.transformBox = "view-box";
+      element.style.transformOrigin = "0 0";
+      const parts = nodeTransformParts(
+        node,
+        node.state.translateX,
+        node.state.translateY,
+        node.state.scale,
+      );
+      const css = [
+        parts.tx !== 0 || parts.ty !== 0
+          ? `translate(${round(parts.tx)}px, ${round(parts.ty)}px)`
+          : "",
+        parts.scale !== 1 ? `scale(${round(parts.scale)})` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      element.style.transform = css.length > 0 ? css : "none";
+      const revealX = node.state.revealX ?? 1;
+      const revealY = node.state.revealY ?? 1;
+      const clipRect = element.querySelector(`[data-reveal-clip="${cssEscape(node.id)}"]`);
+      if (clipRect instanceof SVGElement) {
+        const rect = revealClipRect(node, revealX, revealY, node.revealAnchor);
+        clipRect.setAttribute("x", String(round(rect.x)));
+        clipRect.setAttribute("y", String(round(rect.y)));
+        clipRect.setAttribute("width", String(round(Math.max(0, rect.width))));
+        clipRect.setAttribute("height", String(round(Math.max(0, rect.height))));
+        element.setAttribute("data-reveal-x", String(round(revealX)));
+        element.setAttribute("data-reveal-y", String(round(revealY)));
+      }
       element.style.setProperty("--kg-progress", String(node.state.progress));
       const highlight = node.state.highlight ?? 0;
       element.style.setProperty("--kg-highlight", String(highlight));

@@ -110,6 +110,12 @@ function updateNode(
       case "scale":
         state[track.property] = value;
         break;
+      case "revealX":
+        state.revealX = clamp(value, 0, 1);
+        break;
+      case "revealY":
+        state.revealY = clamp(value, 0, 1);
+        break;
       case "edgeReveal":
       case "flow":
         throw new Error(`${track.property} track ${track.id} cannot target node ${node.id}`);
@@ -133,6 +139,8 @@ function updateEdge(
     else if (track.property === "highlight")
       state.highlight = Math.max(clamp(value, 0, 1), edge.state.highlight ?? 0);
     else if (track.property === "flow") state.flow = clamp(value, 0, 1);
+    else if (track.property === "revealX" || track.property === "revealY")
+      state.progress = clamp(value, 0, 1);
     else throw new Error(`${track.property} track ${track.id} cannot target edge ${edge.id}`);
   }
   const count = numberValue(edge.metadata?.packetCount);

@@ -201,7 +201,10 @@ function buildView(
     bind.hidden !== undefined ? truthy(signal(bind.hidden)) : pickOr(node.hidden, layout, false);
   const boundWidth = numeric(signal(bind.width));
   const boundHeight = numeric(signal(bind.height));
-  const width = boundWidth ?? pick(node.width, layout);
+  const width =
+    boundWidth ??
+    pick(node.width, layout) ??
+    (node.type === "rect" || node.type === "polyline" ? "fill" : undefined);
   const height = boundHeight ?? pick(node.height, layout);
   const boundText = bind.text === undefined ? undefined : signal(bind.text);
   const boundTone = bind.tone === undefined ? undefined : signal(bind.tone);
@@ -392,6 +395,7 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
     case "image":
       return typeof view.height === "number" ? view.height * 1.6 : 160;
     case "rect":
+    case "polyline":
       return Math.max(view.minWidth, 0);
     case "legend": {
       const node = view.node;
@@ -479,6 +483,7 @@ function minContentWidth(view: View, layout: LayoutName): number {
     case "image":
       return Math.max(view.minWidth, Math.min(intrinsicWidth(view, layout), 48));
     case "rect":
+    case "polyline":
       return view.minWidth;
     case "group": {
       const children = visibleChildren(view);
@@ -597,6 +602,13 @@ interface LayoutContext {
   readonly diagnostics: SceneDiagnostic[];
 }
 
+/** Fraction encoded as a percent length ("25%"), or undefined for other lengths. */
+function percentFraction(value: Length | undefined): number | undefined {
+  if (typeof value !== "string" || !value.endsWith("%")) return undefined;
+  const parsed = Number(value.slice(0, -1));
+  return Number.isFinite(parsed) ? Math.max(0, parsed / 100) : undefined;
+}
+
 function resolveChildWidth(
   child: View,
   available: number,
@@ -604,6 +616,8 @@ function resolveChildWidth(
   context: LayoutContext,
 ): number {
   if (typeof child.width === "number") return clampWidth(child, child.width);
+  const percent = percentFraction(child.width);
+  if (percent !== undefined) return clampWidth(child, Math.max(0, available) * percent);
   if (child.width === "fill" || stretch) return clampWidth(child, Math.max(0, available));
   return clampWidth(
     child,
@@ -632,7 +646,13 @@ function layoutNode(
   stretch = false,
 ): Placed {
   const placed: Placed = { view, x: 0, y: 0, width, height: 0, children: [] };
-  const fixedHeight = typeof view.height === "number" ? view.height : undefined;
+  const heightPercent = percentFraction(view.height);
+  const fixedHeight =
+    typeof view.height === "number"
+      ? view.height
+      : heightPercent !== undefined && availableHeight !== undefined
+        ? availableHeight * heightPercent
+        : undefined;
   const fillHeight =
     (view.height === "fill" || stretch) && availableHeight !== undefined
       ? availableHeight
@@ -782,6 +802,9 @@ function layoutNode(
     case "image":
       placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, width * 0.625);
       break;
+    case "polyline":
+      placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, 48);
+      break;
     case "rect":
       placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, 8);
       break;
@@ -894,8 +917,12 @@ function layoutGroup(
     }
     case "row": {
       const specs: FlexItem[] = children.map((child) => {
-        if (typeof child.width === "number") {
-          const width = clampWidth(child, child.width);
+        const percent = percentFraction(child.width);
+        if (typeof child.width === "number" || percent !== undefined) {
+          const width = clampWidth(
+            child,
+            typeof child.width === "number" ? child.width : innerWidth * (percent ?? 0),
+          );
           return { basis: width, min: width, max: width, grow: 0, shrink: 0 };
         }
         const minContent = Math.min(minContentWidth(child, context.layout), child.maxWidth);
@@ -1046,6 +1073,50 @@ function layoutGroup(
       contentHeight = extent;
       break;
     }
+    case "coordinates": {
+      // Fractional placement in a normalised box; the box height must be known.
+      let extent = innerHeight;
+      if (extent === undefined) {
+        extent = Math.max(0, view.minHeight - pad.top - pad.bottom) || 160;
+        context.diagnostics.push({
+          severity: "warning",
+          code: "coordinates-height",
+          message: `coordinates group ${view.id} has no height; using ${round(extent, 1)}px`,
+          path: view.id,
+        });
+      }
+      for (const child of children) {
+        const position = child.position ?? { x: 0, y: 0, anchor: "top-left" as Anchor };
+        const widthPercent = percentFraction(child.width);
+        const childWidth =
+          typeof child.width === "number"
+            ? child.width
+            : widthPercent !== undefined
+              ? innerWidth * widthPercent
+              : child.width === "fill"
+                ? innerWidth
+                : resolveChildWidth(child, innerWidth, false, context);
+        const heightPercent = percentFraction(child.height);
+        const availableHeight =
+          heightPercent !== undefined
+            ? extent * heightPercent
+            : child.height === "fill"
+              ? extent
+              : undefined;
+        const final = layoutNode(
+          heightPercent === undefined ? child : { ...child, height: "fill" },
+          childWidth,
+          availableHeight,
+          context,
+        );
+        const anchored = anchorOffset(position.anchor, final.width, final.height);
+        final.x = pad.left + position.x * innerWidth - anchored.x;
+        final.y = pad.top + position.y * extent - anchored.y;
+        results.push(final);
+      }
+      contentHeight = extent;
+      break;
+    }
     case "absolute": {
       let maxBottom = 0;
       for (const child of children) {
@@ -1085,6 +1156,7 @@ function layoutGroup(
   const limitBottom = placed.height - pad.bottom + 0.5;
   const limitRight = width - pad.right + 0.5;
   for (const child of results) {
+    if (view.layout === "coordinates") break;
     if (
       child.x + child.width > limitRight ||
       child.y + child.height > limitBottom ||
@@ -1100,7 +1172,7 @@ function layoutGroup(
       });
     }
   }
-  if (view.layout !== "overlay") {
+  if (view.layout !== "overlay" && view.layout !== "coordinates") {
     for (let i = 0; i < results.length; i += 1) {
       for (let j = i + 1; j < results.length; j += 1) {
         const a = results[i];
@@ -1216,6 +1288,17 @@ function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance
         radius: 0,
         ...(node.dash === undefined ? {} : { dash: node.dash }),
       };
+    case "polyline":
+      return {
+        fill: fill(node.fill, "none"),
+        stroke: stroke(
+          view.tone ?? node.stroke,
+          node.fill === undefined && view.tone === undefined ? theme.colors.accent : "none",
+        ),
+        strokeWidth: node.strokeWidth ?? theme.strokes.regular,
+        radius: 0,
+        ...(node.dash === undefined ? {} : { dash: node.dash }),
+      };
     case "image":
       return {
         fill: "none",
@@ -1325,7 +1408,9 @@ function emit(
         ? "rect"
         : view.type === "circle"
           ? "circle"
-          : view.type;
+          : view.type === "polyline"
+            ? "path"
+            : view.type;
   const appearance = frameAppearance(view, theme);
   const badgeText =
     view.type === "badge"
@@ -1425,6 +1510,9 @@ function emit(
     ...(view.hidden ? { hidden: true } : {}),
     ...(node.type === "group" && node.clip === true ? { clip: true } : {}),
     ...(node.onActivate === undefined ? {} : { onActivate: node.onActivate }),
+    ...(node.inspect === undefined ? {} : { inspect: node.inspect }),
+    ...(node.focusGroup === true ? { focusGroup: true } : {}),
+    ...(node.revealAnchor === undefined ? {} : { revealAnchor: node.revealAnchor }),
     ...(text === undefined ? {} : { text }),
     ...(view.type === "icon" && node.type === "icon"
       ? {
@@ -1437,6 +1525,14 @@ function emit(
         }
       : {}),
     ...(node.type === "path" ? { path: { d: node.d, viewBox: node.viewBox } } : {}),
+    ...(node.type === "polyline"
+      ? {
+          path: {
+            d: polylinePath(node, placed.width, placed.height, precision),
+            viewBox: { width: Math.max(1e-6, placed.width), height: Math.max(1e-6, placed.height) },
+          },
+        }
+      : {}),
     ...(node.type === "image"
       ? {
           image: {
@@ -1748,4 +1844,87 @@ export function resolveFigure(source: FigureSource, options: ResolveFigureOption
   const layoutName: LayoutName =
     resolved.layout === "wide" ? "wide" : options.width < 560 ? "narrow" : "compact";
   return { ...resolved, layoutName, background: resolved.theme.background };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Polylines
+// ---------------------------------------------------------------------------------------------
+
+/** Path data for a polyline mark in local box coordinates (0..width, 0..height). */
+export function polylinePath(
+  node: {
+    readonly points: readonly (readonly [number, number])[];
+    readonly space?: "fraction" | "px";
+    readonly curve?: "linear" | "monotone" | "step";
+    readonly closed?: boolean;
+    readonly baseline?: number;
+  },
+  width: number,
+  height: number,
+  precision = 3,
+): string {
+  const scale = node.space === "px" ? 1 : undefined;
+  const pts = node.points.map(([x, y]) => ({
+    x: scale === undefined ? x * width : x,
+    y: scale === undefined ? y * height : y,
+  }));
+  if (pts.length === 0) return "";
+  const n = (value: number): string => {
+    const rounded = Number(value.toFixed(precision));
+    return Object.is(rounded, -0) ? "0" : String(rounded);
+  };
+  const first = pts[0];
+  if (first === undefined) return "";
+  const parts: string[] = [`M ${n(first.x)} ${n(first.y)}`];
+  const curve = node.curve ?? "linear";
+  if (curve === "step") {
+    for (let index = 1; index < pts.length; index += 1) {
+      const previous = pts[index - 1];
+      const current = pts[index];
+      if (previous === undefined || current === undefined) continue;
+      parts.push(`L ${n(current.x)} ${n(previous.y)}`, `L ${n(current.x)} ${n(current.y)}`);
+    }
+  } else if (curve === "monotone" && pts.length > 2) {
+    // Fritsch–Carlson monotone cubic interpolation, emitted as cubic Béziers.
+    const count = pts.length;
+    const dx: number[] = [];
+    const dy: number[] = [];
+    const slopes: number[] = [];
+    for (let index = 0; index < count - 1; index += 1) {
+      const a = pts[index];
+      const b = pts[index + 1];
+      if (a === undefined || b === undefined) continue;
+      dx.push(b.x - a.x);
+      dy.push(b.y - a.y);
+      slopes.push(dx[index] === 0 ? 0 : (dy[index] ?? 0) / (dx[index] ?? 1));
+    }
+    const tangents: number[] = [slopes[0] ?? 0];
+    for (let index = 1; index < count - 1; index += 1) {
+      const left = slopes[index - 1] ?? 0;
+      const right = slopes[index] ?? 0;
+      tangents.push(left * right <= 0 ? 0 : (left + right) / 2);
+    }
+    tangents.push(slopes[count - 2] ?? 0);
+    for (let index = 0; index < count - 1; index += 1) {
+      const a = pts[index];
+      const b = pts[index + 1];
+      if (a === undefined || b === undefined) continue;
+      const step = (dx[index] ?? 0) / 3;
+      const c1 = { x: a.x + step, y: a.y + step * (tangents[index] ?? 0) };
+      const c2 = { x: b.x - step, y: b.y - step * (tangents[index + 1] ?? 0) };
+      parts.push(`C ${n(c1.x)} ${n(c1.y)} ${n(c2.x)} ${n(c2.y)} ${n(b.x)} ${n(b.y)}`);
+    }
+  } else {
+    for (let index = 1; index < pts.length; index += 1) {
+      const current = pts[index];
+      if (current !== undefined) parts.push(`L ${n(current.x)} ${n(current.y)}`);
+    }
+  }
+  if (node.baseline !== undefined) {
+    const baselineY = scale === undefined ? node.baseline * height : node.baseline;
+    const last = pts[pts.length - 1];
+    if (last !== undefined)
+      parts.push(`L ${n(last.x)} ${n(baselineY)}`, `L ${n(first.x)} ${n(baselineY)}`, "Z");
+  } else if (node.closed === true) parts.push("Z");
+  return parts.join(" ");
 }
