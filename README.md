@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="./docs/assets/readme/cover.svg" alt="Kineglyph: technical illustrations with a pulse" width="1400">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="./docs/assets/readme/cover@2x.png">
+    <img src="./docs/assets/readme/cover@2x.gif" alt="Kineglyph: technical illustrations with a pulse" width="1400">
+  </picture>
 </p>
 
 <p align="center">
@@ -14,6 +17,8 @@ Kineglyph is a TypeScript scene system for technical diagrams, data graphics, an
 explainers. Geometry, motion, state, inspection data, and theme live in one serializable
 definition. That definition can run as accessible SVG in a page or be exported to SVG, PNG, and
 GIF.
+
+The cover is a Kineglyph scene. Rebuild its PNG and GIF with `npm run render:readme-cover`.
 
 ## Compose a figure
 

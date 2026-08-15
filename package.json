@@ -22,6 +22,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "render:readme-cover": "npm run bootstrap && node packages/scenes/scripts/readme-cover.mjs",
     "pretest": "npm run bootstrap",
     "test": "vitest run",
     "test:watch": "vitest",
