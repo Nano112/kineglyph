@@ -2,99 +2,145 @@
 
 ## Product boundary
 
-Kineglyph is an illustration compiler and runtime, not a free-form editor and not a general
-graphics engine. It targets explanatory figures: pipelines, transformations, comparisons,
-lifecycles, architecture diagrams, and domain adapters such as Nucleation build sequences.
+Kineglyph is a deterministic technical-illustration compiler and live runtime. It is not a
+drag-and-drop editor, a general graph-layout engine, a video editor, or a 3D renderer. It targets
+explanatory figures: pipelines, transformations, comparisons, decision laboratories, lifecycles,
+and domain adapters such as Nucleation build sequences.
 
-The source of truth is semantic data. SVG markup, CSS animation state, and raster pixels are
-outputs. This boundary prevents the authored figure from inheriting browser-specific coordinates,
-font fallbacks, or timing behaviour.
+The semantic scene, its state machine, and its timeline are the source of truth. SVG markup, DOM
+animation state, and raster pixels are outputs of the same resolved scene at exact times.
 
 ## Resolution pipeline
 
 ```text
-authoring schema + semantic theme + layout mode
+scene definition (primitives + edges + timeline + machine)
+        + semantic theme + container width (+ machine state)
                          |
                          v
-             deterministic layout resolver
+        chooseLayout → named layout (wide | compact | narrow)
                          |
                          v
-                 resolved scene graph
+        buildView: responsive picks + signal bindings applied
+                         |
+                         v
+        deterministic layout resolver (widths down, heights up, positions down)
+                         |
+                         v
+        edge routing (ports, routes, markers, labels, packets)
+                         |
+                         v
+                  resolved scene graph
                     /           \
-          seek(time)             renderer
+          seek(time)             renderers
               |                     |
-        resolved frame       SVG / DOM / raster
+        resolved frame       SVG / DOM / PNG / GIF
 ```
 
-The resolver is pure. Equal inputs must produce byte-equivalent resolved geometry. Interactivity
-may select nodes or seek time, but it does not mutate the authored scene.
+The resolver is pure. Equal inputs produce byte-equivalent geometry. Interaction never mutates
+the authored scene: a state-machine transition produces a new machine state, and the scene is
+re-resolved for it.
 
 ## Core invariants
 
-1. Every scene, node, and edge has a stable caller-provided identifier.
-2. Layout is computed from constraints and theme geometry; themes never contain node coordinates.
-3. Wide and stacked modes are independently resolved. Consumers choose a mode instead of scaling
-   an unsuitable aspect ratio.
-4. Timeline evaluation is random-access. Rendering time `t` never depends on previously rendered
-   frames.
-5. A resolved scene contains finite geometry and refers only to existing node identifiers.
-6. SVG output includes an accessible name and description. Interactive nodes are keyboard
-   focusable and expose their semantic label.
-7. Runtime animation is scoped to an owning root and disposed when that root unmounts.
+1. Every scene, node, edge, control, and timeline track has a stable caller-provided identifier.
+2. Layout is computed from constraints and theme geometry; themes never contain coordinates.
+3. `wide`, `compact`, and `narrow` layouts are independently resolved from container width and
+   the scene's breakpoints. Consumers pick a mode; nothing is scaled non-uniformly.
+4. Timeline evaluation is random-access. Rendering time `t` never depends on previous frames.
+5. State machines are deterministic: `sendMachineEvent(machine, state, event)` is a pure function
+   and any state can be constructed directly with `resolveMachineState`. History is optional in
+   the live controller and never required to resolve a frame.
+6. A resolved scene contains finite geometry and refers only to existing identifiers; the
+   resolver reports overlap, overflow, and truncation as diagnostics.
+7. SVG output carries explicit presentation attributes (fills, fonts, sizes) so static
+   rasterisers that ignore CSS custom properties render the same picture as browsers.
+8. Interactive nodes are keyboard-focusable and expose their semantic label; decorative edges are
+   hidden from assistive technology; described edges are exposed as images.
+9. Runtime animation and DOM ids are scoped to an owning root and disposed with it, so many
+   figures can share a page.
+
+## Scene primitives
+
+`SceneDefinition` (schema version 2) is a typed, serializable tree:
+
+- **Groups** with `stack`, `row`, `grid`, `overlay`, and `absolute` layouts, gap, padding, align,
+  justify, columns, an optional frame, clipping, and children.
+- **Marks**: `rect`, `circle`, `text`, `icon` (motif), `path` (custom geometry in a local view box),
+  `image` (with a `live` flag that export refuses), `badge`, `legend`, `callout`.
+- **Responsive values**: most numeric/enumerated properties accept `{ wide, compact, narrow }`
+  maps; narrower layouts fall back to wider definitions.
+- **Sizing**: numbers, `fill` (share available space by grow weight, flex-basis 0), or `hug`
+  (content size). Rows allocate space with a deterministic flex algorithm; text wraps at its
+  resolved width using explicit glyph-class metrics, so wrapping is identical everywhere.
+- **Bindings**: `bind: { text, hidden, tone, opacity, highlight, progress, width, height }` read
+  state-machine signals or variables.
+- **Recipes** (`@kineglyph/scenes`): `card`, `panel`, `pill`, `eyebrow`, `flow`, and friends compose
+  primitives so the catalogue reads as one system.
+
+## Edge grammar
+
+Edges are typed data: endpoints (node, side, offset, gap), a route (`straight`, `orthogonal`,
+`curve`, `arc`), head and tail markers (`none`, `arrow`, `triangle`, `dot`, `diamond`, `bar`), a
+stroke style (`solid`, `dashed`, `dotted`, `flow`), width, tone, opacity, curvature/bend, corner
+radius, labels with start/middle/end placement, packets, an accessible description, and bindings.
+The core computes ports (auto-distributing edges that share a node side), path geometry with
+arc-length sampling, label boxes nudged away from nodes and kept inside the canvas, and packet
+positions at a given time. The SVG renderer derives markers (ids scoped by root, kind, and
+colour), dash/reveal patterns, hit targets, and CSS flow animation from that data; it never
+hand-authors paths.
 
 ## Themes
 
-Theme tokens are semantic rather than component-specific. The initial contract separates:
-
-- surfaces, rules, text, accent, and flow colours;
-- display, body, and monospace font stacks;
-- stroke, radius, spacing, and node sizing geometry;
-- duration and easing motion policy.
-
-Typography affects geometry. The initial resolver uses explicit font-size and average-character
-metrics, while the browser wrapper may measure rendered labels and request a new resolution pass.
-No renderer is allowed to silently change the font size to make a label fit. Production static
-export will embed declared font files and resolve exact metrics before layout.
+Theme tokens are semantic: colours (including `info` and `surfaceMuted`), typography per text
+style, spacing, radii, stroke weights, motion timing and easing, and ornament policy (grid,
+surface treatment, line caps, uppercase eyebrows). Projection changes typography, corner
+geometry, stroke language, motion, and ornament as well as colour. Highlight and tone changes are
+computed as concrete colours in the resolver/renderer, so exports carry them.
 
 ## Timeline model
 
-Animation is represented as tracks targeting stable scene identifiers. Each track contains
-keyframes and an interpolation policy. `seek(time)` clamps time, finds the surrounding keyframes,
-and returns resolved opacity, translation, scale, and edge-reveal state.
+Animation is represented as tracks targeting stable ids. Properties: `opacity`, `translateX`,
+`translateY`, `scale`, `progress`, `highlight` for nodes; `opacity`, `edgeReveal`/`progress`,
+`highlight`, `flow` for edges. `seekTimeline` clamps time and evaluates keyframes with easing;
+packet positions are recomputed from sampled geometry. Authoring helpers (`reveal`, `drawEdge`,
+`flow`, `highlight`, `pulse`, `progressTo`, `timeline`) keep scenes purposeful and terse.
 
-Anime.js is an execution backend, not the timeline source of truth. The browser runtime compiles
-tracks to Anime.js v4 for smooth playback, while scrubbing and export use the same pure seek model.
-This keeps interactive playback and future raster frames visually equivalent.
+Anime.js is an execution backend, not the source of truth: `KineglyphSceneAnimator` owns the
+clock inside one root, applies each frame from the pure model (opacity, transforms, dash
+patterns, marker visibility, highlight colours, packet positions), and disposes cleanly.
 
-## Responsive behaviour
+## Runtimes
 
-Kineglyph chooses between named layout modes using actual container width. It never applies a
-non-uniform transform to force a wide illustration into a narrow box. The SVG `viewBox` and CSS
-`aspect-ratio` are updated together, and the stacked mode routes edges vertically.
+- `@kineglyph/web` — `mountKineglyph(element, options)` builds the shell (stage, readout, machine
+  controls, playback controls, live region), observes the host width, resolves and renders,
+  animates, wires inspection and activation, sends machine events, applies seek effects, and
+  returns a controller (`play`, `pause`, `restart`, `seek`, `send`, `reset`, `setTheme`,
+  `setScene`, `inspect`, `resize`, `on`, `destroy`). `autoMount()` mounts `[data-kineglyph]`
+  elements; `dist/kineglyph-web.js` is a self-contained ESM bundle for pages without a bundler.
+- `@kineglyph/react` — `KineglyphFigure` owns only the mount lifecycle and forwards a handle; it
+  survives StrictMode effect replay because mount and destroy are symmetric.
+
+## Export
+
+`@kineglyph/export` produces a standalone SVG string, a deterministic PNG through resvg, and a
+deterministic GIF by sampling the timeline at an explicit frame rate and encoding with gifenc.
+Backgrounds are themed or transparent, sizes fit uniformly (never stretch), time defaults to the
+final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing-font`,
+`live-media`, `encoder`). Raster dependencies live only in this package. The
+`kineglyph-export` CLI wraps the same functions.
 
 ## Package boundaries
 
 - `core` has no DOM or framework dependency.
-- `svg` serializes a resolved scene and frame without owning playback.
+- `svg` serializes a resolved scene or frame without owning playback.
 - `anime` owns DOM lookup, Anime.js compilation, playback, and cleanup inside one root element.
-- `react` owns responsive observation, selection state, controls, and lifecycle composition.
-- `export` will own resvg and video/frame adapters; it must not change layout semantics.
-
-## Nucleation adapter direction
-
-A later `@kineglyph/nucleation` package should translate Nucleation operation/frame data into two
-possible layers:
-
-1. lightweight symbolic block/region nodes for explanatory diagrams; and
-2. synchronized rendered media produced by Nucleation for full 3D build sequences.
-
-Kineglyph should orchestrate labels, callouts, and time while Nucleation remains responsible for
-Minecraft rendering.
+- `web` owns the figure shell, responsive observation, interaction, and lifecycle; `react` wraps it.
+- `export` owns resvg and GIF encoding; it must not change layout semantics.
+- `scenes` holds authored content and themes only.
 
 ## Deferred work
 
-- Exact embedded-font shaping for deterministic headless export.
-- resvg-backed PNG/WebP/PDF output and frame-sequence/video encoders.
-- Collision-aware arbitrary graph routing beyond the constrained pipeline recipe.
-- A larger recipe catalogue and a Nucleation operation adapter.
-- Authoring diagnostics for overlap, clipped text, and inaccessible contrast.
+- Exact embedded-font shaping for byte-identical export across machines (explicit font files
+  are supported; system-font fallback differs per machine).
+- Collision-aware routing for arbitrary graphs beyond the constrained routes and port rules.
+- A Nucleation operation/frame adapter and rendered-media synchronisation.
