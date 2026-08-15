@@ -386,7 +386,9 @@ class FigureRuntime implements KineglyphController {
     const wasPlaying = this.#animator?.playing ?? false;
     const focusedId = this.#focusedNodeId();
     this.#animator?.dispose();
-    const initialTime = resetTime ? (this.#reducedMotion ? this.#duration : 0) : previousTime;
+    // Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts.
+    const restFrame = this.#reducedMotion || !(this.#options.autoplay ?? true);
+    const initialTime = resetTime ? (restFrame ? this.#duration : 0) : previousTime;
     const frame = seekTimeline(this.#resolved, initialTime);
     this.stage.innerHTML = renderSvg(frame, {
       idPrefix: this.id,
@@ -412,7 +414,7 @@ class FigureRuntime implements KineglyphController {
         this.#options.onPlaybackChange?.(playing);
       },
     });
-    if (!resetTime) this.#animator.seek(initialTime);
+    if (!resetTime || (restFrame && !this.#reducedMotion)) this.#animator.seek(initialTime);
     this.#renderMachineControls();
     this.#syncControls();
     this.#syncSelection();
