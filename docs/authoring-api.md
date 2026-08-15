@@ -24,28 +24,27 @@ and `plot()` exist to fix that. Escape hatches (`f.raw(node)`, `defineScene`) al
 
 ```ts
 import { figure } from "@kineglyph/core";
-import { plot } from "@kineglyph/plot";
+import { bar, plot, rule } from "@kineglyph/plot";
+
+// Rows are plain records; channels are typed field names — a misspelled field is a compile error.
+const rows = [
+  { call: "fill_cuboid", dense: 4, sparse: 9 },
+  { call: "set_blocks", dense: 12, sparse: 5 },
+  { call: "prepare + place", dense: 7, sparse: 8 },
+];
 
 export const buildTimes = figure(
   "build-times",
   { title: "Bulk API cost per placed block", description: "Illustrative benchmark." },
   (f) => {
     const chart = f.add(
-      plot({
+      plot(rows, {
         title: "Milliseconds per 100k blocks (illustrative)",
-        x: { type: "band" },
-        y: { type: "linear", label: "ms", ticks: { wide: 5, narrow: 3 } },
-        series: [
-          {
-            id: "v1",
-            label: "fill_cuboid",
-            mark: "bar",
-            data: [
-              { x: "dense", y: 4 },
-              { x: "sparse", y: 9 },
-            ],
-          },
-        ],
+        x: "call",
+        y: ["dense", "sparse"], // two series inferred from wide data
+        marks: bar(),
+        annotations: [rule({ y: 8, label: "budget" })],
+        y: { label: "ms", ticks: { wide: 5, narrow: 3 } },
         valueLabels: "auto",
       }),
     );
@@ -60,7 +59,7 @@ export const buildTimes = figure(
       states: { all: { on: { SOLO: "solo" } }, solo: { on: { ALL: "all" } } },
     });
     f.controls([
-      { label: "Solo fill_cuboid", event: "SOLO" },
+      { label: "Solo dense", event: "SOLO" },
       { label: "Show all", event: "ALL" },
     ]);
   },
@@ -98,13 +97,26 @@ actionable: `figure "build-times": duplicate id "note" (second created at f.call
 
 ## `plot()`
 
-`plot(spec, { id, motion, duration })` returns `{ fragment, domains, ticks, description, diagnostics, markIds }`.
+The primary entry point is generic and inferred from data:
+
+`plot<Row>(rows, options)` where channels are typed field names of `Row` (`x`, `y` or
+`y: [..fields]` for wide data, `series` for long/tidy data, `tone`, `label`) and `marks` is a
+mark helper: `bar()`, `groupedBar()`, `stackedBar()`, `line()`, `area()`, `dot()`,
+`heatmap({ row, column, value })`, `sparkline()`; semantic annotations come from `rule`,
+`range`, `calloutAt`, `pointLabel`. A misspelled field name is a compile-time error. Series ids
+and labels are inferred (field name or distinct value, slugged, deterministic) and returned as
+typed `handles` (`result.handles.series.dense.marks`, `.line`, `.area`, `handles.axes.x`) so
+authors never spell generated ids.
+
+The declarative `PlotSpec` (`series[]` with explicit ids and `Datum{x, y}` or `DataChannels`)
+remains available as the advanced/internal IR: `plot(spec, options)`. Both forms share one
+compiler and return `{ fragment, handles, domains, ticks, description, diagnostics, markIds }`.
 
 - Scales: `linear` (domain auto / auto-zero / explicit; nice ticks via 1-2-5 stepping; explicit
   tick arrays) and `band` (frozen category order = first appearance, `padding`).
-- Series marks: `bar` (grouped by default, `stack: true` for stacked, negatives diverge below the
-  baseline), `line`, `area`, `scatter`, `dot`; `heatmap` (sequential or diverging ramp);
-  `minimal: true` for sparklines.
+- Series marks: `bar` (grouped by default, stacked via `stackedBar`/`stack: true`, negatives
+  diverge below the baseline), `line`, `area`, `scatter`/`dot`; `heatmap` (sequential or
+  diverging ramp); `sparkline` (minimal mode).
 - Axes, gridlines, derived legends, value labels (`auto` uses layout-aware rules), annotations:
   reference lines/bands, point labels, datum callouts.
 - Output: a root group `${id}` containing an optional title/legend and `${id}:area` — a
@@ -115,13 +127,14 @@ actionable: `figure "build-times": duplicate id "note" (second created at f.call
 - Motion presets return relative tracks: `rise` (bars via `revealY`, staggered by index), `draw`
   (lines/areas via `progress`, then points), `sweep` (heatmap cells row by row), `auto` picks per
   mark. `figure()` schedules them with `f.sequence`.
-- Determinism: equal spec → byte-identical fragment; category order and domains are frozen and
+- Determinism: equal input → byte-identical fragment; category order and domains are frozen and
   reported in `domains`/`ticks`.
 
 ## Data channels
 
-Series data is either `Datum[]` or `{ rows, x, y, tone?, label?, description? }` naming the
-fields of plain records. No accessor callbacks, so scenes stay serializable and exportable.
+Data is always plain rows plus field names — never accessor callbacks — so scenes stay
+serializable and exportable. The generic form types the field names against `Row`; the advanced
+IR accepts `Datum[]` or `{ rows, x, y, tone?, label?, description? }`.
 
 ## Consumption
 
