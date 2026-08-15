@@ -1,0 +1,882 @@
+/**
+ * Framework-neutral Kineglyph runtime.
+ *
+ * `mountKineglyph(element, options)` resolves a figure for the element's width, renders the SVG,
+ * drives playback through the scoped Anime.js runtime, wires inspection and state-machine
+ * interaction, and returns a disposable controller. No React, no globals, no shared ids.
+ */
+import { KineglyphSceneAnimator } from "@kineglyph/anime";
+import {
+  MachineController,
+  createMachineState,
+  defaultTheme,
+  evaluateCondition,
+  resolveFigure,
+  seekTimeline,
+  type FigureSource,
+  type LayoutName,
+  type MachineEvent,
+  type MachineState,
+  type MachineStep,
+  type ResolvedEdge,
+  type ResolvedFrame,
+  type ResolvedNode,
+  type ResolvedScene,
+  type SceneControl,
+  type ThemeTokens,
+} from "@kineglyph/core";
+import { renderSvg } from "@kineglyph/svg";
+import { ensureStyles } from "./styles.js";
+
+export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
+
+export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
+
+export interface MountOptions {
+  /** A general scene definition or a legacy pipeline definition. */
+  readonly scene: FigureSource;
+  readonly theme?: ThemeTokens;
+  readonly layout?: FigureLayoutRequest;
+  /** Fixed container width in CSS pixels; when omitted the host element is measured and observed. */
+  readonly width?: number;
+  readonly autoplay?: boolean;
+  /** Render the compact play/restart/scrubber controls. Defaults to true. */
+  readonly controls?: boolean;
+  /** Render the inspection readout. Defaults to true. */
+  readonly readout?: boolean;
+  /** Render machine control buttons when the scene declares them. Defaults to true. */
+  readonly machineControls?: boolean;
+  /** Overrides the `prefers-reduced-motion` media query. */
+  readonly reducedMotion?: boolean;
+  /** Stable DOM id prefix. Defaults to a unique generated prefix. */
+  readonly idPrefix?: string;
+  readonly className?: string;
+  readonly initialState?: MachineState;
+  /** Retain a transition history on the live machine controller. */
+  readonly history?: boolean;
+  readonly onInspect?: (target: InspectTarget | undefined) => void;
+  readonly onFrame?: (frame: ResolvedFrame) => void;
+  readonly onPlaybackChange?: (playing: boolean) => void;
+  readonly onStateChange?: (step: MachineStep, scene: ResolvedScene) => void;
+}
+
+export interface InspectTarget {
+  readonly kind: "node" | "edge";
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly node?: ResolvedNode;
+  readonly edge?: ResolvedEdge;
+}
+
+export interface KineglyphState {
+  readonly time: number;
+  readonly duration: number;
+  readonly playing: boolean;
+  readonly reducedMotion: boolean;
+  readonly width: number;
+  readonly layout: LayoutName | undefined;
+  readonly machineState: MachineState | undefined;
+  readonly inspected: InspectTarget | undefined;
+  readonly destroyed: boolean;
+}
+
+export type KineglyphEventMap = {
+  readonly frame: ResolvedFrame;
+  readonly playback: boolean;
+  readonly inspect: InspectTarget | undefined;
+  readonly state: { readonly step: MachineStep; readonly scene: ResolvedScene };
+  readonly resize: { readonly width: number; readonly layout: LayoutName | undefined };
+  readonly render: ResolvedScene;
+  readonly destroy: undefined;
+};
+
+export interface KineglyphController {
+  readonly element: HTMLElement;
+  readonly stage: HTMLElement;
+  readonly id: string;
+  /** The current resolved scene (re-resolved after resizes, theme changes, and transitions). */
+  readonly scene: ResolvedScene;
+  readonly state: KineglyphState;
+  readonly machine: MachineController | undefined;
+  play(): void;
+  pause(): void;
+  restart(autoplay?: boolean): void;
+  seek(time: number): void;
+  /** Sends a machine event; returns the step (unchanged when the scene has no machine). */
+  send(event: string | MachineEvent): MachineStep | undefined;
+  /** Resets the machine to its initial state and the timeline to the start. */
+  reset(): void;
+  setTheme(theme: ThemeTokens): void;
+  setScene(scene: FigureSource): void;
+  setReducedMotion(reduced: boolean): void;
+  /** Programmatic inspection; pass `null` to clear. Returns the current inspection target. */
+  inspect(id?: string | null): InspectTarget | undefined;
+  /** Forces a re-measure (fixed-width mounts accept an explicit width). */
+  resize(width?: number): void;
+  on<K extends keyof KineglyphEventMap>(
+    event: K,
+    handler: (payload: KineglyphEventMap[K]) => void,
+  ): () => void;
+  destroy(): void;
+}
+
+let mountCounter = 0;
+
+/** Mounts a Kineglyph figure into `element` and returns a disposable controller. */
+export function mountKineglyph(element: HTMLElement, options: MountOptions): KineglyphController {
+  return new FigureRuntime(element, options);
+}
+
+class Emitter {
+  readonly #handlers = new Map<string, Set<(payload: unknown) => void>>();
+
+  on(event: string, handler: (payload: unknown) => void): () => void {
+    const set = this.#handlers.get(event) ?? new Set();
+    set.add(handler);
+    this.#handlers.set(event, set);
+    return () => {
+      set.delete(handler);
+    };
+  }
+
+  emit(event: string, payload: unknown): void {
+    for (const handler of this.#handlers.get(event) ?? []) handler(payload);
+  }
+
+  clear(): void {
+    this.#handlers.clear();
+  }
+}
+
+class FigureRuntime implements KineglyphController {
+  readonly element: HTMLElement;
+  readonly stage: HTMLElement;
+  readonly id: string;
+  machine: MachineController | undefined;
+
+  #source: FigureSource;
+  #theme: ThemeTokens;
+  #options: MountOptions;
+  #resolved: ResolvedScene;
+  #animator: KineglyphSceneAnimator | undefined;
+  #width: number;
+  #reducedMotion: boolean;
+  #inspected: InspectTarget | undefined;
+  #destroyed = false;
+  #time = 0;
+  #playing = false;
+  readonly #emitter = new Emitter();
+  readonly #cleanups: Array<() => void> = [];
+  readonly #shell: HTMLElement;
+  readonly #readout: HTMLElement | undefined;
+  readonly #machineBar: HTMLElement | undefined;
+  readonly #controls: HTMLElement | undefined;
+  #playButton: HTMLButtonElement | undefined;
+  #restartButton: HTMLButtonElement | undefined;
+  #scrubber: HTMLInputElement | undefined;
+  #timeOutput: HTMLOutputElement | undefined;
+  #live: HTMLElement | undefined;
+  #observer: ResizeObserver | undefined;
+
+  constructor(element: HTMLElement, options: MountOptions) {
+    this.element = element;
+    this.#options = options;
+    this.#source = options.scene;
+    this.#theme = options.theme ?? defaultTheme;
+    mountCounter += 1;
+    this.id = options.idPrefix ?? `kineglyph-${mountCounter.toString(36)}`;
+    ensureStyles(element);
+    const doc = element.ownerDocument;
+    element.replaceChildren();
+    element.classList.add("kg-figure-host");
+
+    this.#shell = doc.createElement("section");
+    this.#shell.className = ["kg-figure", options.className].filter(Boolean).join(" ");
+    this.stage = doc.createElement("div");
+    this.stage.className = "kg-figure__stage";
+    this.#shell.append(this.stage);
+    this.#live = doc.createElement("div");
+    this.#live.className = "kg-figure__live";
+    this.#live.setAttribute("aria-live", "polite");
+    this.#shell.append(this.#live);
+    if (options.readout !== false) {
+      this.#readout = doc.createElement("div");
+      this.#readout.className = "kg-figure__readout";
+      this.#readout.innerHTML =
+        '<span class="kg-figure__eyebrow"></span><strong></strong><span></span>';
+      this.#shell.append(this.#readout);
+    }
+    if (options.machineControls !== false) {
+      this.#machineBar = doc.createElement("div");
+      this.#machineBar.className = "kg-figure__machine";
+      this.#machineBar.hidden = true;
+      this.#shell.append(this.#machineBar);
+    }
+    if (options.controls !== false) {
+      this.#controls = doc.createElement("div");
+      this.#controls.className = "kg-figure__controls";
+      this.#shell.append(this.#controls);
+      this.#buildControls(doc);
+    }
+    element.append(this.#shell);
+
+    this.#reducedMotion = options.reducedMotion ?? prefersReducedMotion(element);
+    this.#width = Math.max(280, Math.round(options.width ?? measureWidth(element)));
+
+    if (isSceneDefinition(this.#source) && this.#source.machine !== undefined) {
+      this.machine = new MachineController(this.#source.machine, {
+        ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+        history: options.history ?? false,
+      });
+    }
+
+    this.#resolved = this.#resolve();
+    this.#render(true);
+    this.#bindInteractions(doc);
+    this.#observeMedia(element);
+    if (options.width === undefined) this.#observeSize(element);
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Public API
+  // -----------------------------------------------------------------------------------------
+
+  get scene(): ResolvedScene {
+    return this.#resolved;
+  }
+
+  get state(): KineglyphState {
+    return {
+      time: this.#reducedMotion ? this.#duration : this.#time,
+      duration: this.#duration,
+      playing: this.#playing,
+      reducedMotion: this.#reducedMotion,
+      width: this.#width,
+      layout: this.#resolved.layoutName,
+      machineState: this.machine?.state,
+      inspected: this.#inspected,
+      destroyed: this.#destroyed,
+    };
+  }
+
+  play(): void {
+    this.#assertLive();
+    this.#animator?.play();
+  }
+
+  pause(): void {
+    this.#assertLive();
+    this.#animator?.pause();
+  }
+
+  restart(autoplay = true): void {
+    this.#assertLive();
+    this.#animator?.restart(autoplay);
+  }
+
+  seek(time: number): void {
+    this.#assertLive();
+    this.#animator?.seek(time);
+  }
+
+  send(event: string | MachineEvent): MachineStep | undefined {
+    this.#assertLive();
+    if (this.machine === undefined) return undefined;
+    const step = this.machine.send(event);
+    if (step.transition !== undefined) this.#applyStep(step);
+    return step;
+  }
+
+  reset(): void {
+    this.#assertLive();
+    if (this.machine !== undefined) {
+      const step = this.machine.reset();
+      this.#applyStep(step);
+    } else this.restart(false);
+  }
+
+  setTheme(theme: ThemeTokens): void {
+    this.#assertLive();
+    this.#theme = theme;
+    this.#resolved = this.#resolve();
+    this.#render(false);
+  }
+
+  setScene(scene: FigureSource): void {
+    this.#assertLive();
+    this.#source = scene;
+    this.machine =
+      isSceneDefinition(scene) && scene.machine !== undefined
+        ? new MachineController(scene.machine, { history: this.#options.history ?? false })
+        : undefined;
+    this.#inspected = undefined;
+    this.#resolved = this.#resolve();
+    this.#render(true);
+  }
+
+  setReducedMotion(reduced: boolean): void {
+    this.#assertLive();
+    this.#reducedMotion = reduced;
+    this.#animator?.setReducedMotion(reduced);
+    this.#syncControls();
+  }
+
+  inspect(id?: string | null): InspectTarget | undefined {
+    this.#assertLive();
+    if (id === undefined) return this.#inspected;
+    this.#setInspected(id === null ? undefined : this.#targetFor(id));
+    return this.#inspected;
+  }
+
+  resize(width?: number): void {
+    this.#assertLive();
+    const next = Math.max(280, Math.round(width ?? measureWidth(this.element)));
+    if (next === this.#width && width === undefined) return;
+    this.#width = next;
+    this.#resolved = this.#resolve();
+    this.#render(false);
+    this.#emitter.emit("resize", { width: this.#width, layout: this.#resolved.layoutName });
+  }
+
+  on<K extends keyof KineglyphEventMap>(
+    event: K,
+    handler: (payload: KineglyphEventMap[K]) => void,
+  ): () => void {
+    return this.#emitter.on(event, handler as (payload: unknown) => void);
+  }
+
+  destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    this.#animator?.dispose();
+    this.#animator = undefined;
+    this.#observer?.disconnect();
+    for (const cleanup of this.#cleanups.splice(0)) cleanup();
+    this.#emitter.emit("destroy", undefined);
+    this.#emitter.clear();
+    this.element.replaceChildren();
+    this.element.classList.remove("kg-figure-host");
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // Internals
+  // -----------------------------------------------------------------------------------------
+
+  get #duration(): number {
+    return this.#resolved.timeline?.duration ?? 0;
+  }
+
+  #assertLive(): void {
+    if (this.#destroyed) throw new Error("Kineglyph controller has been destroyed");
+  }
+
+  #resolve(): ResolvedScene {
+    return resolveFigure(this.#source, {
+      width: this.#width,
+      theme: this.#theme,
+      layout: this.#options.layout ?? "auto",
+      ...(this.machine === undefined ? {} : { machineState: this.machine.state }),
+    });
+  }
+
+  /** Renders the SVG for the current resolution and (re)creates the animator. */
+  #render(resetTime: boolean): void {
+    const previousTime = this.#animator?.time ?? 0;
+    const wasPlaying = this.#animator?.playing ?? false;
+    const focusedId = this.#focusedNodeId();
+    this.#animator?.dispose();
+    const initialTime = resetTime ? (this.#reducedMotion ? this.#duration : 0) : previousTime;
+    const frame = seekTimeline(this.#resolved, initialTime);
+    this.stage.innerHTML = renderSvg(frame, {
+      idPrefix: this.id,
+      className: "kg-figure__svg",
+      role: "group",
+    });
+    this.stage.style.aspectRatio = `${this.#resolved.width} / ${this.#resolved.height}`;
+    this.#applyShellTheme();
+    this.#animator = new KineglyphSceneAnimator({
+      root: this.stage,
+      scene: this.#resolved,
+      reducedMotion: this.#reducedMotion,
+      onFrame: (nextFrame) => {
+        this.#time = nextFrame.time;
+        this.#syncScrubber();
+        this.#emitter.emit("frame", nextFrame);
+        this.#options.onFrame?.(nextFrame);
+      },
+      onPlaybackChange: (playing) => {
+        this.#playing = playing;
+        this.#syncControls();
+        this.#emitter.emit("playback", playing);
+        this.#options.onPlaybackChange?.(playing);
+      },
+    });
+    if (!resetTime) this.#animator.seek(initialTime);
+    this.#renderMachineControls();
+    this.#syncControls();
+    this.#syncSelection();
+    this.#refreshReadout();
+    this.#emitter.emit("render", this.#resolved);
+    if (resetTime) {
+      if ((this.#options.autoplay ?? true) && !this.#reducedMotion && this.#duration > 0)
+        this.#animator.play();
+    } else if (wasPlaying && !this.#reducedMotion) this.#animator.play();
+    if (focusedId !== undefined) this.#restoreFocus(focusedId);
+  }
+
+  #applyStep(step: MachineStep): void {
+    this.#resolved = this.#resolve();
+    this.#render(false);
+    for (const effect of step.effects) {
+      if (effect.type === "seek") {
+        const time =
+          effect.time === "start" ? 0 : effect.time === "end" ? this.#duration : effect.time;
+        this.#animator?.seek(time);
+      }
+    }
+    if (this.machine !== undefined && this.#live !== undefined) {
+      const signals = this.machine.signals;
+      const summary = [signals.engine, signals.insightTitle, signals.summary]
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .join(" — ");
+      this.#live.textContent = summary || `State: ${step.next.state}`;
+    }
+    this.#emitter.emit("state", { step, scene: this.#resolved });
+    this.#options.onStateChange?.(step, this.#resolved);
+  }
+
+  #applyShellTheme(): void {
+    const tokens = this.#theme;
+    const style = this.#shell.style;
+    style.setProperty("--kg-shell-background", tokens.colors.canvas);
+    style.setProperty("--kg-shell-surface", tokens.colors.surfaceRaised);
+    style.setProperty("--kg-shell-text", tokens.colors.text);
+    style.setProperty("--kg-shell-muted", tokens.colors.textMuted);
+    style.setProperty("--kg-shell-border", tokens.colors.border);
+    style.setProperty("--kg-shell-accent", tokens.colors.accent);
+    style.setProperty("--kg-shell-radius", `${tokens.radii.lg}px`);
+    style.setProperty("--kg-shell-font", tokens.typography.body.family);
+    this.#shell.classList.toggle("kg-figure--compact", this.#width < 620);
+    this.#shell.setAttribute("aria-label", `${this.#resolved.title} interactive figure`);
+    this.#shell.dataset.layout = this.#resolved.layoutName ?? this.#resolved.layout;
+    this.#shell.dataset.theme = tokens.name ?? "custom";
+  }
+
+  #buildControls(doc: Document): void {
+    const controls = this.#controls;
+    if (controls === undefined) return;
+    const play = doc.createElement("button");
+    play.type = "button";
+    play.className = "kg-figure__play";
+    play.textContent = "Play";
+    play.addEventListener("click", () => {
+      if (this.#playing) this.pause();
+      else this.play();
+    });
+    const restart = doc.createElement("button");
+    restart.type = "button";
+    restart.className = "kg-figure__restart";
+    restart.textContent = "Restart";
+    restart.addEventListener("click", () => this.restart(false));
+    const label = doc.createElement("label");
+    label.className = "kg-figure__scrubber";
+    const caption = doc.createElement("span");
+    caption.textContent = "Timeline";
+    const range = doc.createElement("input");
+    range.type = "range";
+    range.min = "0";
+    range.step = "1";
+    range.addEventListener("input", () => this.seek(Number(range.value)));
+    label.append(caption, range);
+    const output = doc.createElement("output");
+    controls.append(play, restart, label, output);
+    controls.addEventListener("keydown", (event) => {
+      if (event.key !== " " || event.target === range) return;
+      if (event.target instanceof HTMLButtonElement) return;
+      event.preventDefault();
+      if (this.#playing) this.pause();
+      else this.play();
+    });
+    this.#playButton = play;
+    this.#restartButton = restart;
+    this.#scrubber = range;
+    this.#timeOutput = output;
+  }
+
+  #renderMachineControls(): void {
+    const bar = this.#machineBar;
+    if (bar === undefined) return;
+    const controls = this.#resolved.controls ?? [];
+    if (this.machine === undefined || controls.length === 0) {
+      bar.hidden = true;
+      bar.replaceChildren();
+      return;
+    }
+    bar.hidden = false;
+    const signature = controls.map((control) => `${control.id}:${control.label}`).join("|");
+    if (bar.dataset.controls === signature) {
+      this.#syncMachineControls();
+      return;
+    }
+    bar.dataset.controls = signature;
+    const doc = bar.ownerDocument;
+    bar.replaceChildren();
+    const groups = new Map<string, SceneControl[]>();
+    for (const control of controls) {
+      const key = control.group ?? "";
+      const list = groups.get(key) ?? [];
+      list.push(control);
+      groups.set(key, list);
+    }
+    for (const [name, list] of groups) {
+      const group = doc.createElement("div");
+      group.className = "kg-figure__machine-group";
+      group.setAttribute("role", "group");
+      if (name.length > 0) {
+        group.setAttribute("aria-label", name);
+        const label = doc.createElement("span");
+        label.className = "kg-figure__machine-label";
+        label.textContent = name;
+        group.append(label);
+      }
+      for (const control of list) {
+        const button = doc.createElement("button");
+        button.type = "button";
+        button.textContent = control.label;
+        button.dataset.control = control.id;
+        if (control.description !== undefined) button.title = control.description;
+        if ((control.kind ?? "event") === "reset") {
+          button.classList.add("kg-figure__reset");
+          button.addEventListener("click", () => this.reset());
+        } else {
+          button.addEventListener("click", () => {
+            if (control.event !== undefined) this.send(control.event);
+          });
+        }
+        group.append(button);
+      }
+      bar.append(group);
+    }
+    this.#syncMachineControls();
+  }
+
+  #syncMachineControls(): void {
+    const bar = this.#machineBar;
+    if (bar === undefined || this.machine === undefined) return;
+    const state = this.machine.state;
+    for (const control of this.#resolved.controls ?? []) {
+      const button = bar.querySelector<HTMLButtonElement>(
+        `[data-control="${cssEscape(control.id)}"]`,
+      );
+      if (button === null) continue;
+      if (control.activeWhen !== undefined)
+        button.setAttribute(
+          "aria-pressed",
+          evaluateCondition(control.activeWhen, state) ? "true" : "false",
+        );
+    }
+  }
+
+  #syncControls(): void {
+    const disabled = this.#reducedMotion || this.#duration === 0;
+    if (this.#playButton !== undefined) {
+      this.#playButton.textContent = this.#playing ? "Pause" : "Play";
+      this.#playButton.setAttribute("aria-pressed", this.#playing ? "true" : "false");
+      this.#playButton.disabled = disabled;
+    }
+    if (this.#restartButton !== undefined) this.#restartButton.disabled = disabled;
+    if (this.#scrubber !== undefined) {
+      this.#scrubber.max = String(Math.max(1, this.#duration));
+      this.#scrubber.disabled = disabled;
+    }
+    this.#syncScrubber();
+    this.#syncMachineControls();
+  }
+
+  #syncScrubber(): void {
+    const time = this.#reducedMotion ? this.#duration : this.#time;
+    if (this.#scrubber !== undefined) {
+      this.#scrubber.value = String(Math.round(time));
+      this.#scrubber.setAttribute("aria-valuetext", `${Math.round(time)} milliseconds`);
+    }
+    if (this.#timeOutput !== undefined)
+      this.#timeOutput.textContent = this.#reducedMotion
+        ? "Reduced motion"
+        : `${(time / 1000).toFixed(1)}s`;
+  }
+
+  #bindInteractions(doc: Document): void {
+    const stage = this.stage;
+    const nodeFrom = (event: Event): Element | null =>
+      event.target instanceof Element
+        ? event.target.closest("[data-node-id],[data-edge-group]")
+        : null;
+    const inspect = (event: Event): void => {
+      const target = nodeFrom(event);
+      if (target === null) return;
+      const nodeId = target.getAttribute("data-node-id");
+      const edgeId = target.getAttribute("data-edge-group");
+      if (nodeId !== null && this.#isInspectable(nodeId))
+        this.#setInspected(this.#targetFor(nodeId));
+      else if (edgeId !== null && target.getAttribute("role") === "img")
+        this.#setInspected(this.#targetFor(edgeId));
+    };
+    const clear = (event: Event): void => {
+      const related =
+        event instanceof FocusEvent || event instanceof MouseEvent ? event.relatedTarget : null;
+      const current = nodeFrom(event);
+      if (
+        related instanceof Element &&
+        related.closest("[data-node-id],[data-edge-group]") === current
+      )
+        return;
+      if (event.type === "focusout" && current !== null && !current.matches("[data-node-id]"))
+        return;
+      this.#setInspected(undefined);
+    };
+    const activate = (event: Event): void => {
+      const target = nodeFrom(event);
+      if (target === null) return;
+      const eventName = target.getAttribute("data-activate");
+      if (eventName === null) return;
+      if (event instanceof KeyboardEvent && event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      this.send(eventName);
+    };
+    stage.addEventListener("pointerover", inspect);
+    stage.addEventListener("pointerout", clear);
+    stage.addEventListener("focusin", inspect);
+    stage.addEventListener("focusout", clear);
+    stage.addEventListener("click", activate);
+    stage.addEventListener("keydown", activate);
+    this.#cleanups.push(() => {
+      stage.removeEventListener("pointerover", inspect);
+      stage.removeEventListener("pointerout", clear);
+      stage.removeEventListener("focusin", inspect);
+      stage.removeEventListener("focusout", clear);
+      stage.removeEventListener("click", activate);
+      stage.removeEventListener("keydown", activate);
+    });
+    void doc;
+  }
+
+  #observeMedia(element: HTMLElement): void {
+    if (this.#options.reducedMotion !== undefined) return;
+    const view = element.ownerDocument.defaultView;
+    if (view === null || typeof view.matchMedia !== "function") return;
+    const media = view.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = (): void => {
+      if (this.#destroyed) return;
+      this.setReducedMotion(media.matches);
+    };
+    media.addEventListener("change", update);
+    this.#cleanups.push(() => media.removeEventListener("change", update));
+  }
+
+  #observeSize(element: HTMLElement): void {
+    const view = element.ownerDocument.defaultView;
+    if (view === null || typeof view.ResizeObserver !== "function") return;
+    this.#observer = new view.ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry === undefined || this.#destroyed) return;
+      const next = Math.max(280, Math.round(entry.contentRect.width));
+      if (next !== this.#width && next > 0) this.resize(next);
+    });
+    this.#observer.observe(element);
+  }
+
+  #isInspectable(nodeId: string): boolean {
+    const node = this.#resolved.nodes.find((entry) => entry.id === nodeId);
+    return (
+      node !== undefined &&
+      (node.interactive || (node.label.length > 0 && node.description !== undefined))
+    );
+  }
+
+  #targetFor(id: string): InspectTarget | undefined {
+    const node = this.#resolved.nodes.find((entry) => entry.id === id);
+    if (node !== undefined)
+      return {
+        kind: "node",
+        id,
+        label: node.label,
+        ...(node.description === undefined ? {} : { description: node.description }),
+        node,
+      };
+    const edge = this.#resolved.edges.find((entry) => entry.id === id);
+    if (edge !== undefined)
+      return {
+        kind: "edge",
+        id,
+        label: edge.label ?? edge.description ?? id,
+        ...(edge.description === undefined ? {} : { description: edge.description }),
+        edge,
+      };
+    return undefined;
+  }
+
+  #setInspected(target: InspectTarget | undefined): void {
+    if (this.#inspected?.id === target?.id) return;
+    this.#inspected = target;
+    this.#syncSelection();
+    this.#refreshReadout();
+    this.#emitter.emit("inspect", target);
+    this.#options.onInspect?.(target);
+  }
+
+  #syncSelection(): void {
+    const selection = this.machine?.state.selection ?? null;
+    for (const element of this.stage.querySelectorAll("[data-node-id]")) {
+      const id = element.getAttribute("data-node-id");
+      if (id === this.#inspected?.id) element.setAttribute("data-inspected", "true");
+      else element.removeAttribute("data-inspected");
+      if (id !== null && id === selection) element.setAttribute("data-selected", "true");
+      else element.removeAttribute("data-selected");
+    }
+  }
+
+  #refreshReadout(): void {
+    const readout = this.#readout;
+    if (readout === undefined) return;
+    const [eyebrow, strong, body] = readout.children;
+    const inspected = this.#inspected;
+    if (inspected === undefined) {
+      const order = undefined;
+      if (eyebrow) eyebrow.textContent = order ?? "Inspect a stage";
+      if (strong) strong.textContent = this.#resolved.title;
+      if (body) body.textContent = this.#resolved.description ?? "";
+      return;
+    }
+    const meta = inspected.node?.metadata;
+    const stage = meta?.stage ?? meta?.order;
+    if (eyebrow)
+      eyebrow.textContent =
+        inspected.kind === "edge"
+          ? "Connector"
+          : stage !== undefined && stage !== null
+            ? `Stage ${String(stage)}`
+            : "Inspecting";
+    if (strong) strong.textContent = inspected.label;
+    if (body) body.textContent = inspected.description ?? "";
+  }
+
+  #focusedNodeId(): string | undefined {
+    const active = this.element.ownerDocument.activeElement;
+    if (!(active instanceof Element) || !this.stage.contains(active)) return undefined;
+    return active.closest("[data-node-id]")?.getAttribute("data-node-id") ?? undefined;
+  }
+
+  #restoreFocus(nodeId: string): void {
+    const target = this.stage.querySelector<HTMLElement | SVGElement>(
+      `[data-node-id="${cssEscape(nodeId)}"]`,
+    );
+    if (target !== null && typeof (target as HTMLElement).focus === "function")
+      (target as HTMLElement).focus({ preventScroll: true });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Auto-mount from data attributes (Blade / static pages)
+// ---------------------------------------------------------------------------------------------
+
+const sceneRegistry = new Map<string, FigureSource>();
+const themeRegistry = new Map<string, ThemeTokens>();
+
+/** Registers a scene under an id for `data-kineglyph` auto-mounting. */
+export function registerScene(id: string, scene: FigureSource): void {
+  sceneRegistry.set(id, scene);
+}
+
+/** Registers a theme under a name for `data-theme` auto-mounting. */
+export function registerTheme(name: string, theme: ThemeTokens): void {
+  themeRegistry.set(name, theme);
+}
+
+export interface AutoMountOptions {
+  readonly root?: ParentNode;
+  readonly selector?: string;
+  readonly scenes?: Readonly<Record<string, FigureSource>>;
+  readonly themes?: Readonly<Record<string, ThemeTokens>>;
+}
+
+/**
+ * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
+ * `data-layout`, `data-autoplay="false"`, `data-controls="false"`, `data-readout="false"`,
+ * `data-reduced-motion="true"`, `data-width`. Returns the controllers in document order.
+ */
+export function autoMount(options: AutoMountOptions = {}): KineglyphController[] {
+  const root: ParentNode =
+    options.root ?? (typeof document === "undefined" ? ({} as ParentNode) : document);
+  if (typeof root.querySelectorAll !== "function") return [];
+  const controllers: KineglyphController[] = [];
+  for (const element of root.querySelectorAll<HTMLElement>(
+    options.selector ?? "[data-kineglyph]",
+  )) {
+    if (element.dataset.kineglyphMounted === "true") continue;
+    const sceneId = element.dataset.kineglyph ?? "";
+    const scene = options.scenes?.[sceneId] ?? sceneRegistry.get(sceneId);
+    if (scene === undefined) {
+      element.setAttribute("data-kineglyph-error", `unknown scene "${sceneId}"`);
+      continue;
+    }
+    const themeName = element.dataset.theme;
+    const theme =
+      themeName === undefined
+        ? undefined
+        : (options.themes?.[themeName] ?? themeRegistry.get(themeName));
+    const layout = element.dataset.layout as FigureLayoutRequest | undefined;
+    const width = element.dataset.width === undefined ? undefined : Number(element.dataset.width);
+    const controller = mountKineglyph(element, {
+      scene,
+      ...(theme === undefined ? {} : { theme }),
+      ...(layout === undefined ? {} : { layout }),
+      ...(width === undefined || !Number.isFinite(width) ? {} : { width }),
+      autoplay: element.dataset.autoplay !== "false",
+      controls: element.dataset.controls !== "false",
+      readout: element.dataset.readout !== "false",
+      ...(element.dataset.reducedMotion === undefined
+        ? {}
+        : { reducedMotion: element.dataset.reducedMotion === "true" }),
+      ...(element.dataset.idPrefix === undefined ? {} : { idPrefix: element.dataset.idPrefix }),
+    });
+    element.dataset.kineglyphMounted = "true";
+    controller.on("destroy", () => {
+      delete element.dataset.kineglyphMounted;
+    });
+    controllers.push(controller);
+  }
+  return controllers;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------------------
+
+function isSceneDefinition(
+  source: FigureSource,
+): source is Extract<FigureSource, { schemaVersion: 2 }> {
+  return (source as { schemaVersion?: unknown }).schemaVersion === 2;
+}
+
+function measureWidth(element: HTMLElement): number {
+  const rect = element.getBoundingClientRect();
+  if (rect.width > 0) return rect.width;
+  const parent = element.parentElement;
+  const parentWidth = parent === null ? 0 : parent.getBoundingClientRect().width;
+  return parentWidth > 0 ? parentWidth : 960;
+}
+
+function prefersReducedMotion(element: HTMLElement): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (view === null || typeof view.matchMedia !== "function") return false;
+  return view.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function cssEscape(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/["\\]/g, "\\$&");
+}
+
+export { createMachineState };
+export type { FigureSource, MachineState, MachineStep, ResolvedFrame, ResolvedScene, ThemeTokens };

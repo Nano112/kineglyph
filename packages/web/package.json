@@ -1,7 +1,7 @@
 {
-  "name": "@kineglyph/react",
+  "name": "@kineglyph/web",
   "version": "0.1.0",
-  "description": "Responsive React bindings for Kineglyph.",
+  "description": "Framework-neutral browser runtime for Kineglyph figures: mount, control, inspect, and dispose.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -11,29 +11,24 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./bundle": "./dist/kineglyph-web.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@kineglyph/anime": "*",
     "@kineglyph/core": "*",
-    "@kineglyph/svg": "*",
-    "@kineglyph/web": "*"
-  },
-  "peerDependencies": {
-    "react": ">=18",
-    "react-dom": ">=18"
+    "@kineglyph/svg": "*"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.3",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "@kineglyph/scenes": "*",
+    "vite": "^8.2.1"
   }
 }

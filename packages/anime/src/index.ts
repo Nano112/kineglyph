@@ -233,7 +233,7 @@ export class KineglyphAnimator {
     const cue = state.cue;
     if (cue.kind === "edge-reveal") {
       for (const element of this.#find(`[data-edge-id="${cssEscape(cue.targetId)}"]`)) {
-        if (!(element instanceof SVGPathElement)) continue;
+        if (!isSvgTag(element, "path")) continue;
         element.setAttribute("pathLength", "1");
         element.style.strokeDasharray = "1";
         element.style.strokeDashoffset = String(1 - state.progress);
@@ -461,7 +461,7 @@ export class KineglyphSceneAnimator {
   }
 
   #setPaused(paused: boolean): void {
-    const svg = this.#root instanceof SVGSVGElement ? this.#root : this.#root.querySelector("svg");
+    const svg = isSvgTag(this.#root, "svg") ? this.#root : this.#root.querySelector("svg");
     if (svg === null) return;
     if (paused) svg.setAttribute("data-paused", "true");
     else svg.removeAttribute("data-paused");
@@ -508,7 +508,7 @@ export class KineglyphSceneAnimator {
   #applyEdge(edge: ResolvedEdge, accent: string): void {
     const paths = this.#find(`[data-edge-id="${cssEscape(edge.id)}"]`);
     for (const element of paths) {
-      if (!(element instanceof SVGPathElement)) continue;
+      if (!isSvgTag(element, "path")) continue;
       element.style.opacity = String(edge.state.opacity);
       const highlight = edge.state.highlight ?? 0;
       const outline = highlightStroke(
@@ -538,7 +538,7 @@ export class KineglyphSceneAnimator {
     const flow = edge.state.flow ?? 0;
     const packets = edge.packets ?? [];
     for (const element of this.#find(`[data-edge-packet="${cssEscape(edge.id)}"]`)) {
-      if (!(element instanceof SVGCircleElement)) continue;
+      if (!isSvgTag(element, "circle")) continue;
       const index = Number(element.getAttribute("data-packet-index") ?? "0");
       const packet = packets[index];
       if (packet !== undefined) {
@@ -553,7 +553,7 @@ export class KineglyphSceneAnimator {
   }
 
   #syncMarker(
-    element: SVGPathElement,
+    element: SVGElement,
     attribute: "marker-end" | "marker-start",
     kind: EdgeMarkerKind,
     color: string,
@@ -594,6 +594,11 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function round(value: number): number {
   return Math.round(value * 10_000) / 10_000;
+}
+
+/** Tag-name check that works in browsers and DOM shims lacking specific SVG element globals. */
+function isSvgTag(element: Element, tag: string): element is SVGElement {
+  return element instanceof SVGElement && element.tagName.toLowerCase() === tag;
 }
 
 function cssEscape(value: string): string {
