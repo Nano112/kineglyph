@@ -1,4 +1,12 @@
-import { createTheme, type ThemeTokens } from "@kineglyph/core";
+import {
+  backdrop,
+  createTheme,
+  innerShadow,
+  linearGradient,
+  noise,
+  shadow,
+  type ThemeTokens,
+} from "@kineglyph/core";
 
 export type ThemeName = "nucleation" | "pock" | "schematio";
 
@@ -85,6 +93,48 @@ export const themes: Readonly<Record<ThemeName, ThemeTokens>> = {
     motion: { fast: 140, normal: 280, slow: 620, easing: "easeInOut" },
     strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.5 },
     ornament: { grid: "dots", surface: "outlined", lineCap: "square", eyebrow: true },
+    materials: {
+      flat: { fill: "canvas" },
+      raised: {
+        fill: linearGradient(
+          [
+            { at: 0, color: "surfaceRaised" },
+            { at: 1, color: "surface" },
+          ],
+          { angle: 135 },
+        ),
+        stroke: "border",
+        effects: [
+          shadow({ color: "canvas", opacity: 0.62, blur: 22, offset: [0, 10] }),
+          noise({ amount: 0.012, scale: 0.8, seed: 11 }),
+        ],
+      },
+      floating: {
+        fill: "surfaceRaised",
+        stroke: "accent",
+        effects: [shadow({ color: "canvas", opacity: 0.72, blur: 30, offset: [0, 16] })],
+      },
+      inset: {
+        fill: "surfaceMuted",
+        stroke: "border",
+        effects: [innerShadow({ color: "canvas", opacity: 0.52, blur: 8, offset: [0, 3] })],
+      },
+      glass: {
+        fill: linearGradient(
+          [
+            { at: 0, color: "accent", opacity: 0.12 },
+            { at: 1, color: "surfaceRaised", opacity: 0.54 },
+          ],
+          { angle: 125 },
+        ),
+        stroke: "accent",
+        effects: [
+          backdrop({ blur: 18, saturation: 1.12 }),
+          noise({ amount: 0.018, scale: 0.58, seed: 17 }),
+          shadow({ color: "canvas", opacity: 0.58, blur: 26, offset: [0, 12] }),
+        ],
+      },
+    },
   }),
   pock: createTheme({
     name: "pock",

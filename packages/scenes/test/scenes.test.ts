@@ -11,7 +11,7 @@ import {
 import { renderSvg } from "@kineglyph/svg";
 import { catalogue, themeNames, themes } from "../src/index.js";
 
-const WIDTHS = [1200, 820, 390] as const;
+const WIDTHS = [1200, 960, 820, 390] as const;
 const LAYOUT_CODES = new Set(["overlap", "overflow", "text-truncated", "label-collision"]);
 
 function layoutProblems(resolved: ResolvedScene): string[] {
