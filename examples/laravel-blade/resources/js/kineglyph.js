@@ -1,0 +1,28 @@
+/**
+ * Vite entry for a Laravel app: registers the scenes and themes this site uses and mounts every
+ * `[data-kineglyph]` element. Loaded once from the layout via @vite(['resources/js/kineglyph.js']).
+ */
+import { autoMount, registerScene, registerTheme } from "@kineglyph/web";
+import { catalogue, themes } from "@kineglyph/scenes";
+
+for (const entry of catalogue) registerScene(entry.slug, entry.scene);
+for (const [name, theme] of Object.entries(themes)) registerTheme(name, theme);
+
+// Keep controllers reachable for Livewire / Turbo navigations and for debugging in DevTools.
+window.kineglyph = { controllers: [] };
+
+function mountAll() {
+  window.kineglyph.controllers.push(...autoMount());
+}
+
+function destroyAll() {
+  for (const controller of window.kineglyph.controllers.splice(0)) controller.destroy();
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountAll);
+else mountAll();
+
+document.addEventListener("livewire:navigating", destroyAll);
+document.addEventListener("livewire:navigated", mountAll);
+document.addEventListener("turbo:before-render", destroyAll);
+document.addEventListener("turbo:load", mountAll);
