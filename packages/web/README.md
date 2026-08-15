@@ -42,6 +42,37 @@ canvas sits below normal SVG content, so text, focus, inspection, and controls r
 When WebGL is unavailable, the SVG filter fallback remains visible. See
 [Materials and effects](../../docs/materials-and-effects.md).
 
+## Put a live renderer inside a scene
+
+Mark an image node `live: true`; its image stays in SVG, PNG, and no-JavaScript output. In the
+browser, key a renderer by that node id. Kineglyph aligns the HTML layer to the node and hands it
+the current machine state, resolved signals, theme, timeline time, and an abort signal.
+
+```ts
+import "@google/model-viewer";
+import { modelViewerSurface, mountKineglyph } from "@kineglyph/web";
+
+const controller = mountKineglyph(host, {
+  scene,
+  liveSurfaces: {
+    "build-preview": modelViewerSurface({
+      alt: "Generated Minecraft build",
+      source: async ({ signals, signal }) => {
+        const schematic = buildSchematic(signals, { signal });
+        const mesh = meshWithNucleation(schematic); // custom WASM build with `meshing`
+        return mesh.toGlb();
+      },
+    }),
+  },
+});
+```
+
+When a scene event changes its state, Kineglyph re-resolves the figure and remounts the surface
+with the new signals. Async work is aborted on state changes, resize, scene changes, and destroy.
+If `<model-viewer>` is unavailable or generation fails, the static image remains visible. A custom
+`LiveSurfaceRenderer` can mount Three.js, a native canvas, an iframe, or an application component
+instead.
+
 ### Lifecycle guarantees
 
 - Mounting sets `aria-busy="false"` on the host (hosts may advertise `aria-busy="true"` while
@@ -74,6 +105,7 @@ When WebGL is unavailable, the SVG filter fallback remains visible. See
 | `reducedMotion`   | media query     | Force the terminal frame and disable playback                    |
 | `idPrefix`        | generated       | Stable DOM id prefix                                             |
 | `initialState`    | machine initial | Start a machine in a specific `MachineState`                     |
+| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                 |
 | callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`      |
 
 ### Keyboard and accessibility

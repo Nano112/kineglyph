@@ -2,6 +2,7 @@ export * from "./catalogue.js";
 export * from "./recipes.js";
 export * from "./themes.js";
 export { benchmarkBreakdownScene } from "./scenes/benchmark-breakdown.js";
+export { bindingsAndLanguagesScene } from "./scenes/bindings-and-languages.js";
 export { bottleneckLensScene } from "./scenes/bottleneck-lens.js";
 export { operationHeatmapScene } from "./scenes/operation-heatmap.js";
 export {
@@ -11,7 +12,6 @@ export {
 } from "./scenes/material-directions.js";
 export { readmeCoverScene, readmeCoverTheme } from "./scenes/readme-cover.js";
 export {
-  bindingsAndLanguagesScene,
   fastGenerationScene,
   formatsAndIoScene,
   meshingAndRenderingScene,

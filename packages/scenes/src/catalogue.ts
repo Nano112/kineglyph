@@ -1,9 +1,9 @@
 import type { SceneDefinition } from "@kineglyph/core";
 import { benchmarkBreakdownEntry } from "./scenes/benchmark-breakdown.js";
+import { bindingsAndLanguagesEntry } from "./scenes/bindings-and-languages.js";
 import { bottleneckLensEntry } from "./scenes/bottleneck-lens.js";
 import { operationHeatmapEntry } from "./scenes/operation-heatmap.js";
 import {
-  bindingsAndLanguagesEntry,
   fastGenerationEntry,
   formatsAndIoEntry,
   meshingAndRenderingEntry,

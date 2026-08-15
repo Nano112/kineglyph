@@ -28,8 +28,10 @@ import {
 import { renderSvg } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
+import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
+export * from "./surfaces.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
 
@@ -55,6 +57,9 @@ export interface MountOptions {
   readonly initialState?: MachineState;
   /** Retain a transition history on the live machine controller. */
   readonly history?: boolean;
+  /** HTML/WebGL renderers keyed by a live image node id. The image remains the export fallback. */
+  readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>>;
+  readonly onSurfaceError?: (nodeId: string, error: unknown) => void;
   readonly onInspect?: (target: InspectTarget | undefined) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
@@ -175,6 +180,7 @@ class FigureRuntime implements KineglyphController {
   #resolved: ResolvedScene;
   #animator: KineglyphSceneAnimator | undefined;
   #shaders: ShaderSurfaceManager | undefined;
+  #liveSurfaces: LiveSurfaceManager | undefined;
   #width: number;
   #reducedMotion: boolean;
   #inspected: InspectTarget | undefined;
@@ -376,6 +382,8 @@ class FigureRuntime implements KineglyphController {
     this.#animator = undefined;
     this.#shaders?.dispose();
     this.#shaders = undefined;
+    this.#liveSurfaces?.dispose();
+    this.#liveSurfaces = undefined;
     this.#observer?.disconnect();
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
     this.#emitter.emit("destroy", undefined);
@@ -415,6 +423,8 @@ class FigureRuntime implements KineglyphController {
     this.#animator?.dispose();
     this.#shaders?.dispose();
     this.#shaders = undefined;
+    this.#liveSurfaces?.dispose();
+    this.#liveSurfaces = undefined;
     // Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts.
     const restFrame = this.#reducedMotion || !(this.#options.autoplay ?? true);
     const initialTime = resetTime ? (restFrame ? this.#duration : 0) : previousTime;
@@ -427,6 +437,19 @@ class FigureRuntime implements KineglyphController {
     });
     this.stage.style.aspectRatio = `${this.#resolved.width} / ${this.#resolved.height}`;
     this.#shaders = mountShaderSurfaces(this.stage, initialTime);
+    this.#liveSurfaces = new LiveSurfaceManager(this.stage, this.#resolved, {
+      ...(this.#options.liveSurfaces === undefined
+        ? {}
+        : { renderers: this.#options.liveSurfaces }),
+      theme: this.#theme,
+      machineState: this.machine?.state,
+      signals: this.machine?.signals ?? {},
+      time: initialTime,
+      send: (event) => this.send(event),
+      ...(this.#options.onSurfaceError === undefined
+        ? {}
+        : { onError: this.#options.onSurfaceError }),
+    });
     this.#applyShellTheme();
     this.#animator = new KineglyphSceneAnimator({
       root: this.stage,
@@ -435,6 +458,7 @@ class FigureRuntime implements KineglyphController {
       onFrame: (nextFrame) => {
         this.#time = nextFrame.time;
         this.#shaders?.seek(nextFrame.time);
+        this.#liveSurfaces?.update(nextFrame);
         this.#syncScrubber();
         this.#emitter.emit("frame", nextFrame);
         this.#options.onFrame?.(nextFrame);

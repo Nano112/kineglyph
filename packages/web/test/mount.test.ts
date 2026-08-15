@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTheme, defineScene, type SceneDefinition } from "@kineglyph/core";
 import {
   autoMount,
+  modelViewerSurface,
   mountKineglyph,
   registerScene,
   registerTheme,
@@ -110,6 +111,29 @@ const scene: SceneDefinition = defineScene({
     { id: "pick-b", label: "Pick B", event: "PICK_B", activeWhen: { state: "b" }, group: "Intent" },
     { id: "reset", kind: "reset", label: "Reset" },
   ],
+});
+
+const liveScene: SceneDefinition = defineScene({
+  schemaVersion: 2,
+  id: "live-preview",
+  title: "Live preview",
+  description: "A static export image becomes an interactive renderer in the browser.",
+  root: {
+    id: "live-root",
+    type: "group",
+    layout: "stack",
+    children: [
+      {
+        id: "build-preview",
+        type: "image",
+        src: "/preview.png",
+        alt: "Minecraft build preview",
+        live: true,
+        width: "fill",
+        height: 240,
+      },
+    ],
+  },
 });
 
 const mediaQuery = {
@@ -254,6 +278,81 @@ describe("mountKineglyph", () => {
     expect(element.getAttribute("aria-busy")).toBe("false");
     controller.destroy();
     expect(element.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("hands live image nodes to HTML renderers while retaining the export fallback", async () => {
+    let mounts = 0;
+    let destroys = 0;
+    const controller = mountKineglyph(host(), {
+      scene: liveScene,
+      autoplay: false,
+      liveSurfaces: {
+        "build-preview": ({ element, node }) => {
+          mounts += 1;
+          expect(node.image?.alt).toBe("Minecraft build preview");
+          const canvas = document.createElement("canvas");
+          canvas.dataset.renderer = "nucleation";
+          element.append(canvas);
+          return () => {
+            destroys += 1;
+          };
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(controller.element.querySelector(".kg-live-surface")?.getAttribute("data-ready")).toBe(
+        "true",
+      ),
+    );
+    expect(controller.element.querySelector("[data-renderer=nucleation]")).not.toBeNull();
+    expect(
+      controller.element.querySelector<SVGImageElement>("image[data-live=true]")?.style.opacity,
+    ).toBe("0");
+    controller.resize(600);
+    await vi.waitFor(() => expect(mounts).toBe(2));
+    expect(destroys).toBe(1);
+    expect(controller.element.querySelectorAll(".kg-live-surface")).toHaveLength(1);
+    controller.destroy();
+    expect(destroys).toBe(2);
+  });
+
+  it("adapts live image nodes to model-viewer and falls back when it is unavailable", async () => {
+    const unavailable = mountKineglyph(host(), {
+      scene: liveScene,
+      autoplay: false,
+      liveSurfaces: {
+        "build-preview": modelViewerSurface({ source: "/build.glb" }),
+      },
+    });
+    await vi.waitFor(() =>
+      expect(unavailable.element.querySelector(".kg-live-surface")).toBeNull(),
+    );
+    expect(
+      unavailable.element.querySelector<SVGImageElement>("image[data-live=true]")?.style.opacity,
+    ).not.toBe("0");
+    unavailable.destroy();
+
+    customElements.define("model-viewer", class extends HTMLElement {});
+    const available = mountKineglyph(host(), {
+      scene: liveScene,
+      autoplay: false,
+      liveSurfaces: {
+        "build-preview": modelViewerSurface({ source: "/build.glb" }),
+      },
+    });
+    const viewer = await vi.waitFor(() => {
+      const candidate = available.element.querySelector("model-viewer");
+      expect(candidate).not.toBeNull();
+      return candidate;
+    });
+    viewer?.dispatchEvent(new Event("load"));
+    await vi.waitFor(() =>
+      expect(available.element.querySelector(".kg-live-surface")?.getAttribute("data-ready")).toBe(
+        "true",
+      ),
+    );
+    expect(viewer?.getAttribute("camera-controls")).toBe("");
+    available.destroy();
   });
 
   it("rebuilds machine controls across setScene so no stale handlers or empty bars survive", () => {

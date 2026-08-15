@@ -1,141 +1,141 @@
-import {
-  backdrop,
-  createTheme,
-  innerShadow,
-  linearGradient,
-  noise,
-  shadow,
-  type ThemeTokens,
-} from "@kineglyph/core";
+import { createTheme, shadow, type ThemeTokens } from "@kineglyph/core";
 
 export type ThemeName = "nucleation" | "pock" | "schematio";
+export type RegisteredThemeName = ThemeName | "nucleation-dark" | "nucleation-light";
+
+const nucleationTypography: ThemeTokens["typography"] = {
+  body: {
+    family: 'Inter, "Geist Sans", ui-sans-serif, system-ui, sans-serif',
+    size: 14,
+    lineHeight: 21,
+    weight: 450,
+  },
+  bodyStrong: {
+    family: 'Inter, "Geist Sans", ui-sans-serif, system-ui, sans-serif',
+    size: 15,
+    lineHeight: 21,
+    weight: 650,
+  },
+  caption: {
+    family: 'Inter, "Geist Sans", ui-sans-serif, system-ui, sans-serif',
+    size: 12,
+    lineHeight: 17,
+    weight: 450,
+  },
+  label: {
+    family: '"Geist Mono", ui-monospace, monospace',
+    size: 10.5,
+    lineHeight: 15,
+    weight: 650,
+    letterSpacing: 0.55,
+  },
+  title: {
+    family: 'Inter, "Geist Sans", ui-sans-serif, system-ui, sans-serif',
+    size: 22,
+    lineHeight: 27,
+    weight: 650,
+    letterSpacing: -0.35,
+  },
+  display: {
+    family: 'Inter, "Geist Sans", ui-sans-serif, system-ui, sans-serif',
+    size: 36,
+    lineHeight: 40,
+    weight: 700,
+    letterSpacing: -0.7,
+  },
+  code: {
+    family: '"Geist Mono", ui-monospace, monospace',
+    size: 12.5,
+    lineHeight: 18,
+    weight: 500,
+  },
+};
+
+export const nucleationDarkTheme = createTheme({
+  name: "nucleation-dark",
+  colors: {
+    canvas: "#101216",
+    surface: "#16191e",
+    surfaceRaised: "#1b1f25",
+    surfaceMuted: "#13161a",
+    text: "#e8eaed",
+    textMuted: "#9299a3",
+    accent: "#67cbbb",
+    accentContrast: "#101216",
+    info: "#7d8fd1",
+    success: "#78c9a9",
+    warning: "#dfbd79",
+    danger: "#dc8c8c",
+    connector: "#737b86",
+    border: "#303640",
+    chart1: "#67cbbb",
+    chart2: "#8597d8",
+    chart3: "#d59672",
+    chart4: "#9fbd78",
+    chart5: "#d58da2",
+    chart6: "#aa9bd1",
+    chartPositive: "#78c9a9",
+    chartNegative: "#dc8c8c",
+    chartNeutral: "#9299a3",
+  },
+  radii: { sm: 3, md: 6, lg: 8 },
+  typography: nucleationTypography,
+  motion: { fast: 140, normal: 280, slow: 620, easing: "easeInOut" },
+  strokes: { hairline: 1, thin: 1.15, regular: 1.5, bold: 2.25 },
+  ornament: { grid: "none", surface: "outlined", lineCap: "round", eyebrow: true },
+  materials: {
+    flat: { fill: "canvas" },
+    raised: { fill: "surfaceRaised", stroke: "border" },
+    floating: {
+      fill: "surfaceRaised",
+      stroke: "border",
+      effects: [shadow({ color: "canvas", opacity: 0.22, blur: 12, offset: [0, 4] })],
+    },
+    inset: { fill: "surfaceMuted", stroke: "border" },
+    glass: { fill: "surfaceRaised", stroke: "border" },
+  },
+});
+
+export const nucleationLightTheme = createTheme(
+  {
+    name: "nucleation-light",
+    colors: {
+      canvas: "#f4f1e9",
+      surface: "#faf8f2",
+      surfaceRaised: "#fffdf8",
+      surfaceMuted: "#ece8de",
+      text: "#25282d",
+      textMuted: "#6e746f",
+      accent: "#237f74",
+      accentContrast: "#fffdf8",
+      info: "#6475b7",
+      success: "#4f9275",
+      warning: "#a9792f",
+      danger: "#b76060",
+      connector: "#858b87",
+      border: "#d4cfc4",
+      chart1: "#4da99a",
+      chart2: "#7f8fc7",
+      chart3: "#c48765",
+      chart4: "#91ad6c",
+      chart5: "#c98297",
+      chart6: "#9e90c0",
+      chartPositive: "#4f9275",
+      chartNegative: "#b76060",
+      chartNeutral: "#858b87",
+    },
+  },
+  nucleationDarkTheme,
+);
 
 /**
  * Three product visual languages projected from the same semantic tokens. Each changes
  * colour, typography, corner geometry, stroke weight, motion timing, and ornament.
  */
-export const themes: Readonly<Record<ThemeName, ThemeTokens>> = {
-  nucleation: createTheme({
-    name: "nucleation",
-    colors: {
-      canvas: "#0e1014",
-      surface: "#161a21",
-      surfaceRaised: "#1b2029",
-      surfaceMuted: "#12151b",
-      text: "#e4e7ec",
-      textMuted: "#8a93a3",
-      accent: "#5fd1bc",
-      accentContrast: "#0e1014",
-      info: "#7386d5",
-      success: "#72dec9",
-      warning: "#f2cd87",
-      danger: "#ff9b9b",
-      connector: "#5fd1bc",
-      border: "#333a47",
-      chart1: "#5fd1bc",
-      chart2: "#8b9cff",
-      chart3: "#dc8b5f",
-      chart4: "#a5cf70",
-      chart5: "#e5809c",
-      chart6: "#b6a3e8",
-      chartPositive: "#72dec9",
-      chartNegative: "#ff9b9b",
-      chartNeutral: "#8a93a3",
-    },
-    radii: { sm: 3, md: 6, lg: 10 },
-    typography: {
-      body: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 14,
-        lineHeight: 21,
-        weight: 450,
-      },
-      bodyStrong: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 15,
-        lineHeight: 21,
-        weight: 650,
-      },
-      caption: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 12,
-        lineHeight: 17,
-        weight: 450,
-      },
-      label: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 11,
-        lineHeight: 15,
-        weight: 650,
-        letterSpacing: 0.7,
-      },
-      title: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 22,
-        lineHeight: 27,
-        weight: 650,
-        letterSpacing: -0.4,
-      },
-      display: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 36,
-        lineHeight: 40,
-        weight: 700,
-        letterSpacing: -0.8,
-      },
-      code: {
-        family: '"Geist Mono", ui-monospace, monospace',
-        size: 13,
-        lineHeight: 18,
-        weight: 500,
-      },
-    },
-    motion: { fast: 140, normal: 280, slow: 620, easing: "easeInOut" },
-    strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.5 },
-    ornament: { grid: "dots", surface: "outlined", lineCap: "square", eyebrow: true },
-    materials: {
-      flat: { fill: "canvas" },
-      raised: {
-        fill: linearGradient(
-          [
-            { at: 0, color: "surfaceRaised" },
-            { at: 1, color: "surface" },
-          ],
-          { angle: 135 },
-        ),
-        stroke: "border",
-        effects: [
-          shadow({ color: "canvas", opacity: 0.62, blur: 22, offset: [0, 10] }),
-          noise({ amount: 0.012, scale: 0.8, seed: 11 }),
-        ],
-      },
-      floating: {
-        fill: "surfaceRaised",
-        stroke: "accent",
-        effects: [shadow({ color: "canvas", opacity: 0.72, blur: 30, offset: [0, 16] })],
-      },
-      inset: {
-        fill: "surfaceMuted",
-        stroke: "border",
-        effects: [innerShadow({ color: "canvas", opacity: 0.52, blur: 8, offset: [0, 3] })],
-      },
-      glass: {
-        fill: linearGradient(
-          [
-            { at: 0, color: "accent", opacity: 0.12 },
-            { at: 1, color: "surfaceRaised", opacity: 0.54 },
-          ],
-          { angle: 125 },
-        ),
-        stroke: "accent",
-        effects: [
-          backdrop({ blur: 18, saturation: 1.12 }),
-          noise({ amount: 0.018, scale: 0.58, seed: 17 }),
-          shadow({ color: "canvas", opacity: 0.58, blur: 26, offset: [0, 12] }),
-        ],
-      },
-    },
-  }),
+export const themes: Readonly<Record<RegisteredThemeName, ThemeTokens>> = {
+  nucleation: nucleationDarkTheme,
+  "nucleation-dark": nucleationDarkTheme,
+  "nucleation-light": nucleationLightTheme,
   pock: createTheme({
     name: "pock",
     colors: {
@@ -294,7 +294,7 @@ export const themes: Readonly<Record<ThemeName, ThemeTokens>> = {
 export const themeNames: readonly ThemeName[] = ["nucleation", "pock", "schematio"];
 
 export const themeCopy: Readonly<Record<ThemeName, { label: string; note: string }>> = {
-  nucleation: { label: "Nucleation", note: "Basalt / Vellum · precise, mineral, monospaced" },
+  nucleation: { label: "Nucleation", note: "Basalt / Vellum · quiet, technical, editorial" },
   pock: { label: "Pock", note: "Black / emerald · secure, luminous, kinetic" },
   schematio: { label: "Schematio", note: "Graphite / fuchsia · soft, spatial, product-led" },
 };

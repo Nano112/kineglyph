@@ -176,15 +176,7 @@ function artboard(
     {
       gap: { wide: 20, compact: 16, narrow: 14 },
       padding: { wide: 24, compact: 20, narrow: 16 },
-      frame: material("flat", {
-        fill: linearGradient(
-          [
-            { at: 0, color: "surface" },
-            { at: 1, color: "canvas" },
-          ],
-          { angle: 125 },
-        ),
-      }),
+      frame: material("flat"),
       width: "fill",
     },
   );
@@ -324,7 +316,7 @@ function workloadLane(spec: (typeof FAST)[number], index: number): GroupNode {
           type: "rect",
           width: "fill",
           height: 2,
-          fill: alphaGradient(spec.tone, { from: 0.2, to: 1, angle: 0 }),
+          fill: spec.tone,
           stroke: "none",
         },
         token(`fast-${spec.key}-api`, spec.api, spec.tone),
@@ -1053,7 +1045,7 @@ function simRow(spec: (typeof SIM)[number], index: number): GroupNode {
           type: "rect",
           width: "fill",
           height: 1,
-          fill: alphaGradient(spec.tone, { from: 0.15, to: 1, angle: 0 }),
+          fill: spec.tone,
           stroke: "none",
         },
         token(`${spec.node}-answer`, spec.answer, spec.tone),
@@ -1500,7 +1492,7 @@ function meshLayer(spec: FocusSpec, tone: Tone, width: `${number}%`, order: stri
           width,
           height: 18,
           radius: 3,
-          fill: alphaGradient(tone, { from: 1, to: 0.22, angle: 0 }),
+          fill: tone,
           stroke: tone,
         },
       ],
