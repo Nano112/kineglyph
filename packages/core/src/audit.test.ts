@@ -7,7 +7,7 @@ import { createTheme } from "./theme.js";
 import { monotoneTangents, polylinePath, resolveScene } from "./resolve.js";
 import { seekTimeline } from "./seek.js";
 import { scopeFragment, type SceneFragment } from "./fragment.js";
-import type { SceneDefinition, SceneNode } from "./scene.js";
+import type { GroupNode, SceneDefinition, SceneNode } from "./scene.js";
 
 const theme = createTheme();
 
@@ -39,13 +39,9 @@ function sampleInterpolant(pts: Pt[]): number[] {
   return samples;
 }
 
-function scene(children: SceneNode[], root: Partial<SceneNode> = {}): SceneDefinition {
-  return {
-    schemaVersion: 2,
-    id: "audit",
-    title: "Audit",
-    root: { id: "root", type: "group", layout: "stack", children, ...root } as SceneNode,
-  };
+function scene(children: SceneNode[]): SceneDefinition {
+  const root: GroupNode = { id: "root", type: "group", layout: "stack", children };
+  return { schemaVersion: 2, id: "audit", title: "Audit", root };
 }
 
 describe("monotone interpolation is slope limited", () => {
