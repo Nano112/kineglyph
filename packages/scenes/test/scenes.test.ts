@@ -44,6 +44,33 @@ describe("illustration catalogue", () => {
     }
   });
 
+  it("visibly demonstrates the edge grammar across the catalogue", () => {
+    const routes = new Set<string>();
+    const heads = new Set<string>();
+    const strokes = new Set<string>();
+    let labels = 0;
+    let packets = 0;
+    let twoWay = 0;
+    for (const entry of catalogue) {
+      const resolved = resolveScene(entry.scene, { width: 1200, theme: themes.nucleation });
+      for (const edge of resolved.edges) {
+        routes.add(edge.route ?? "straight");
+        heads.add(edge.head ?? "none");
+        heads.add(edge.tail ?? "none");
+        strokes.add(edge.dash ?? "solid");
+        labels += edge.labels?.length ?? 0;
+        packets += (edge.metadata?.packetCount as number | undefined) ?? 0;
+        if ((edge.head ?? "none") !== "none" && (edge.tail ?? "none") !== "none") twoWay += 1;
+      }
+    }
+    expect([...routes].sort()).toEqual(["arc", "curve", "orthogonal", "straight"]);
+    expect(heads.size).toBeGreaterThanOrEqual(4);
+    expect(strokes.size).toBeGreaterThanOrEqual(3);
+    expect(labels).toBeGreaterThan(0);
+    expect(packets).toBeGreaterThan(0);
+    expect(twoWay).toBeGreaterThan(0);
+  });
+
   for (const entry of catalogue) {
     describe(entry.slug, () => {
       for (const width of WIDTHS) {
