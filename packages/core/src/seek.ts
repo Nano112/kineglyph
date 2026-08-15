@@ -94,12 +94,16 @@ function updateNode(
   for (const track of tracks) {
     const value = evaluateTrack(track, time);
     switch (track.property) {
+      // Timeline opacity composes with binding-driven base opacity (e.g. a dimmed card still fades in).
       case "opacity":
-      case "progress":
-        state[track.property] = clamp(value, 0, 1);
+        state.opacity = clamp(value, 0, 1) * clamp(node.state.opacity, 0, 1);
         break;
+      case "progress":
+        state.progress = clamp(value, 0, 1);
+        break;
+      // Emphasis from timelines and machines combine as the stronger of the two.
       case "highlight":
-        state.highlight = clamp(value, 0, 1);
+        state.highlight = Math.max(clamp(value, 0, 1), node.state.highlight ?? 0);
         break;
       case "translateX":
       case "translateY":
@@ -122,10 +126,12 @@ function updateEdge(
   const state = { ...edge.state };
   for (const track of tracks) {
     const value = evaluateTrack(track, time);
-    if (track.property === "opacity") state.opacity = clamp(value, 0, 1);
+    if (track.property === "opacity")
+      state.opacity = clamp(value, 0, 1) * clamp(edge.state.opacity, 0, 1);
     else if (track.property === "progress" || track.property === "edgeReveal")
       state.progress = clamp(value, 0, 1);
-    else if (track.property === "highlight") state.highlight = clamp(value, 0, 1);
+    else if (track.property === "highlight")
+      state.highlight = Math.max(clamp(value, 0, 1), edge.state.highlight ?? 0);
     else if (track.property === "flow") state.flow = clamp(value, 0, 1);
     else throw new Error(`${track.property} track ${track.id} cannot target edge ${edge.id}`);
   }

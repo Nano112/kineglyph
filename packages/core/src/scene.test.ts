@@ -157,6 +157,49 @@ describe("resolveScene", () => {
     ).toBe(1);
   });
 
+  it("composes timeline opacity and highlight with binding-driven base values", () => {
+    const bound: SceneDefinition = {
+      ...scene,
+      id: "bound-opacity",
+      root: {
+        ...scene.root,
+        children: [{ ...card("a", "Alpha", "Body"), bind: { opacity: "dim", highlight: "focus" } }],
+      },
+      edges: [],
+      timeline: {
+        duration: 1000,
+        tracks: [
+          {
+            id: "a-in",
+            target: "a",
+            property: "opacity",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 1000, value: 1 },
+            ],
+          },
+          {
+            id: "a-pulse",
+            target: "a",
+            property: "highlight",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 500, value: 1 },
+              { time: 1000, value: 0 },
+            ],
+          },
+        ],
+      },
+    };
+    const resolved = resolveScene(bound, { width: 800, theme, signals: { dim: 0.5, focus: 0.3 } });
+    const find = (time: number) =>
+      seekTimeline(resolved, time).nodes.find((node) => node.id === "a");
+    expect(find(1000)?.state.opacity).toBeCloseTo(0.5, 5);
+    expect(find(500)?.state.opacity).toBeCloseTo(0.25, 5);
+    expect(find(500)?.state.highlight).toBe(1);
+    expect(find(1000)?.state.highlight).toBeCloseTo(0.3, 5);
+  });
+
   it("rejects invalid definitions with useful diagnostics", () => {
     const broken: SceneDefinition = {
       ...scene,
