@@ -1,0 +1,320 @@
+import { describe, expect, it } from "vitest";
+import {
+  body,
+  caption,
+  card,
+  code,
+  container,
+  eyebrow,
+  flowLayout,
+  grid,
+  heading,
+  keyValue,
+  motif,
+  overlay,
+  panel,
+  pill,
+  row,
+  rule,
+  spacer,
+  stack,
+  text,
+  title,
+} from "./recipes.js";
+import { resolveScene } from "./resolve.js";
+import { validateScene, walkScene, type GroupNode, type SceneNode } from "./scene.js";
+
+function ids(node: SceneNode): string[] {
+  const out: string[] = [];
+  if (node.type === "group") walkScene(node, (entry) => out.push(entry.id));
+  else out.push(node.id);
+  return out;
+}
+
+describe("text recipes", () => {
+  it("map to semantic text styles and pass through options", () => {
+    expect(eyebrow("e", "Scalar field").textStyle).toBe("label");
+    expect(heading("h", "Field3").textStyle).toBe("bodyStrong");
+    expect(title("t", "Section").textStyle).toBe("title");
+    expect(body("b", "Copy").textStyle).toBe("body");
+    expect(code("c", "f(p)").textStyle).toBe("code");
+    expect(caption("cap", "Supporting")).toMatchObject({ textStyle: "caption", maxLines: 4 });
+    expect(caption("cap", "Supporting", { maxLines: 2 }).maxLines).toBe(2);
+    expect(text("plain", "Plain").textStyle).toBeUndefined();
+    expect(text("styled", "Styled", { textStyle: "display" }).textStyle).toBe("display");
+    expect(
+      heading("h", "Bound", {
+        tone: "info",
+        align: "center",
+        bind: { text: "headline" },
+        hidden: { narrow: true },
+        width: "fill",
+        transform: "uppercase",
+      }),
+    ).toEqual({
+      id: "h",
+      type: "text",
+      text: "Bound",
+      textStyle: "bodyStrong",
+      color: "info",
+      align: "center",
+      bind: { text: "headline" },
+      hidden: { narrow: true },
+      width: "fill",
+      transform: "uppercase",
+    });
+  });
+});
+
+describe("pill, motif, rule, spacer, keyValue", () => {
+  it("apply their defaults", () => {
+    expect(pill("p", "Beta")).toEqual({
+      id: "p",
+      type: "badge",
+      text: "Beta",
+      tone: "accent",
+      variant: "soft",
+    });
+    expect(pill("p", "Beta", { tone: "danger", variant: "outline" })).toMatchObject({
+      tone: "danger",
+      variant: "outline",
+    });
+    expect(motif("m", "cube")).toEqual({
+      id: "m",
+      type: "icon",
+      icon: "cube",
+      tone: "accent",
+      size: 24,
+    });
+    expect(motif("m", "cube", { tone: "info", size: 32, background: "surface" })).toMatchObject({
+      tone: "info",
+      size: 32,
+      background: "surface",
+    });
+    expect(rule("r")).toMatchObject({ type: "rect", height: 1, width: "fill", fill: "border" });
+    expect(rule("r", "accent").fill).toBe("accent");
+    expect(spacer("s", { wide: 24, compact: 12 })).toMatchObject({
+      type: "rect",
+      height: { wide: 24, compact: 12 },
+      fill: "none",
+    });
+    const kv = keyValue("kv", "Cells", "512", { valueTone: "success" });
+    expect(kv.layout).toBe("row");
+    expect(kv.justify).toBe("between");
+    expect(kv.children.map((child) => child.id)).toEqual(["kv-key", "kv-value"]);
+    expect(kv.children[1]).toMatchObject({ type: "text", textStyle: "code", color: "success" });
+  });
+});
+
+describe("containers", () => {
+  it("expose every layout with the same option shape", () => {
+    const child = text("c", "child");
+    expect(stack("s", [child]).layout).toBe("stack");
+    expect(row("r", [child]).layout).toBe("row");
+    expect(grid("g", [child], { columns: 3 })).toMatchObject({ layout: "grid", columns: 3 });
+    expect(overlay("o", [child]).layout).toBe("overlay");
+    expect(flowLayout("f", [child]).layout).toEqual({ wide: "row", compact: "stack" });
+    expect(container("c2", "coordinates", [child], { height: 120 })).toMatchObject({
+      layout: "coordinates",
+      height: 120,
+    });
+    const options = {
+      gap: 8,
+      padding: [4, 8] as const,
+      align: "center" as const,
+      justify: "between" as const,
+      width: "fill" as const,
+      height: 40,
+      minWidth: 10,
+      maxWidth: 400,
+      grow: 1,
+      frame: { fill: "surface" as const },
+      hidden: { compact: true },
+      z: 2,
+      label: "Row",
+      description: "A row",
+      interactive: true,
+      onActivate: "GO",
+      bind: { highlight: "lit" },
+      metadata: { stage: 1 },
+      alignSelf: "end" as const,
+      clip: true,
+    };
+    expect(row("full", [child], options)).toEqual({
+      id: "full",
+      type: "group",
+      layout: "row",
+      children: [child],
+      ...options,
+    });
+    // Undefined options never leak into the node.
+    expect(Object.keys(stack("bare", [child]))).toEqual(["id", "type", "layout", "children"]);
+  });
+});
+
+describe("card()", () => {
+  it("builds the header, body, badge, and extras with derived ids", () => {
+    const extra = keyValue("extra", "k", "v");
+    const node = card("plan", {
+      eyebrow: "Stage 1",
+      title: "Plan",
+      body: "Bound the region.",
+      motif: "graph",
+      tone: "info",
+      badge: "pure",
+      extras: [extra],
+      interactive: true,
+      onActivate: "FOCUS_PLAN",
+      bind: { highlight: "planFocus" },
+      metadata: { stage: 1 },
+      compact: true,
+    });
+    expect(node.type).toBe("group");
+    expect(node.layout).toBe("stack");
+    expect(node.children.map((child) => child.id)).toEqual([
+      "plan-header",
+      "plan-body",
+      "plan-badge",
+      "extra",
+    ]);
+    expect(ids(node)).toEqual([
+      "plan",
+      "plan-header",
+      "plan-motif",
+      "plan-heading",
+      "plan-eyebrow",
+      "plan-title",
+      "plan-body",
+      "plan-badge",
+      "extra",
+      "extra-key",
+      "extra-value",
+    ]);
+    expect(node).toMatchObject({
+      gap: 6,
+      padding: [12, 14],
+      frame: { fill: "surface", stroke: "border" },
+      width: "fill",
+      label: "Plan",
+      description: "Bound the region.",
+      interactive: true,
+      onActivate: "FOCUS_PLAN",
+      bind: { highlight: "planFocus" },
+      metadata: { stage: 1 },
+    });
+    const header = node.children[0] as GroupNode;
+    expect(header.layout).toBe("row");
+    expect(header.children[0]).toMatchObject({ type: "icon", icon: "graph", tone: "info" });
+    expect(node.children[2]).toMatchObject({ type: "badge", text: "pure", tone: "info" });
+    // `compact` is a recipe switch, not a container option: it must not leak into the node.
+    expect("compact" in node).toBe(false);
+  });
+
+  it("keeps the title block flat without a motif and honours explicit labels and binds", () => {
+    const node = card("c", {
+      title: "Only title",
+      label: "Custom name",
+      titleBind: { text: "titleSignal" },
+      bodyBind: { text: "bodySignal" },
+      body: "Body",
+      badge: "b",
+      badgeBind: { hidden: "hideBadge" },
+      badgeTone: "warning",
+    });
+    expect(node.children.map((child) => child.id)).toEqual(["c-title", "c-body", "c-badge"]);
+    expect(node.label).toBe("Custom name");
+    expect(node.gap).toBe(8);
+    expect(node.padding).toEqual([16, 18]);
+    expect(node.children[0]).toMatchObject({ bind: { text: "titleSignal" } });
+    expect(node.children[1]).toMatchObject({ bind: { text: "bodySignal" } });
+    expect(node.children[2]).toMatchObject({ bind: { hidden: "hideBadge" }, tone: "warning" });
+  });
+});
+
+describe("panel()", () => {
+  it("wraps content in a muted dashed frame with an optional head", () => {
+    const a = card("a", { title: "A" });
+    const b = card("b", { title: "B" });
+    const node = panel("group", [a, b], {
+      eyebrow: "Inputs",
+      title: "Two cards",
+      layout: { wide: "row", compact: "stack" },
+      columns: 2,
+      gap: 20,
+      tone: "info",
+      hidden: { narrow: true },
+    });
+    expect(node.children.map((child) => child.id)).toEqual(["group-head", "group-content"]);
+    const head = node.children[0] as GroupNode;
+    expect(head.children.map((child) => child.id)).toEqual(["group-eyebrow", "group-title"]);
+    expect(head.children[0]).toMatchObject({ color: "info" });
+    const content = node.children[1] as GroupNode;
+    expect(content).toMatchObject({
+      layout: { wide: "row", compact: "stack" },
+      gap: 20,
+      columns: 2,
+      width: "fill",
+    });
+    expect(content.children).toEqual([a, b]);
+    expect(node).toMatchObject({
+      gap: 12,
+      padding: 16,
+      frame: { fill: "surfaceMuted", stroke: "border", dash: "dashed" },
+      width: "fill",
+      hidden: { narrow: true },
+    });
+    expect("columns" in node).toBe(false);
+    const bare = panel("bare", [a]);
+    expect(bare.children.map((child) => child.id)).toEqual(["bare-content"]);
+    expect((bare.children[0] as GroupNode).gap).toBe(12);
+  });
+});
+
+describe("recipes resolve", () => {
+  it("compose into a valid scene that lays out at every width", () => {
+    const scene = {
+      schemaVersion: 2 as const,
+      id: "recipes",
+      title: "Recipes",
+      root: stack(
+        "root",
+        [
+          title("t", "Recipes"),
+          flowLayout(
+            "flow",
+            [
+              card("a", { eyebrow: "One", title: "Alpha", body: "First card.", motif: "graph" }),
+              panel(
+                "p",
+                [card("b", { title: "Beta", badge: "new", extras: [keyValue("kv", "k", "v")] })],
+                {
+                  eyebrow: "Panel",
+                  title: "Grouped",
+                },
+              ),
+            ],
+            { gap: 24 },
+          ),
+          rule("r"),
+          row(
+            "meta",
+            [pill("pill", "ready"), motif("m", "cube"), spacer("sp", 8), code("c", "x")],
+            {
+              gap: 8,
+              align: "center",
+            },
+          ),
+        ],
+        { gap: 16, width: "fill" },
+      ),
+    };
+    expect(validateScene(scene).ok).toBe(true);
+    for (const width of [1200, 820, 390]) {
+      const resolved = resolveScene(scene, { width });
+      const problems = (resolved.diagnostics ?? []).filter((entry) =>
+        ["overlap", "overflow", "text-truncated"].includes(entry.code),
+      );
+      expect(problems).toEqual([]);
+    }
+  });
+});
