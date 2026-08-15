@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { PipelineDefinition, ResolvedScene, ThemeTokens } from "@kineglyph/core";
-import { resolvePipeline } from "@kineglyph/core";
+import type {
+  LayoutName,
+  PipelineDefinition,
+  ResolvedScene,
+  SceneDefinition,
+  ThemeTokens,
+} from "@kineglyph/core";
+import { resolveMachineState, resolvePipeline, resolveScene } from "@kineglyph/core";
 import { KineglyphExportError } from "./errors.js";
 import { exportFile } from "./file.js";
 import { gifInfo, pngInfo } from "./formats.js";
@@ -17,7 +23,7 @@ import { exportSvg, resolveOutputSize, sceneDimensions } from "./svg.js";
 const USAGE = `Usage: kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file> [options]
 
 Options:
-  --theme <module>#<export>   Theme tokens module (object or factory function)
+  --theme <module>#<export>   Theme tokens module (object, factory, or dotted path like #themes.pock)
   --width <px>                Output width (height follows the scene aspect ratio)
   --height <px>               Output height (width follows the scene aspect ratio)
   --scale <factor>            Uniform scale (cannot be combined with --width/--height)
@@ -26,7 +32,8 @@ Options:
   --hold-last <ms>            Extra hold on the final GIF frame (default: 800)
   --no-loop                   Play the GIF once instead of looping
   --background <mode>         transparent | theme | <css color> (default: theme)
-  --layout <mode>             wide | stacked (pipeline definitions only)
+  --layout <mode>             auto | wide | compact | narrow (stacked for pipelines)
+  --state <id>                Machine state to resolve (scene definitions with a machine)
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
   --font <path>               Font file for png/gif (repeatable)
   --no-system-fonts           Do not load fonts installed on this machine
@@ -47,7 +54,8 @@ interface CliArgs {
   readonly holdLast?: number;
   readonly loop: boolean;
   readonly background?: string;
-  readonly layout?: "wide" | "stacked";
+  readonly layout?: LayoutName | "auto" | "stacked";
+  readonly state?: string;
   readonly containerWidth?: number;
   readonly fonts: readonly string[];
   readonly loadSystemFonts: boolean;
@@ -74,6 +82,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     "hold-last",
     "background",
     "layout",
+    "state",
     "width-container",
     "font",
     "default-font",
@@ -116,6 +125,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
   if (scene === undefined) throw new UsageError("--scene is required");
   if (out === undefined) throw new UsageError("--out is required");
   const layout = parseLayout(values.get("layout"));
+  const state = values.get("state");
   return {
     format,
     scene,
@@ -130,6 +140,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     loop,
     ...optional("background", values.get("background")),
     ...optional("layout", layout),
+    ...optional("state", state),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
     fonts,
     loadSystemFonts,
@@ -141,9 +152,17 @@ function optional<K extends string, V>(key: K, value: V | undefined): Partial<Re
   return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
 }
 
-function parseLayout(value: string | undefined): "wide" | "stacked" | undefined {
-  if (value === undefined || value === "wide" || value === "stacked") return value;
-  throw new UsageError("--layout must be wide or stacked");
+function parseLayout(value: string | undefined): LayoutName | "auto" | "stacked" | undefined {
+  if (
+    value === undefined ||
+    value === "auto" ||
+    value === "wide" ||
+    value === "compact" ||
+    value === "narrow" ||
+    value === "stacked"
+  )
+    return value;
+  throw new UsageError("--layout must be auto, wide, compact, narrow, or stacked");
 }
 
 function numeric(flag: string, value: string | undefined): number | undefined {
@@ -162,12 +181,20 @@ async function loadExport(spec: string): Promise<unknown> {
   const url = pathToFileURL(resolvePath(process.cwd(), modulePath)).href;
   const module = (await import(url)) as Record<string, unknown>;
   if (exportName !== undefined && exportName !== "") {
-    if (!(exportName in module)) {
+    // Dotted paths (e.g. "themes.pock") walk into exported records.
+    const [head = "", ...rest] = exportName.split(".");
+    if (!(head in module)) {
       throw new UsageError(
-        `${modulePath} has no export named "${exportName}" (available: ${Object.keys(module).join(", ")})`,
+        `${modulePath} has no export named "${head}" (available: ${Object.keys(module).join(", ")})`,
       );
     }
-    return module[exportName];
+    let value: unknown = module[head];
+    for (const key of rest) {
+      if (!isRecord(value) || !(key in value))
+        throw new UsageError(`${modulePath}#${exportName}: "${key}" not found`);
+      value = value[key];
+    }
+    return value;
   }
   for (const candidate of ["default", "scene", "pipeline"]) {
     if (module[candidate] !== undefined) return module[candidate];
@@ -191,8 +218,9 @@ async function loadTheme(spec: string | undefined): Promise<ThemeTokens | undefi
 
 interface ResolveContext {
   readonly width: number;
-  readonly layout: "wide" | "stacked" | undefined;
+  readonly layout: LayoutName | "auto" | "stacked" | undefined;
   readonly theme: ThemeTokens | undefined;
+  readonly state: string | undefined;
 }
 
 async function loadScene(spec: string, context: ResolveContext): Promise<ResolvedScene> {
@@ -201,16 +229,38 @@ async function loadScene(spec: string, context: ResolveContext): Promise<Resolve
     value = await (value as (input: ResolveContext) => unknown)(context);
   }
   if (isResolvedScene(value)) return value;
+  if (isSceneDefinition(value)) {
+    const machineState =
+      context.state === undefined || value.machine === undefined
+        ? undefined
+        : resolveMachineState(value.machine, context.state);
+    return resolveScene(value, {
+      width: context.width,
+      ...(context.layout === undefined
+        ? {}
+        : { layout: context.layout === "stacked" ? "compact" : context.layout }),
+      ...(context.theme === undefined ? {} : { theme: context.theme }),
+      ...(machineState === undefined ? {} : { machineState }),
+    });
+  }
   if (isPipelineDefinition(value)) {
     return resolvePipeline(value, {
       width: context.width,
-      ...(context.layout === undefined ? {} : { layout: context.layout }),
+      ...(context.layout === undefined ? {} : { layout: pipelineLayout(context.layout) }),
       ...(context.theme === undefined ? {} : { theme: context.theme }),
     });
   }
   throw new UsageError(
-    `${spec} must export a ResolvedScene, a PipelineDefinition, or a resolve({ width, theme, layout }) function`,
+    `${spec} must export a ResolvedScene, a SceneDefinition, a PipelineDefinition, or a resolve({ width, theme, layout }) function`,
   );
+}
+
+function isSceneDefinition(value: unknown): value is SceneDefinition {
+  return isRecord(value) && value.schemaVersion === 2 && isRecord(value.root);
+}
+
+function pipelineLayout(layout: string): "auto" | "wide" | "stacked" {
+  return layout === "wide" ? "wide" : layout === "auto" ? "auto" : "stacked";
 }
 
 function isResolvedScene(value: unknown): value is ResolvedScene {
@@ -245,6 +295,7 @@ async function run(argv: readonly string[]): Promise<number> {
   const scene = await loadScene(args.scene, {
     width: args.containerWidth ?? 960,
     layout: args.layout,
+    state: args.state,
     theme,
   });
   const frameOptions: Omit<SvgExportOptions, "time"> = {
