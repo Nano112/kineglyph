@@ -162,7 +162,7 @@ function Gallery({ theme, preset }: PageProps) {
               </a>
             </div>
             <FigureFrame preset={preset}>
-              <KineglyphFigure figure={entry.scene} theme={theme} autoplay />
+              <GalleryFigure entry={entry} theme={theme} />
             </FigureFrame>
             <dl className="gallery__facts">
               <div>
@@ -178,6 +178,39 @@ function Gallery({ theme, preset }: PageProps) {
         ))}
       </ol>
     </section>
+  );
+}
+
+/** Mounts a figure that starts playing the first time it scrolls into view. */
+function GalleryFigure({
+  entry,
+  theme,
+}: {
+  readonly entry: CatalogueEntry;
+  readonly theme: ThemeTokens;
+}) {
+  const handle = useRef<KineglyphFigureHandle>(null);
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = host.current;
+    if (element === null || typeof IntersectionObserver === "undefined") return;
+    let started = false;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (started || !entries.some((item) => item.isIntersecting)) return;
+        started = true;
+        handle.current?.restart(true);
+        observer.disconnect();
+      },
+      { threshold: 0.35 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [entry]);
+  return (
+    <div ref={host}>
+      <KineglyphFigure ref={handle} figure={entry.scene} theme={theme} autoplay={false} />
+    </div>
   );
 }
 
