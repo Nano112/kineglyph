@@ -1,3 +1,4 @@
+export * from "./authoring.js";
 export * from "./edges.js";
 export * from "./geometry.js";
 export * from "./layout.js";

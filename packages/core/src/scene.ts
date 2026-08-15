@@ -257,6 +257,7 @@ export interface EdgeLabel {
   readonly offset?: number;
   readonly textStyle?: SemanticTextStyle;
   readonly tone?: Paint;
+  readonly hidden?: Responsive<boolean>;
   readonly bind?: { readonly text?: string; readonly hidden?: string };
 }
 

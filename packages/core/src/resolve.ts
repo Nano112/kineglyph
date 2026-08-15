@@ -1557,6 +1557,7 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
       theme,
       boxes: emitted.boxes,
       obstacles: emitted.obstacles,
+      bounds: { x: 0, y: 0, width, height },
       labelFont,
       labelColor: theme.colors.textMuted,
       precision,

@@ -41,6 +41,8 @@ export interface EdgeResolveContext {
   readonly boxes: ReadonlyMap<string, EdgeNodeBox>;
   /** Obstacle rectangles used to nudge labels away from nodes. */
   readonly obstacles: readonly Rect[];
+  /** Scene bounds that labels must stay inside. */
+  readonly bounds?: Rect;
   readonly labelFont: TextFont;
   readonly labelColor: string;
   readonly precision: number;
@@ -425,7 +427,9 @@ export function resolveEdge(
   const claimed: Rect[] = [];
   for (const label of definedLabels) {
     const text = context.overrides?.labelText?.get(label.id) ?? label.text;
-    const hidden = context.overrides?.labelHidden?.has(label.id) ?? false;
+    const hidden =
+      (context.overrides?.labelHidden?.has(label.id) ?? false) ||
+      ("hidden" in label && pickOr(label.hidden, context.layout, false));
     const font = context.labelFont;
     const textWidth = measureText(text, font);
     const boxWidth = textWidth + 10;
@@ -435,24 +439,30 @@ export function resolveEdge(
     const anchor = geometry.pointAt(PLACEMENT_T[placement]);
     const baseOffset =
       "offset" in label && label.offset !== undefined ? label.offset : -(boxHeight / 2 + 4);
-    const candidates = [
-      baseOffset,
-      -baseOffset,
-      baseOffset * 2,
-      -baseOffset * 2,
-      baseOffset * 3,
-      -baseOffset * 3,
-    ];
+    const candidates: number[] = [];
+    for (let step = 1; step <= 6; step += 1) candidates.push(baseOffset * step, -baseOffset * step);
+    const bounds = context.bounds;
+    const inside = (rect: Rect): boolean =>
+      bounds === undefined ||
+      (rect.x >= bounds.x - 0.5 &&
+        rect.y >= bounds.y - 0.5 &&
+        rect.x + rect.width <= bounds.x + bounds.width + 0.5 &&
+        rect.y + rect.height <= bounds.y + bounds.height + 0.5);
     let box = labelBox(anchor, anchor.angle, baseOffset, boxWidth, boxHeight);
     for (const candidate of candidates) {
       const trial = labelBox(anchor, anchor.angle, candidate, boxWidth, boxHeight);
       const collides =
         context.obstacles.some((obstacle) => rectsIntersect(trial, obstacle, 1)) ||
         claimed.some((other) => rectsIntersect(trial, other, 1));
-      if (!collides) {
+      if (!collides && inside(trial)) {
         box = trial;
         break;
       }
+    }
+    if (bounds !== undefined && !inside(box)) {
+      const x = Math.min(Math.max(box.x, bounds.x), bounds.x + bounds.width - box.width);
+      const y = Math.min(Math.max(box.y, bounds.y), bounds.y + bounds.height - box.height);
+      box = { ...box, x, y };
     }
     claimed.push(box);
     const color =

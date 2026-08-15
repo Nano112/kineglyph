@@ -1,0 +1,227 @@
+import { createTheme, type ThemeTokens } from "@kineglyph/core";
+
+export type ThemeName = "nucleation" | "pock" | "schematio";
+
+/**
+ * Three product visual languages projected from the same semantic tokens. Each changes
+ * colour, typography, corner geometry, stroke weight, motion timing, and ornament.
+ */
+export const themes: Readonly<Record<ThemeName, ThemeTokens>> = {
+  nucleation: createTheme({
+    name: "nucleation",
+    colors: {
+      canvas: "#0e1014",
+      surface: "#161a21",
+      surfaceRaised: "#1b2029",
+      surfaceMuted: "#12151b",
+      text: "#e4e7ec",
+      textMuted: "#8a93a3",
+      accent: "#5fd1bc",
+      accentContrast: "#0e1014",
+      info: "#7386d5",
+      success: "#72dec9",
+      warning: "#f2cd87",
+      danger: "#ff9b9b",
+      connector: "#5fd1bc",
+      border: "#333a47",
+    },
+    radii: { sm: 3, md: 6, lg: 10 },
+    typography: {
+      body: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 14,
+        lineHeight: 21,
+        weight: 450,
+      },
+      bodyStrong: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 15,
+        lineHeight: 21,
+        weight: 650,
+      },
+      caption: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 12,
+        lineHeight: 17,
+        weight: 450,
+      },
+      label: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 11,
+        lineHeight: 15,
+        weight: 650,
+        letterSpacing: 0.7,
+      },
+      title: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 22,
+        lineHeight: 27,
+        weight: 650,
+        letterSpacing: -0.4,
+      },
+      display: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 36,
+        lineHeight: 40,
+        weight: 700,
+        letterSpacing: -0.8,
+      },
+      code: {
+        family: '"Geist Mono", ui-monospace, monospace',
+        size: 13,
+        lineHeight: 18,
+        weight: 500,
+      },
+    },
+    motion: { fast: 140, normal: 280, slow: 620, easing: "easeInOut" },
+    strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.5 },
+    ornament: { grid: "dots", surface: "outlined", lineCap: "square", eyebrow: true },
+  }),
+  pock: createTheme({
+    name: "pock",
+    colors: {
+      canvas: "#060606",
+      surface: "#0d0d0d",
+      surfaceRaised: "#111612",
+      surfaceMuted: "#0a0f0c",
+      text: "#e6fff5",
+      textMuted: "#83a397",
+      accent: "#10b981",
+      accentContrast: "#04120c",
+      info: "#38bdf8",
+      success: "#34d399",
+      warning: "#fbbf24",
+      danger: "#fb7185",
+      connector: "#34d399",
+      border: "#1b3329",
+    },
+    radii: { sm: 6, md: 12, lg: 18 },
+    typography: {
+      body: {
+        family: '"Space Grotesk", system-ui, sans-serif',
+        size: 15,
+        lineHeight: 22,
+        weight: 450,
+      },
+      bodyStrong: {
+        family: '"Space Grotesk", system-ui, sans-serif',
+        size: 16,
+        lineHeight: 22,
+        weight: 650,
+      },
+      caption: {
+        family: '"Space Grotesk", system-ui, sans-serif',
+        size: 12.5,
+        lineHeight: 18,
+        weight: 450,
+      },
+      label: {
+        family: '"JetBrains Mono", ui-monospace, monospace',
+        size: 10,
+        lineHeight: 14,
+        weight: 650,
+        letterSpacing: 1,
+      },
+      title: {
+        family: '"Space Grotesk", system-ui, sans-serif',
+        size: 24,
+        lineHeight: 29,
+        weight: 650,
+        letterSpacing: -0.5,
+      },
+      display: {
+        family: '"Space Grotesk", system-ui, sans-serif',
+        size: 40,
+        lineHeight: 44,
+        weight: 700,
+        letterSpacing: -1,
+      },
+      code: {
+        family: '"JetBrains Mono", ui-monospace, monospace',
+        size: 13,
+        lineHeight: 18,
+        weight: 500,
+      },
+    },
+    motion: { fast: 120, normal: 260, slow: 560, easing: "easeOut" },
+    strokes: { hairline: 1, thin: 1.5, regular: 2.25, bold: 3.5 },
+    ornament: { grid: "none", surface: "glow", lineCap: "round", eyebrow: true },
+  }),
+  schematio: createTheme({
+    name: "schematio",
+    colors: {
+      canvas: "#202126",
+      surface: "#2d2d2d",
+      surfaceRaised: "#383a42",
+      surfaceMuted: "#26272c",
+      text: "#f7f8f8",
+      textMuted: "#b6b9c3",
+      accent: "#db45f0",
+      accentContrast: "#ffffff",
+      info: "#5ea0ff",
+      success: "#a3f322",
+      warning: "#ffba00",
+      danger: "#ff647e",
+      connector: "#e978fa",
+      border: "#4a4d5a",
+    },
+    radii: { sm: 8, md: 14, lg: 22 },
+    typography: {
+      body: { family: '"Figtree", system-ui, sans-serif', size: 15, lineHeight: 22, weight: 450 },
+      bodyStrong: {
+        family: '"Figtree", system-ui, sans-serif',
+        size: 16,
+        lineHeight: 22,
+        weight: 650,
+      },
+      caption: {
+        family: '"Figtree", system-ui, sans-serif',
+        size: 12.5,
+        lineHeight: 18,
+        weight: 450,
+      },
+      label: {
+        family: '"Figtree", system-ui, sans-serif',
+        size: 11,
+        lineHeight: 15,
+        weight: 700,
+        letterSpacing: 0.75,
+      },
+      title: {
+        family: '"Figtree", system-ui, sans-serif',
+        size: 25,
+        lineHeight: 30,
+        weight: 700,
+        letterSpacing: -0.5,
+      },
+      display: {
+        family: '"Figtree", system-ui, sans-serif',
+        size: 42,
+        lineHeight: 46,
+        weight: 700,
+        letterSpacing: -1,
+      },
+      code: {
+        family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        size: 13,
+        lineHeight: 18,
+        weight: 500,
+      },
+    },
+    motion: { fast: 150, normal: 300, slow: 650, easing: "easeInOut" },
+    strokes: { hairline: 1, thin: 1.5, regular: 2, bold: 3 },
+    ornament: { grid: "lines", surface: "flat", lineCap: "round", eyebrow: false },
+  }),
+};
+
+export const themeNames: readonly ThemeName[] = ["nucleation", "pock", "schematio"];
+
+export const themeCopy: Readonly<Record<ThemeName, { label: string; note: string }>> = {
+  nucleation: { label: "Nucleation", note: "Basalt / Vellum · precise, mineral, monospaced" },
+  pock: { label: "Pock", note: "Black / emerald · secure, luminous, kinetic" },
+  schematio: { label: "Schematio", note: "Graphite / fuchsia · soft, spatial, product-led" },
+};
+
+export function isThemeName(value: string): value is ThemeName {
+  return value === "nucleation" || value === "pock" || value === "schematio";
+}
