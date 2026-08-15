@@ -146,6 +146,13 @@ Named curves are `linear`, `easeIn`, `easeOut`, `easeInOut`, their cubic variant
 `easeOutBack`, and `easeOutExpo`. Cubic Bézier x handles must remain between 0 and 1; y handles and
 springs may overshoot. Exact endpoints make loops and deterministic snapshots safe.
 
+### Materials and effects
+
+`material(role, overrides)` separates a surface's semantic relationship from its visual treatment.
+Roles are `flat`, `raised`, `floating`, `inset`, and `glass`; themes map them to paint, elevation,
+texture, blur, blending, and named shader intent. Group frames accept the returned style, and shape
+nodes accept a `material` reference directly. See [Materials and effects](./materials-and-effects.md).
+
 Implementation notes (`packages/core/src/figure.ts`; the cookbook is `cookbook.md`):
 
 - Ids: `${kind}-${slug(primaryText)}` — kind is the helper name (`heading`, `card`, `stack`,

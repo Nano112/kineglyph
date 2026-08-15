@@ -6,6 +6,7 @@
  * tokens or tones instead of embedded product colours.
  */
 import type { AnimationTimeline } from "./resolved.js";
+import type { MaterialRef, MaterialStyle } from "./material.js";
 import type { SemanticColorToken, SemanticTextStyle } from "./schema.js";
 import type { StateMachineDefinition, Condition, VariableValue } from "./machine.js";
 
@@ -148,7 +149,7 @@ export interface EdgeBindings {
   readonly label?: string;
 }
 
-export interface FrameStyle {
+export interface FrameStyle extends MaterialStyle {
   readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
@@ -172,6 +173,8 @@ interface BaseNode {
   readonly opacity?: number;
   readonly metadata?: SceneMetadata;
   readonly bind?: NodeBindings;
+  /** Semantic material role or a role with local overrides; shapes keep their explicit paint. */
+  readonly material?: MaterialRef;
   /** Position inside an `absolute` parent, relative to the parent's content box. */
   readonly position?: Responsive<{
     readonly x: number;

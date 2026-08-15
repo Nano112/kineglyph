@@ -1,4 +1,5 @@
 import type { Easing } from "./easing.js";
+import type { BlendMode, ShaderName, ShaderUniform } from "./material.js";
 import type { Point, Rect } from "./schema.js";
 import type { ThemeTokens } from "./theme.js";
 import type { TextLine } from "./text.js";
@@ -37,6 +38,58 @@ export interface ResolvedRadialGradientPaint {
 
 export type ResolvedFillPaint = string | ResolvedLinearGradientPaint | ResolvedRadialGradientPaint;
 
+export interface ResolvedShadowEffect {
+  readonly type: "shadow";
+  readonly kind: "outer" | "inner";
+  readonly color: string;
+  readonly opacity: number;
+  readonly blur: number;
+  readonly spread: number;
+  readonly offset: readonly [x: number, y: number];
+}
+
+export interface ResolvedBlurEffect {
+  readonly type: "blur";
+  readonly radius: number;
+}
+
+export interface ResolvedBackdropEffect {
+  readonly type: "backdrop";
+  readonly blur: number;
+  readonly saturation: number;
+  readonly brightness: number;
+}
+
+export interface ResolvedNoiseEffect {
+  readonly type: "noise";
+  readonly amount: number;
+  readonly scale: number;
+  readonly seed: number;
+  readonly monochrome: boolean;
+}
+
+export type ResolvedPortableMaterialEffect =
+  ResolvedShadowEffect | ResolvedBlurEffect | ResolvedBackdropEffect | ResolvedNoiseEffect;
+
+export interface ResolvedShaderEffect {
+  readonly type: "shader";
+  readonly name: ShaderName;
+  readonly uniforms: Readonly<Record<string, ShaderUniform>>;
+  readonly fallback: readonly ResolvedPortableMaterialEffect[];
+}
+
+export type ResolvedMaterialEffect = ResolvedPortableMaterialEffect | ResolvedShaderEffect;
+
+export interface ResolvedMaterialDefinition {
+  readonly fill?: ResolvedFillPaint;
+  readonly stroke?: string;
+  readonly strokeWidth?: number;
+  readonly radius?: number;
+  readonly opacity?: number;
+  readonly effects?: readonly ResolvedMaterialEffect[];
+  readonly blendMode?: BlendMode;
+}
+
 export interface ResolvedNodeAppearance {
   readonly fill: ResolvedFillPaint;
   readonly stroke: string;
@@ -45,6 +98,8 @@ export interface ResolvedNodeAppearance {
   readonly opacity?: number;
   readonly dash?: "solid" | "dashed" | "dotted";
   readonly lineCap?: "round" | "square" | "butt";
+  readonly effects?: readonly ResolvedMaterialEffect[];
+  readonly blendMode?: BlendMode;
 }
 
 export interface ResolvedEdgeAppearance {

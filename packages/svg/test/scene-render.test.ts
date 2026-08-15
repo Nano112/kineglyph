@@ -3,9 +3,13 @@ import {
   alphaGradient,
   createTheme,
   linearGradient,
+  material,
+  noise,
   radialGradient,
   resolveScene,
   seekTimeline,
+  shader,
+  shadow,
   type SceneDefinition,
 } from "@kineglyph/core";
 import {
@@ -182,6 +186,46 @@ describe("gradient fills", () => {
     expect(svg).toContain('fill="url(#kineglyph-gradients-paint-blend-fill)"');
     expect(svg).toContain('<radialGradient id="kineglyph-gradients-paint-glow-fill"');
     expect(svg).toContain('fill="url(#kineglyph-gradients-paint-glow-fill)"');
+  });
+});
+
+describe("material effects", () => {
+  it("emits portable filters and opts into enhanced browser backdrop treatment", () => {
+    const scene: SceneDefinition = {
+      schemaVersion: 2,
+      id: "material-filter",
+      title: "Material filter",
+      root: {
+        id: "glass",
+        type: "group",
+        layout: "stack",
+        padding: 20,
+        frame: material("glass", {
+          effects: [
+            { type: "backdrop", blur: 20, saturation: 1.2 },
+            shadow({ color: "text", opacity: 0.2, blur: 24, spread: 2, offset: [0, 10] }),
+            noise({ amount: 0.025, scale: 0.7, seed: 13 }),
+            shader("liquid", { uniforms: { strength: 4, frequency: 0.02 } }),
+          ],
+        }),
+        children: [{ id: "copy", type: "text", text: "Glass" }],
+      },
+    };
+    const resolved = resolveScene(scene, { width: 320, theme });
+    const portable = renderSvg(resolved, { idPrefix: "m" });
+    expect(portable).toContain('<filter id="m-material-glass"');
+    expect(portable).toContain('data-material-filter-of="glass"');
+    expect(portable).toContain("<feMorphology");
+    expect(portable).toContain("<feTurbulence");
+    expect(portable).toContain("<feDisplacementMap");
+    expect(portable).toContain('filter="url(#m-material-glass)"');
+    expect(portable).toContain('data-shader="liquid"');
+    expect(portable).toContain('data-shader-uniforms="{&quot;strength&quot;:4');
+    expect(portable).not.toContain("backdrop-filter:");
+
+    const enhanced = renderSvg(resolved, { idPrefix: "m", effects: "enhanced" });
+    expect(enhanced).toContain("backdrop-filter:blur(20px) saturate(1.2) brightness(1)");
+    expect(enhanced).toContain("-webkit-backdrop-filter:");
   });
 });
 

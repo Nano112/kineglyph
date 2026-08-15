@@ -36,6 +36,12 @@ controller.destroy(); // removes DOM, listeners, observers, and animations
 `controller.state` reports time, duration, playing, reducedMotion, width, layout, machineState,
 and the inspected target. `controller.scene` is the current `ResolvedScene`.
 
+Named material shaders are progressively enhanced in the live runtime. Rectangular shader surfaces
+receive a WebGL canvas inside their SVG group; its time uniform follows playback and `seek()`. The
+canvas sits below normal SVG content, so text, focus, inspection, and controls remain accessible.
+When WebGL is unavailable, the SVG filter fallback remains visible. See
+[Materials and effects](../../docs/materials-and-effects.md).
+
 ### Lifecycle guarantees
 
 - Mounting sets `aria-busy="false"` on the host (hosts may advertise `aria-busy="true"` while

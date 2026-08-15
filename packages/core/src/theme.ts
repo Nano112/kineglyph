@@ -5,7 +5,21 @@ import type {
   SemanticTextStyle,
 } from "./schema.js";
 import type { Easing } from "./easing.js";
-import type { ResolvedFillPaint, ResolvedGradientStop, ResolvedTheme } from "./resolved.js";
+import type {
+  MaterialDefinition,
+  MaterialEffect,
+  MaterialRef,
+  MaterialToken,
+  PortableMaterialEffect,
+} from "./material.js";
+import type {
+  ResolvedFillPaint,
+  ResolvedGradientStop,
+  ResolvedMaterialDefinition,
+  ResolvedMaterialEffect,
+  ResolvedPortableMaterialEffect,
+  ResolvedTheme,
+} from "./resolved.js";
 import type { FillPaint, Paint, Tone } from "./scene.js";
 
 export interface FontToken {
@@ -49,6 +63,7 @@ export interface ThemeTokens {
   readonly motion: MotionTokens;
   readonly strokes: StrokeTokens;
   readonly ornament: OrnamentTokens;
+  readonly materials: Readonly<Record<MaterialToken, MaterialDefinition>>;
 }
 
 /** Neutral defaults intended as a complete, renderer-independent semantic theme. */
@@ -111,6 +126,33 @@ export const defaultTheme: ThemeTokens = {
   motion: { fast: 120, normal: 240, slow: 480, easing: "easeOut" },
   strokes: { hairline: 1, thin: 1.5, regular: 2, bold: 3 },
   ornament: { grid: "none", surface: "outlined", lineCap: "round", eyebrow: true },
+  materials: {
+    flat: {},
+    raised: {
+      fill: "surfaceRaised",
+      stroke: "border",
+    },
+    floating: {
+      fill: "surfaceRaised",
+      stroke: "border",
+    },
+    inset: {
+      fill: "surfaceMuted",
+      stroke: "border",
+    },
+    glass: {
+      fill: {
+        type: "linear-gradient",
+        angle: 120,
+        stops: [
+          { at: 0, color: "surfaceRaised", opacity: 0.78 },
+          { at: 1, color: "surface", opacity: 0.42 },
+        ],
+      },
+      stroke: "border",
+      effects: [{ type: "backdrop", blur: 12, saturation: 1.08 }],
+    },
+  },
 };
 
 export type ThemeOverride = {
@@ -122,6 +164,7 @@ export type ThemeOverride = {
   readonly motion?: Partial<ThemeTokens["motion"]>;
   readonly strokes?: Partial<ThemeTokens["strokes"]>;
   readonly ornament?: Partial<ThemeTokens["ornament"]>;
+  readonly materials?: Partial<ThemeTokens["materials"]>;
 };
 
 /** Applies shallow token overrides without mutating either input. */
@@ -142,6 +185,7 @@ export function createTheme(
     motion: { ...base.motion, ...override.motion },
     strokes: { ...(base.strokes ?? defaultTheme.strokes), ...override.strokes },
     ornament: { ...(base.ornament ?? defaultTheme.ornament), ...override.ornament },
+    materials: { ...(base.materials ?? defaultTheme.materials), ...override.materials },
   };
 }
 
@@ -245,6 +289,114 @@ export function resolveFillPaint(
     focalPoint: [Math.min(1, Math.max(0, focalPoint[0])), Math.min(1, Math.max(0, focalPoint[1]))],
     radius: Math.max(0, Number.isFinite(paint.radius) ? (paint.radius ?? 0.5) : 0.5),
     spread: paint.spread ?? "pad",
+  };
+}
+
+function finiteOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) ? value : fallback;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function resolvePortableMaterialEffect(
+  effect: PortableMaterialEffect,
+  theme: ThemeTokens,
+): ResolvedPortableMaterialEffect {
+  switch (effect.type) {
+    case "shadow":
+      return {
+        type: effect.type,
+        kind: effect.kind ?? "outer",
+        color: paintColor(effect.color ?? "text", theme, "fill", theme.colors.text),
+        opacity: clamp(finiteOr(effect.opacity, 0.16), 0, 1),
+        blur: Math.max(0, finiteOr(effect.blur, 16)),
+        spread: finiteOr(effect.spread, 0),
+        offset: [finiteOr(effect.offset?.[0], 0), finiteOr(effect.offset?.[1], 8)],
+      };
+    case "blur":
+      return { type: effect.type, radius: Math.max(0, finiteOr(effect.radius, 0)) };
+    case "backdrop":
+      return {
+        type: effect.type,
+        blur: Math.max(0, finiteOr(effect.blur, 16)),
+        saturation: Math.max(0, finiteOr(effect.saturation, 1)),
+        brightness: Math.max(0, finiteOr(effect.brightness, 1)),
+      };
+    case "noise":
+      return {
+        type: effect.type,
+        amount: clamp(finiteOr(effect.amount, 0.03), 0, 1),
+        scale: Math.max(0.01, finiteOr(effect.scale, 0.8)),
+        seed: Math.round(finiteOr(effect.seed, 1)),
+        monochrome: effect.monochrome ?? true,
+      };
+  }
+}
+
+function defaultShaderFallback(effect: MaterialEffect): readonly PortableMaterialEffect[] {
+  if (effect.type !== "shader") return [];
+  switch (effect.name) {
+    case "frosted-glass":
+      return [
+        { type: "backdrop", blur: 18, saturation: 1.16 },
+        { type: "noise", amount: 0.025, scale: 0.7, seed: 17 },
+      ];
+    case "iridescence":
+      return [{ type: "noise", amount: 0.08, scale: 0.42, seed: 29, monochrome: false }];
+    case "liquid":
+      return [
+        { type: "blur", radius: 0.7 },
+        { type: "noise", amount: 0.045, scale: 0.3, seed: 41 },
+      ];
+    case "grain":
+      return [{ type: "noise", amount: 0.035, scale: 0.9, seed: 7 }];
+  }
+}
+
+function resolveMaterialEffect(effect: MaterialEffect, theme: ThemeTokens): ResolvedMaterialEffect {
+  if (effect.type !== "shader") return resolvePortableMaterialEffect(effect, theme);
+  const fallback = effect.fallback ?? defaultShaderFallback(effect);
+  return {
+    type: effect.type,
+    name: effect.name,
+    uniforms: effect.uniforms ?? {},
+    fallback: fallback.map((entry) => resolvePortableMaterialEffect(entry, theme)),
+  };
+}
+
+/** Resolves a semantic material role and its local overrides into renderer-ready data. */
+export function resolveMaterial(
+  reference: MaterialRef | undefined,
+  theme: ThemeTokens,
+): ResolvedMaterialDefinition {
+  if (reference === undefined) return {};
+  const local = typeof reference === "string" ? {} : reference;
+  const role = typeof reference === "string" ? reference : reference.material;
+  const base = role === undefined ? {} : theme.materials[role];
+  const effects = local.effects ?? base.effects;
+  const merged: MaterialDefinition = {
+    ...base,
+    ...local,
+    ...(effects === undefined ? {} : { effects }),
+  };
+  return {
+    ...(merged.fill === undefined
+      ? {}
+      : { fill: resolveFillPaint(merged.fill, theme, theme.colors.surface) }),
+    ...(merged.stroke === undefined
+      ? {}
+      : { stroke: paintColor(merged.stroke, theme, "stroke", "none") }),
+    ...(merged.strokeWidth === undefined
+      ? {}
+      : { strokeWidth: Math.max(0, finiteOr(merged.strokeWidth, 0)) }),
+    ...(merged.radius === undefined ? {} : { radius: Math.max(0, finiteOr(merged.radius, 0)) }),
+    ...(merged.opacity === undefined ? {} : { opacity: clamp(finiteOr(merged.opacity, 1), 0, 1) }),
+    ...(merged.effects === undefined
+      ? {}
+      : { effects: merged.effects.map((effect) => resolveMaterialEffect(effect, theme)) }),
+    ...(merged.blendMode === undefined ? {} : { blendMode: merged.blendMode }),
   };
 }
 

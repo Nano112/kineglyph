@@ -3,7 +3,11 @@ import {
   createTheme,
   cubicBezier,
   figure,
+  innerShadow,
   linearGradient,
+  material,
+  noise,
+  shadow,
   spring,
   type SceneDefinition,
 } from "@kineglyph/core";
@@ -110,6 +114,21 @@ export const throughputPaperTheme = createTheme({
   },
   strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.5 },
   ornament: { grid: "lines", surface: "outlined", lineCap: "round", eyebrow: true },
+  materials: {
+    raised: {
+      fill: "surfaceRaised",
+      stroke: "border",
+      effects: [
+        shadow({ color: "text", opacity: 0.14, blur: 24, spread: 1, offset: [0, 10] }),
+        noise({ amount: 0.016, scale: 0.9, seed: 31 }),
+      ],
+    },
+    inset: {
+      fill: "surfaceMuted",
+      stroke: "border",
+      effects: [innerShadow({ color: "text", opacity: 0.08, blur: 7, offset: [0, 2] })],
+    },
+  },
 });
 
 /** A typed plot composed with ordinary nodes inside one framed, animated surface. */
@@ -183,7 +202,7 @@ export const throughputOverTimeScene: SceneDefinition = figure(
         width: "fill",
         gap: 2,
         padding: [10, 12],
-        frame: { fill: "surfaceMuted", stroke: "border", radius: 6 },
+        frame: material("inset", { fill: "surfaceMuted", stroke: "border", radius: 6 }),
       });
     const average = stat("average", "71.5", "mean active");
     const peak = stat("peak", "88", "peak active");
@@ -201,7 +220,7 @@ export const throughputOverTimeScene: SceneDefinition = figure(
       width: "fill",
       gap: { wide: 20, compact: 16, narrow: 14 },
       padding: { wide: [24, 26], compact: [22, 22], narrow: [18, 16] },
-      frame: {
+      frame: material("raised", {
         fill: linearGradient(
           [
             { at: 0, color: "surfaceRaised" },
@@ -212,7 +231,7 @@ export const throughputOverTimeScene: SceneDefinition = figure(
         ),
         stroke: "border",
         radius: 12,
-      },
+      }),
       clip: true,
     });
     f.root(card);

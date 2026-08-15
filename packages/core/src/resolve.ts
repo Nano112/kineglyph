@@ -22,6 +22,7 @@ import {
 import type {
   ResolvedEdge,
   ResolvedLegendItem,
+  ResolvedMaterialDefinition,
   ResolvedNode,
   ResolvedNodeAppearance,
   ResolvedScene,
@@ -52,6 +53,7 @@ import {
   paintColor,
   projectTheme,
   resolveFillPaint,
+  resolveMaterial,
   withAlpha,
   type ThemeTokens,
 } from "./theme.js";
@@ -1267,58 +1269,115 @@ function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance
     paintColor(paint, theme, "stroke", fallback);
   const fill = (paint: FillPaint | undefined, fallback: string) =>
     resolveFillPaint(paint, theme, fallback);
+  const finish = (
+    appearance: Omit<ResolvedNodeAppearance, "effects" | "blendMode">,
+    material: ResolvedMaterialDefinition,
+  ): ResolvedNodeAppearance => ({
+    ...appearance,
+    ...(material.effects === undefined ? {} : { effects: material.effects }),
+    ...(material.blendMode === undefined ? {} : { blendMode: material.blendMode }),
+  });
   switch (node.type) {
     case "group": {
       const frame = node.frame;
       if (frame === undefined) return { fill: "none", stroke: "none", strokeWidth: 0, radius: 0 };
-      return {
-        fill: fill(frame.fill, "none"),
-        stroke: stroke(frame.stroke, "none"),
-        strokeWidth: frame.strokeWidth ?? theme.strokes.hairline,
-        radius: frame.radius ?? theme.radii.lg,
-        ...(frame.opacity === undefined ? {} : { opacity: frame.opacity }),
-        ...(frame.dash === undefined ? {} : { dash: frame.dash }),
-      };
+      const surface = resolveMaterial(frame, theme);
+      return finish(
+        {
+          fill: surface.fill ?? "none",
+          stroke: surface.stroke ?? "none",
+          strokeWidth: surface.strokeWidth ?? theme.strokes.hairline,
+          radius: surface.radius ?? theme.radii.lg,
+          ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
+          ...(frame.dash === undefined ? {} : { dash: frame.dash }),
+        },
+        surface,
+      );
     }
-    case "rect":
-      return {
-        fill: fill(view.tone ?? node.fill, theme.colors.surface),
-        stroke: stroke(node.stroke, view.tone === undefined ? theme.colors.border : "none"),
-        strokeWidth: node.strokeWidth ?? theme.strokes.hairline,
-        radius: node.radius ?? theme.radii.md,
-        ...(node.dash === undefined ? {} : { dash: node.dash }),
-      };
-    case "circle":
-      return {
-        fill: fill(view.tone ?? node.fill, theme.colors.surface),
-        stroke: stroke(node.stroke, view.tone === undefined ? theme.colors.border : "none"),
-        strokeWidth: node.strokeWidth ?? theme.strokes.hairline,
-        radius: 0,
-        ...(node.dash === undefined ? {} : { dash: node.dash }),
-      };
-    case "path":
-      return {
-        fill: fill(view.tone ?? node.fill, "none"),
-        stroke: stroke(
-          node.stroke,
-          view.tone === undefined && node.fill === undefined ? theme.colors.accent : "none",
-        ),
-        strokeWidth: node.strokeWidth ?? theme.strokes.thin,
-        radius: 0,
-        ...(node.dash === undefined ? {} : { dash: node.dash }),
-      };
-    case "polyline":
-      return {
-        fill: fill(node.fill, "none"),
-        stroke: stroke(
-          view.tone ?? node.stroke,
-          node.fill === undefined && view.tone === undefined ? theme.colors.accent : "none",
-        ),
-        strokeWidth: node.strokeWidth ?? theme.strokes.regular,
-        radius: 0,
-        ...(node.dash === undefined ? {} : { dash: node.dash }),
-        ...(node.lineCap === undefined ? {} : { lineCap: node.lineCap }),
-      };
+    case "rect": {
+      const surface = resolveMaterial(node.material, theme);
+      return finish(
+        {
+          fill:
+            view.tone !== undefined || node.fill !== undefined
+              ? fill(view.tone ?? node.fill, theme.colors.surface)
+              : (surface.fill ?? theme.colors.surface),
+          stroke:
+            node.stroke !== undefined
+              ? stroke(node.stroke, "none")
+              : (surface.stroke ?? (view.tone === undefined ? theme.colors.border : "none")),
+          strokeWidth: node.strokeWidth ?? surface.strokeWidth ?? theme.strokes.hairline,
+          radius: node.radius ?? surface.radius ?? theme.radii.md,
+          ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
+          ...(node.dash === undefined ? {} : { dash: node.dash }),
+        },
+        surface,
+      );
+    }
+    case "circle": {
+      const surface = resolveMaterial(node.material, theme);
+      return finish(
+        {
+          fill:
+            view.tone !== undefined || node.fill !== undefined
+              ? fill(view.tone ?? node.fill, theme.colors.surface)
+              : (surface.fill ?? theme.colors.surface),
+          stroke:
+            node.stroke !== undefined
+              ? stroke(node.stroke, "none")
+              : (surface.stroke ?? (view.tone === undefined ? theme.colors.border : "none")),
+          strokeWidth: node.strokeWidth ?? surface.strokeWidth ?? theme.strokes.hairline,
+          radius: surface.radius ?? 0,
+          ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
+          ...(node.dash === undefined ? {} : { dash: node.dash }),
+        },
+        surface,
+      );
+    }
+    case "path": {
+      const surface = resolveMaterial(node.material, theme);
+      return finish(
+        {
+          fill:
+            view.tone !== undefined || node.fill !== undefined
+              ? fill(view.tone ?? node.fill, "none")
+              : (surface.fill ?? "none"),
+          stroke:
+            node.stroke !== undefined
+              ? stroke(node.stroke, "none")
+              : (surface.stroke ??
+                (view.tone === undefined && node.fill === undefined
+                  ? theme.colors.accent
+                  : "none")),
+          strokeWidth: node.strokeWidth ?? surface.strokeWidth ?? theme.strokes.thin,
+          radius: surface.radius ?? 0,
+          ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
+          ...(node.dash === undefined ? {} : { dash: node.dash }),
+        },
+        surface,
+      );
+    }
+    case "polyline": {
+      const surface = resolveMaterial(node.material, theme);
+      return finish(
+        {
+          fill: node.fill !== undefined ? fill(node.fill, "none") : (surface.fill ?? "none"),
+          stroke:
+            view.tone !== undefined || node.stroke !== undefined
+              ? stroke(view.tone ?? node.stroke, "none")
+              : (surface.stroke ??
+                (node.fill === undefined && view.tone === undefined
+                  ? theme.colors.accent
+                  : "none")),
+          strokeWidth: node.strokeWidth ?? surface.strokeWidth ?? theme.strokes.regular,
+          radius: surface.radius ?? 0,
+          ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
+          ...(node.dash === undefined ? {} : { dash: node.dash }),
+          ...(node.lineCap === undefined ? {} : { lineCap: node.lineCap }),
+        },
+        surface,
+      );
+    }
     case "image":
       return {
         fill: "none",

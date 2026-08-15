@@ -8,6 +8,11 @@ export { fastGenerationScene } from "./scenes/fast-generation.js";
 export { formatsAndIoScene } from "./scenes/formats-and-io.js";
 export { meshingAndRenderingScene } from "./scenes/meshing-and-rendering.js";
 export { operationHeatmapScene } from "./scenes/operation-heatmap.js";
+export {
+  materialDirectionThemes,
+  materialDirectionsScene,
+  type MaterialDirection,
+} from "./scenes/material-directions.js";
 export { palettesAndColorScene } from "./scenes/palettes-and-color.js";
 export { readmeCoverScene, readmeCoverTheme } from "./scenes/readme-cover.js";
 export { sdfAndFieldsScene } from "./scenes/sdf-and-fields.js";

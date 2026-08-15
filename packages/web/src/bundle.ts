@@ -13,7 +13,23 @@ export {
   type CatalogueEntry,
   type ThemeName,
 } from "@kineglyph/scenes";
-export { createTheme, defaultTheme, defineScene, figure, resolveFigure } from "@kineglyph/core";
+export {
+  alphaGradient,
+  backdrop,
+  blur,
+  createTheme,
+  defaultTheme,
+  defineScene,
+  figure,
+  innerShadow,
+  linearGradient,
+  material,
+  noise,
+  radialGradient,
+  resolveFigure,
+  shader,
+  shadow,
+} from "@kineglyph/core";
 export {
   area,
   bar,

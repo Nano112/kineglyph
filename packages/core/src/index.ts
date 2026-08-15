@@ -6,6 +6,7 @@ export * from "./fragment.js";
 export * from "./geometry.js";
 export * from "./layout.js";
 export * from "./machine.js";
+export * from "./material.js";
 export * from "./pipeline.js";
 export * from "./recipes.js";
 export * from "./resolve.js";

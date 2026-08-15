@@ -24,6 +24,8 @@ export interface SvgRenderOptions {
   background?: "auto" | "none";
   /** Emit browser-only CSS motion for flow strokes. Defaults to true. */
   animateFlow?: boolean;
+  /** Enable live-browser enhancements such as backdrop filtering. Portable filters stay enabled. */
+  effects?: "portable" | "enhanced";
 }
 
 export type EdgeMarkerKind = "none" | "arrow" | "triangle" | "dot" | "diamond" | "bar";
@@ -77,6 +79,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     animateFlow: options.animateFlow !== false,
     structured,
     nodesById: new Map(nodes.map((node, index) => [nodeId(node, index), node])),
+    enhancedEffects: options.effects === "enhanced",
   };
 
   const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) <= 0);
@@ -143,6 +146,7 @@ interface RenderContext {
   readonly animateFlow: boolean;
   readonly structured: boolean;
   readonly nodesById: Map<string, UnknownRecord>;
+  readonly enhancedEffects: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -289,6 +293,11 @@ function renderDefinitions(context: RenderContext, edges: UnknownRecord[]): stri
     .filter((value) => value.length > 0)
     .sort();
   parts.push(...gradients);
+  const materials = [...context.nodesById.entries()]
+    .map(([id, node]) => renderMaterialFilterDefinition(id, record(node.appearance), context))
+    .filter((value) => value.length > 0)
+    .sort();
+  parts.push(...materials);
   return parts.length === 0 ? "" : element("defs", [], parts.join(""));
 }
 
@@ -364,6 +373,358 @@ function renderGradientDefinition(nodeId: string, value: unknown, context: Rende
     ],
     stops,
   );
+}
+
+function materialFilterId(rootId: string, nodeId: string): string {
+  return `${rootId}-material-${domId(nodeId)}`;
+}
+
+function expandedMaterialEffects(appearance: UnknownRecord): UnknownRecord[] {
+  return records(appearance.effects).flatMap((effect) =>
+    string(effect.type) === "shader" ? records(effect.fallback) : [effect],
+  );
+}
+
+function renderMaterialFilterDefinition(
+  nodeId: string,
+  appearance: UnknownRecord,
+  context: RenderContext,
+): string {
+  const effects = expandedMaterialEffects(appearance);
+  const shaders = records(appearance.effects).filter((effect) => string(effect.type) === "shader");
+  const portable = effects.filter((effect) => string(effect.type) !== "backdrop");
+  if (portable.length === 0 && shaders.length === 0) return "";
+
+  const parts: string[] = [];
+  const shadows: string[] = [];
+  let current = "SourceGraphic";
+  let serial = 0;
+  const next = (label: string): string => `${label}-${serial++}`;
+
+  for (const effect of portable) {
+    const type = string(effect.type);
+    if (type === "shadow") {
+      const result = next(string(effect.kind) === "inner" ? "inner-shadow" : "outer-shadow");
+      const blur = Math.max(0, finiteNumber(effect.blur, 16)) / 2;
+      const offset = Array.isArray(effect.offset) ? effect.offset : [];
+      const dx = finiteNumber(offset[0], 0);
+      const dy = finiteNumber(offset[1], 8);
+      const color = string(effect.color) ?? "#000000";
+      const opacity = unit(firstNumber(effect.opacity), 0.16);
+      if (string(effect.kind) === "inner") {
+        const blurred = next("inner-blur");
+        const shifted = next("inner-offset");
+        const cut = next("inner-cut");
+        const flood = next("inner-color");
+        parts.push(
+          element(
+            "feGaussianBlur",
+            [
+              ["in", "SourceAlpha"],
+              ["stdDeviation", number(blur, context.precision)],
+              ["result", blurred],
+            ],
+            "",
+          ),
+          element(
+            "feOffset",
+            [
+              ["in", blurred],
+              ["dx", number(dx, context.precision)],
+              ["dy", number(dy, context.precision)],
+              ["result", shifted],
+            ],
+            "",
+          ),
+          element(
+            "feComposite",
+            [
+              ["in", "SourceAlpha"],
+              ["in2", shifted],
+              ["operator", "out"],
+              ["result", cut],
+            ],
+            "",
+          ),
+          element(
+            "feFlood",
+            [
+              ["flood-color", color],
+              ["flood-opacity", number(opacity, context.precision)],
+              ["result", flood],
+            ],
+            "",
+          ),
+          element(
+            "feComposite",
+            [
+              ["in", flood],
+              ["in2", cut],
+              ["operator", "in"],
+              ["result", result],
+            ],
+            "",
+          ),
+        );
+        const combined = next("with-inner");
+        parts.push(
+          element(
+            "feMerge",
+            [["result", combined]],
+            element("feMergeNode", [["in", current]], "") +
+              element("feMergeNode", [["in", result]], ""),
+          ),
+        );
+        current = combined;
+      } else {
+        const spread = finiteNumber(effect.spread, 0);
+        const grown = next("shadow-spread");
+        const blurred = next("shadow-blur");
+        const shifted = next("shadow-offset");
+        const flood = next("shadow-color");
+        const shadowInput = Math.abs(spread) > 1e-6 ? grown : "SourceAlpha";
+        if (Math.abs(spread) > 1e-6)
+          parts.push(
+            element(
+              "feMorphology",
+              [
+                ["in", "SourceAlpha"],
+                ["operator", spread > 0 ? "dilate" : "erode"],
+                ["radius", number(Math.abs(spread), context.precision)],
+                ["result", grown],
+              ],
+              "",
+            ),
+          );
+        parts.push(
+          element(
+            "feGaussianBlur",
+            [
+              ["in", shadowInput],
+              ["stdDeviation", number(blur, context.precision)],
+              ["result", blurred],
+            ],
+            "",
+          ),
+          element(
+            "feOffset",
+            [
+              ["in", blurred],
+              ["dx", number(dx, context.precision)],
+              ["dy", number(dy, context.precision)],
+              ["result", shifted],
+            ],
+            "",
+          ),
+          element(
+            "feFlood",
+            [
+              ["flood-color", color],
+              ["flood-opacity", number(opacity, context.precision)],
+              ["result", flood],
+            ],
+            "",
+          ),
+          element(
+            "feComposite",
+            [
+              ["in", flood],
+              ["in2", shifted],
+              ["operator", "in"],
+              ["result", result],
+            ],
+            "",
+          ),
+        );
+        shadows.push(result);
+      }
+    } else if (type === "blur") {
+      const result = next("blur");
+      parts.push(
+        element(
+          "feGaussianBlur",
+          [
+            ["in", current],
+            [
+              "stdDeviation",
+              number(Math.max(0, finiteNumber(effect.radius, 0)) / 2, context.precision),
+            ],
+            ["result", result],
+          ],
+          "",
+        ),
+      );
+      current = result;
+    } else if (type === "noise") {
+      const turbulence = next("noise");
+      const toned = next("noise-tone");
+      const alpha = next("noise-alpha");
+      const result = next("with-noise");
+      const amount = unit(firstNumber(effect.amount), 0.03);
+      const scale = Math.max(0.01, finiteNumber(effect.scale, 0.8));
+      parts.push(
+        element(
+          "feTurbulence",
+          [
+            ["type", "fractalNoise"],
+            ["baseFrequency", number(0.012 + scale * 0.018, context.precision)],
+            ["numOctaves", "3"],
+            ["seed", String(Math.round(finiteNumber(effect.seed, 1)))],
+            ["result", turbulence],
+          ],
+          "",
+        ),
+      );
+      const noiseInput = effect.monochrome === false ? turbulence : toned;
+      if (effect.monochrome !== false)
+        parts.push(
+          element(
+            "feColorMatrix",
+            [
+              ["in", turbulence],
+              ["type", "saturate"],
+              ["values", "0"],
+              ["result", toned],
+            ],
+            "",
+          ),
+        );
+      parts.push(
+        element(
+          "feComponentTransfer",
+          [
+            ["in", noiseInput],
+            ["result", alpha],
+          ],
+          element(
+            "feFuncA",
+            [
+              ["type", "linear"],
+              ["slope", number(amount, context.precision)],
+            ],
+            "",
+          ),
+        ),
+        element(
+          "feBlend",
+          [
+            ["in", current],
+            ["in2", alpha],
+            ["mode", effect.monochrome === false ? "screen" : "soft-light"],
+            ["result", result],
+          ],
+          "",
+        ),
+      );
+      current = result;
+    }
+  }
+
+  for (const shader of shaders) {
+    if (string(shader.name) !== "liquid") continue;
+    const turbulence = next("liquid-field");
+    const result = next("liquid");
+    const uniforms = record(shader.uniforms);
+    parts.push(
+      element(
+        "feTurbulence",
+        [
+          ["type", "turbulence"],
+          ["baseFrequency", number(finiteNumber(uniforms.frequency, 0.018), context.precision)],
+          ["numOctaves", "2"],
+          ["seed", String(Math.round(finiteNumber(uniforms.seed, 23)))],
+          ["result", turbulence],
+        ],
+        "",
+      ),
+      element(
+        "feDisplacementMap",
+        [
+          ["in", current],
+          ["in2", turbulence],
+          ["scale", number(finiteNumber(uniforms.strength, 5), context.precision)],
+          ["xChannelSelector", "R"],
+          ["yChannelSelector", "G"],
+          ["result", result],
+        ],
+        "",
+      ),
+    );
+    current = result;
+  }
+
+  if (shadows.length > 0) {
+    const result = next("material-output");
+    parts.push(
+      element(
+        "feMerge",
+        [["result", result]],
+        shadows.map((shadow) => element("feMergeNode", [["in", shadow]], "")).join("") +
+          element("feMergeNode", [["in", current]], ""),
+      ),
+    );
+  }
+  return element(
+    "filter",
+    [
+      ["id", materialFilterId(context.rootId, nodeId)],
+      ["x", "-50%"],
+      ["y", "-50%"],
+      ["width", "200%"],
+      ["height", "200%"],
+      ["color-interpolation-filters", "sRGB"],
+      ["data-material-filter-of", nodeId],
+    ],
+    parts.join(""),
+  );
+}
+
+function materialPaintAttrs(
+  appearance: UnknownRecord,
+  ownerId: string,
+  context: RenderContext,
+): Attrs {
+  const effects = records(appearance.effects);
+  if (effects.length === 0 && string(appearance.blendMode) === undefined) return [];
+  const expanded = expandedMaterialEffects(appearance);
+  const portable = expanded.some((effect) => string(effect.type) !== "backdrop");
+  const shaderNames = effects
+    .filter((effect) => string(effect.type) === "shader")
+    .map((effect) => string(effect.name))
+    .filter((name): name is string => name !== undefined);
+  const shaderEffect = effects.find((effect) => string(effect.type) === "shader");
+  const backdropEffect = expanded.find((effect) => string(effect.type) === "backdrop");
+  const styles: string[] = [];
+  const blendMode = string(appearance.blendMode);
+  if (blendMode !== undefined && blendMode !== "normal") styles.push(`mix-blend-mode:${blendMode}`);
+  if (context.enhancedEffects && backdropEffect !== undefined) {
+    const blur = Math.max(0, finiteNumber(backdropEffect.blur, 16));
+    const saturation = Math.max(0, finiteNumber(backdropEffect.saturation, 1));
+    const brightness = Math.max(0, finiteNumber(backdropEffect.brightness, 1));
+    const filter = `blur(${number(blur, context.precision)}px) saturate(${number(saturation, context.precision)}) brightness(${number(brightness, context.precision)})`;
+    styles.push(`backdrop-filter:${filter}`, `-webkit-backdrop-filter:${filter}`);
+  }
+  return [
+    [
+      "filter",
+      portable || shaderNames.includes("liquid")
+        ? `url(#${materialFilterId(context.rootId, ownerId)})`
+        : undefined,
+    ],
+    ["style", styles.length === 0 ? undefined : styles.join(";")],
+    [
+      "data-material-effects",
+      effects
+        .map((effect) => string(effect.type))
+        .filter(Boolean)
+        .join(" "),
+    ],
+    ["data-shader", shaderNames.length === 0 ? undefined : shaderNames.join(" ")],
+    [
+      "data-shader-uniforms",
+      shaderEffect === undefined ? undefined : JSON.stringify(record(shaderEffect.uniforms)),
+    ],
+  ];
 }
 
 function markerKind(value: unknown, fallback: EdgeMarkerKind): EdgeMarkerKind {
@@ -978,6 +1339,7 @@ function renderStructuredShape(
     ["stroke-linecap", dash === "dotted" ? "round" : undefined],
     ["fill-opacity", numeric(appearance.opacity, precision)],
     ["stroke-opacity", numeric(appearance.opacity, precision)],
+    ...materialPaintAttrs(appearance, ownerId, context),
   ];
   switch (kind) {
     case "group":
@@ -1097,6 +1459,7 @@ function renderStructuredShape(
           ["stroke-dasharray", reveal.dasharray],
           ["data-path-length", number(pathLength, precision)],
           ["data-dash", dashKind],
+          ...materialPaintAttrs(appearance, ownerId, context),
           [
             "transform",
             `translate(${number(offsetX, precision)} ${number(offsetY, precision)}) scale(${number(scale, precision)})`,
@@ -1123,6 +1486,7 @@ function renderStructuredShape(
           ["preserveAspectRatio", par],
           ["clip-path", radius > 0 ? `url(#${clipId})` : undefined],
           ["data-live", image.live === true ? "true" : undefined],
+          ...materialPaintAttrs(appearance, ownerId, context),
         ],
         "",
       );

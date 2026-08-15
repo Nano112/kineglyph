@@ -8,6 +8,7 @@
 <p align="center">
   <a href="./docs/cookbook.md">Cookbook</a> ·
   <a href="./docs/authoring-api.md">Authoring API</a> ·
+  <a href="./docs/materials-and-effects.md">Materials</a> ·
   <a href="./packages/plot/README.md">Plots</a> ·
   <a href="./packages/web/README.md">Web runtime</a> ·
   <a href="./packages/export/README.md">Export</a>
@@ -137,6 +138,64 @@ export const streamCard = figure("stream-card", { title: "Active chunks" }, (f) 
 
 Bars, stacked bars, lines, areas, dots, heatmaps, and sparklines share the same theme, interaction,
 and export path.
+
+## Visual direction belongs to the theme
+
+A scene asks for semantic materials such as `raised`, `inset`, `floating`, or `glass`. The theme
+decides what those words mean. Paint, elevation, grain, blur, compositing, and shader intent remain
+plain serializable data.
+
+```ts
+import {
+  alphaGradient,
+  backdrop,
+  createTheme,
+  figure,
+  material,
+  noise,
+  shader,
+  shadow,
+} from "@kineglyph/core";
+
+const panel = figure("glass-panel", { title: "Glass panel" }, (f) => {
+  const content = f.body("Normal accessible SVG content");
+  f.root(f.stack([content], { padding: 24, frame: material("glass") }));
+});
+
+const glass = createTheme({
+  materials: {
+    glass: {
+      fill: alphaGradient("surfaceRaised", { from: 0.72, to: 0.34, angle: 120 }),
+      stroke: "border",
+      effects: [
+        backdrop({ blur: 24, saturation: 1.2 }),
+        shader("frosted-glass", {
+          uniforms: { refraction: 0.08 },
+          fallback: [noise({ amount: 0.025, seed: 17 })],
+        }),
+        shadow({ color: "canvas", opacity: 0.5, blur: 34, offset: [0, 16] }),
+      ],
+    },
+  },
+});
+```
+
+These four images are the same scene definition:
+
+<table>
+  <tr>
+    <td><img src="./docs/assets/readme/material-paper.svg" alt="The material study in a warm layered-paper theme"><br><sub>Layered paper</sub></td>
+    <td><img src="./docs/assets/readme/material-glass.svg" alt="The material study in a translucent glass theme"><br><sub>Glass and procedural light</sub></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/assets/readme/material-terminal.svg" alt="The material study in a flat terminal theme"><br><sub>Flat terminal</sub></td>
+    <td><img src="./docs/assets/readme/material-publication.svg" alt="The material study in a high-contrast publication theme"><br><sub>Printed blocks</sub></td>
+  </tr>
+</table>
+
+The browser runtime adds backdrop filtering and seekable WebGL shader surfaces for named effects.
+SVG, PNG, and GIF use the effect's deterministic fallback, so enhancement never becomes a broken
+export. See [Materials and effects](./docs/materials-and-effects.md).
 
 ```ts
 import { heatmap, plot } from "@kineglyph/plot";

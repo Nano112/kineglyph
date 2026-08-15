@@ -26,6 +26,7 @@ import {
   type ThemeTokens,
 } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";
+import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
@@ -173,6 +174,7 @@ class FigureRuntime implements KineglyphController {
   #options: MountOptions;
   #resolved: ResolvedScene;
   #animator: KineglyphSceneAnimator | undefined;
+  #shaders: ShaderSurfaceManager | undefined;
   #width: number;
   #reducedMotion: boolean;
   #inspected: InspectTarget | undefined;
@@ -372,6 +374,8 @@ class FigureRuntime implements KineglyphController {
     this.#destroyed = true;
     this.#animator?.dispose();
     this.#animator = undefined;
+    this.#shaders?.dispose();
+    this.#shaders = undefined;
     this.#observer?.disconnect();
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
     this.#emitter.emit("destroy", undefined);
@@ -409,6 +413,8 @@ class FigureRuntime implements KineglyphController {
     const wasPlaying = this.#animator?.playing ?? false;
     const focusedId = this.#focusedNodeId();
     this.#animator?.dispose();
+    this.#shaders?.dispose();
+    this.#shaders = undefined;
     // Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts.
     const restFrame = this.#reducedMotion || !(this.#options.autoplay ?? true);
     const initialTime = resetTime ? (restFrame ? this.#duration : 0) : previousTime;
@@ -417,8 +423,10 @@ class FigureRuntime implements KineglyphController {
       idPrefix: this.id,
       className: "kg-figure__svg",
       role: "group",
+      effects: "enhanced",
     });
     this.stage.style.aspectRatio = `${this.#resolved.width} / ${this.#resolved.height}`;
+    this.#shaders = mountShaderSurfaces(this.stage, initialTime);
     this.#applyShellTheme();
     this.#animator = new KineglyphSceneAnimator({
       root: this.stage,
@@ -426,6 +434,7 @@ class FigureRuntime implements KineglyphController {
       reducedMotion: this.#reducedMotion,
       onFrame: (nextFrame) => {
         this.#time = nextFrame.time;
+        this.#shaders?.seek(nextFrame.time);
         this.#syncScrubber();
         this.#emitter.emit("frame", nextFrame);
         this.#options.onFrame?.(nextFrame);

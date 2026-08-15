@@ -112,5 +112,9 @@ arrays into user-space lengths (resvg does not support `pathLength`). These rewr
 standard SVG syntax; the SVG exporter itself leaves the renderer's markup untouched apart from
 the declaration, root sizing attributes, and background rect.
 
+Material shadows, inner shadows, blur, seeded texture, and displacement are ordinary SVG filters
+and therefore survive rasterization. Browser-only backdrop sampling and WebGL programs use their
+declared portable fallback during SVG, PNG, and GIF export.
+
 Known raster limitations: `vector-effect: non-scaling-stroke` is ignored by resvg, so strokes
 scale with `scale`; markers and text follow resvg's SVG support.
