@@ -85,6 +85,8 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
     const controllerRef = useRef<KineglyphController | undefined>(undefined);
     const callbacksRef = useRef({ onInspectChange, onFrame, onPlaybackChange, onStateChange });
     callbacksRef.current = { onInspectChange, onFrame, onPlaybackChange, onStateChange };
+    const appliedThemeRef = useRef<ThemeTokens>(theme);
+    const appliedReducedMotionRef = useRef<boolean | undefined>(reducedMotion);
 
     useEffect(() => {
       const host = hostRef.current;
@@ -108,6 +110,8 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         onStateChange: (step, scene) => callbacksRef.current.onStateChange?.(step, scene),
       });
       controllerRef.current = controller;
+      appliedThemeRef.current = theme;
+      appliedReducedMotionRef.current = reducedMotion;
       return () => {
         controller.destroy();
         if (controllerRef.current === controller) controllerRef.current = undefined;
@@ -127,11 +131,15 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
     ]);
 
     useEffect(() => {
+      if (appliedThemeRef.current === theme) return;
+      appliedThemeRef.current = theme;
       controllerRef.current?.setTheme(theme);
     }, [theme]);
 
     useEffect(() => {
-      if (reducedMotion !== undefined) controllerRef.current?.setReducedMotion(reducedMotion);
+      if (reducedMotion === undefined || appliedReducedMotionRef.current === reducedMotion) return;
+      appliedReducedMotionRef.current = reducedMotion;
+      controllerRef.current?.setReducedMotion(reducedMotion);
     }, [reducedMotion]);
 
     useImperativeHandle(
