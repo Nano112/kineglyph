@@ -1,6 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="480" viewBox="0 0 1400 480" role="img" aria-labelledby="title desc">
   <title id="title">Kineglyph</title>
   <desc id="desc">A minimal cream cover with the Kineglyph wordmark and a line moving through geometric forms.</desc>
+  <style>
+    @media (prefers-reduced-motion: reduce) {
+      .kg-motion { display: none; }
+      .kg-static { opacity: 1 !important; }
+    }
+  </style>
 
   <rect width="1400" height="480" fill="#efede6"/>
 
@@ -18,27 +24,76 @@
     <text x="336" y="427" fill="#676a64" font-size="11" letter-spacing="1.4">FRAME</text>
 
     <g transform="translate(750 96)">
-      <path id="motion-path" d="M20 210C104 64 196 60 272 164S438 280 574 94" fill="none" stroke="#171916" stroke-width="1.5"/>
-      <path d="M20 210C104 64 196 60 272 164S438 280 574 94" fill="none" stroke="#00a98f" stroke-width="7" opacity=".08"/>
-
-      <circle cx="20" cy="210" r="8" fill="#efede6" stroke="#171916" stroke-width="2"/>
-      <circle cx="188" cy="94" r="35" fill="none" stroke="#171916" stroke-width="1.5"/>
-      <circle cx="188" cy="94" r="23" fill="none" stroke="#00a98f" stroke-width="1.5" stroke-dasharray="3 5"/>
-      <rect x="300" y="166" width="66" height="66" fill="none" stroke="#171916" stroke-width="1.5" transform="rotate(12 333 199)"/>
-      <path d="M456 214L500 138L544 214Z" fill="none" stroke="#171916" stroke-width="1.5"/>
-      <circle cx="574" cy="94" r="8" fill="#00a98f"/>
-
-      <g fill="#676a64" font-size="10" letter-spacing="1">
-        <text x="-2" y="240">SOURCE</text>
-        <text x="159" y="46">RESOLVE</text>
-        <text x="301" y="267">BIND</text>
-        <text x="450" y="246">SEEK</text>
-        <text x="546" y="64">RENDER</text>
+      <g class="kg-static" opacity="1">
+        <path d="M20 210C104 64 196 60 272 164S438 280 574 94" fill="none" stroke="#171916" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M20 210C104 64 196 60 272 164S438 280 574 94" fill="none" stroke="#00a98f" stroke-width="7" stroke-linecap="round" opacity=".08"/>
+        <circle cx="20" cy="210" r="8" fill="#efede6" stroke="#171916" stroke-width="2"/>
+        <circle cx="188" cy="94" r="35" fill="#00a98f" fill-opacity=".035" stroke="#171916" stroke-width="1.5"/>
+        <circle cx="188" cy="94" r="23" fill="none" stroke="#00a98f" stroke-width="1.5" stroke-dasharray="3 5"/>
+        <rect x="300" y="166" width="66" height="66" fill="#00a98f" fill-opacity=".025" stroke="#171916" stroke-width="1.5" transform="rotate(12 333 199)"/>
+        <path d="M456 214L500 138L544 214Z" fill="#00a98f" fill-opacity=".025" stroke="#171916" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="574" cy="94" r="8" fill="#00a98f"/>
+        <g fill="#676a64" font-size="10" letter-spacing="1">
+          <text x="-2" y="240">SOURCE</text>
+          <text x="159" y="46">RESOLVE</text>
+          <text x="301" y="267">BIND</text>
+          <text x="450" y="246">SEEK</text>
+          <text x="546" y="64">RENDER</text>
+        </g>
+        <animate attributeName="opacity" values="1;0;0" keyTimes="0;.002;1" dur="6s" repeatCount="indefinite"/>
       </g>
 
-      <circle cx="20" cy="210" r="6" fill="#00a98f">
-        <animateMotion dur="4s" repeatCount="indefinite" rotate="auto" path="M0 0C84 -146 176 -150 252 -46S418 70 554 -116"/>
+      <g class="kg-motion">
+      <path id="motion-path" d="M20 210C104 64 196 60 272 164S438 280 574 94" pathLength="1" fill="none" stroke="#171916" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="1" stroke-dashoffset="1">
+        <animate attributeName="stroke-dashoffset" values="1;1;0;0;0" keyTimes="0;.05;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;1;0" keyTimes="0;.05;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+      </path>
+      <path d="M20 210C104 64 196 60 272 164S438 280 574 94" pathLength="1" fill="none" stroke="#00a98f" stroke-width="7" stroke-linecap="round" stroke-dasharray="1" stroke-dashoffset="1" opacity="0">
+        <animate attributeName="stroke-dashoffset" values="1;1;0;0;0" keyTimes="0;.05;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;.08;.08;.08;0" keyTimes="0;.05;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+      </path>
+
+      <circle cx="20" cy="210" r="8" fill="#efede6" stroke="#171916" stroke-width="2" opacity="0">
+        <animate attributeName="opacity" values="0;1;1;1;0" keyTimes="0;.035;.05;.9;1" dur="6s" repeatCount="indefinite"/>
       </circle>
+
+      <circle cx="188" cy="94" r="35" pathLength="1" fill="#00a98f" fill-opacity=".035" stroke="#171916" stroke-width="1.5" stroke-dasharray="1" stroke-dashoffset="1" opacity="0">
+        <animate attributeName="stroke-dashoffset" values="1;1;0;0;0" keyTimes="0;.145;.205;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.145;.16;.9;1" dur="6s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="188" cy="94" r="23" pathLength="1" fill="none" stroke="#00a98f" stroke-width="1.5" stroke-dasharray=".035 .055" opacity="0">
+        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.175;.2;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animateTransform attributeName="transform" type="rotate" from="0 188 94" to="180 188 94" dur="6s" repeatCount="indefinite"/>
+      </circle>
+
+      <rect x="300" y="166" width="66" height="66" pathLength="1" fill="#00a98f" fill-opacity=".025" stroke="#171916" stroke-width="1.5" stroke-dasharray="1" stroke-dashoffset="1" opacity="0" transform="rotate(12 333 199)">
+        <animate attributeName="stroke-dashoffset" values="1;1;0;0;0" keyTimes="0;.245;.305;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.245;.26;.9;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
+
+      <path d="M456 214L500 138L544 214Z" pathLength="1" fill="#00a98f" fill-opacity=".025" stroke="#171916" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="1" stroke-dashoffset="1" opacity="0">
+        <animate attributeName="stroke-dashoffset" values="1;1;0;0;0" keyTimes="0;.345;.405;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.345;.36;.9;1" dur="6s" repeatCount="indefinite"/>
+      </path>
+
+      <circle cx="574" cy="94" r="8" fill="#00a98f" opacity="0">
+        <animate attributeName="r" values="0;0;8;8;8" keyTimes="0;.405;.435;.9;1" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.405;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+      </circle>
+
+      <g fill="#676a64" font-size="10" letter-spacing="1">
+        <text x="-2" y="240" opacity="0">SOURCE<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.035;.06;.9;1" dur="6s" repeatCount="indefinite"/></text>
+        <text x="159" y="46" opacity="0">RESOLVE<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.175;.2;.9;1" dur="6s" repeatCount="indefinite"/></text>
+        <text x="301" y="267" opacity="0">BIND<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.275;.3;.9;1" dur="6s" repeatCount="indefinite"/></text>
+        <text x="450" y="246" opacity="0">SEEK<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.375;.4;.9;1" dur="6s" repeatCount="indefinite"/></text>
+        <text x="546" y="64" opacity="0">RENDER<animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.415;.44;.9;1" dur="6s" repeatCount="indefinite"/></text>
+      </g>
+
+      <circle r="6" fill="#00a98f" opacity="0">
+        <animateMotion path="M20 210C104 64 196 60 272 164S438 280 574 94" keyPoints="0;0;1;1;0" keyTimes="0;.05;.42;.9;1" calcMode="linear" dur="6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;1;1;0;0;0" keyTimes="0;.05;.415;.42;.9;1" dur="6s" repeatCount="indefinite"/>
+      </circle>
+      </g>
     </g>
   </g>
 </svg>
