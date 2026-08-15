@@ -1,9 +1,14 @@
 {{--
-    <x-kineglyph-figure scene="fast-generation" theme="nucleation" />
+    <x-kineglyph-figure scene="fast-generation" theme="nucleation" static="/img/figures/fast-generation.svg" />
 
     Renders a host element that the Kineglyph runtime mounts into. Every instance gets its own
     controller and DOM ids, so several figures can share one article without collisions.
     Requires resources/js/kineglyph.js (Vite) or the self-contained bundle to be loaded once.
+
+    The host advertises aria-busy="true" until the runtime mounts; mountKineglyph sets it to
+    "false" on success and removes it again on destroy. `static` (optional) is the URL of a
+    static SVG/PNG export of the same scene (produced with `kineglyph-export`): it is shown when
+    JavaScript is unavailable and used as the accessible fallback image.
 --}}
 @props([
     'scene',
@@ -14,6 +19,8 @@
     'readout' => true,
     'width' => null,
     'caption' => null,
+    'static' => null,
+    'alt' => null,
 ])
 
 <figure {{ $attributes->merge(['class' => 'kineglyph-figure']) }}>
@@ -25,10 +32,17 @@
         data-controls="{{ $controls ? 'true' : 'false' }}"
         data-readout="{{ $readout ? 'true' : 'false' }}"
         @if ($width !== null) data-width="{{ $width }}" @endif
+        @if ($static !== null) data-static="{{ $static }}" @endif
         aria-busy="true"
     >
-        {{-- Progressive enhancement: the runtime replaces this placeholder on mount. --}}
-        <noscript>This illustration needs JavaScript to animate; the static export is linked below.</noscript>
+        @if ($static !== null)
+            {{-- Progressive enhancement: the static export shows until (or unless) the runtime mounts. --}}
+            <noscript>
+                <img src="{{ $static }}" alt="{{ $alt ?? $caption ?? $scene }}" style="max-width:100%;height:auto" />
+            </noscript>
+        @else
+            <noscript>This illustration is interactive and needs JavaScript to render.</noscript>
+        @endif
     </div>
     @if ($caption)
         <figcaption class="kineglyph-figure__caption">{{ $caption }}</figcaption>

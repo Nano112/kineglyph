@@ -11,9 +11,11 @@ import {
   type ThemeName,
 } from "@kineglyph/scenes";
 import { renderSvg } from "@kineglyph/svg";
-import { mountKineglyph, type KineglyphController } from "@kineglyph/web";
+import { mountKineglyph, startWhenVisible, type KineglyphController } from "@kineglyph/web";
 
 type WidthPreset = "desktop" | "820" | "390";
+/** Explicit order: object keys that look like integers would otherwise sort ahead of "desktop". */
+const WIDTH_PRESETS: readonly WidthPreset[] = ["desktop", "820", "390"];
 const WIDTHS: Record<WidthPreset, number> = { desktop: 1200, "820": 820, "390": 390 };
 const WIDTH_LABELS: Record<WidthPreset, string> = {
   desktop: "Desktop",
@@ -91,7 +93,7 @@ export function App() {
           ))}
         </div>
         <div className="theme-switcher" role="group" aria-label="Container width">
-          {(Object.keys(WIDTHS) as WidthPreset[]).map((key) => (
+          {WIDTH_PRESETS.map((key) => (
             <button
               type="button"
               key={key}
@@ -193,19 +195,13 @@ function GalleryFigure({
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = host.current;
-    if (element === null || typeof IntersectionObserver === "undefined") return;
-    let started = false;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (started || !entries.some((item) => item.isIntersecting)) return;
-        started = true;
-        handle.current?.restart(true);
-        observer.disconnect();
-      },
-      { threshold: 0.35 },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
+    if (element === null) return;
+    // Low threshold: narrow scenes can be taller than the viewport and never reach a high ratio.
+    return startWhenVisible(element, () => handle.current?.restart(true), {
+      threshold: 0.06,
+      rootMargin: "0px 0px -15% 0px",
+      fallbackImmediately: false,
+    });
   }, [entry]);
   return (
     <div ref={host}>

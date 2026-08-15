@@ -97,7 +97,10 @@ document.addEventListener("livewire:navigated", () => {
 ## Files in this directory
 
 - `resources/views/components/kineglyph-figure.blade.php` — the Blade component (props:
-  `scene`, `theme`, `layout`, `autoplay`, `controls`, `readout`, `caption`, `width`).
+  `scene`, `theme`, `layout`, `autoplay`, `controls`, `readout`, `caption`, `width`, `static`,
+  `alt`). The host carries `aria-busy="true"` until the runtime mounts (the runtime sets it to
+  `false` and removes it on destroy); `static` points at an SVG/PNG produced by
+  `kineglyph-export` and is shown inside `<noscript>` when JavaScript is off.
 - `resources/views/docs/show.blade.php` — an article page mounting three figures.
 - `resources/js/kineglyph.js` — the Vite entry that registers scenes and auto-mounts.
 - `public/vendor/kineglyph/README.md` — where the no-build bundle lives.

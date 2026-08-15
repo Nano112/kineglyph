@@ -15,6 +15,7 @@
     <x-kineglyph-figure
         scene="fast-generation"
         theme="nucleation"
+        static="{{ asset('img/figures/fast-generation.svg') }}"
         caption="Workload shape decides the bulk API; the comparison shows why call overhead differs." />
 
     <h2>Choosing an engine</h2>
@@ -38,6 +39,9 @@
         <x-kineglyph-figure scene="formats-and-io" theme="schematio" :controls="false" />
     </aside>
 
-    <p>Static exports of every figure are available as SVG, PNG, and GIF from the docs build.</p>
+    <p>
+        Static exports of every figure (SVG, PNG, GIF) are produced by <code>kineglyph-export</code>
+        during the docs build and passed to <code>static=</code> as the no-JavaScript fallback.
+    </p>
 </article>
 @endsection

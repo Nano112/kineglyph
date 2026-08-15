@@ -236,6 +236,8 @@ class FigureRuntime implements KineglyphController {
     this.#bindInteractions(doc);
     this.#observeMedia(element);
     if (options.width === undefined) this.#observeSize(element);
+    // Hosts often advertise aria-busy="true" while waiting for the runtime; the figure is ready now.
+    element.setAttribute("aria-busy", "false");
   }
 
   // -----------------------------------------------------------------------------------------
@@ -303,14 +305,19 @@ class FigureRuntime implements KineglyphController {
     this.#render(false);
   }
 
-  setScene(scene: FigureSource): void {
+  setScene(scene: FigureSource, options: { readonly initialState?: MachineState } = {}): void {
     this.#assertLive();
     this.#source = scene;
+    // A new scene gets a fresh machine; the mount-time initialState belongs to the original scene.
     this.machine =
       isSceneDefinition(scene) && scene.machine !== undefined
-        ? new MachineController(scene.machine, { history: this.#options.history ?? false })
+        ? new MachineController(scene.machine, {
+            history: this.#options.history ?? false,
+            ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+          })
         : undefined;
     this.#inspected = undefined;
+    this.#invalidateMachineControls();
     this.#resolved = this.#resolve();
     this.#render(true);
   }
@@ -357,6 +364,8 @@ class FigureRuntime implements KineglyphController {
     this.#emitter.clear();
     this.element.replaceChildren();
     this.element.classList.remove("kg-figure-host");
+    // The host is empty again: it is neither busy nor a live figure.
+    this.element.removeAttribute("aria-busy");
   }
 
   // -----------------------------------------------------------------------------------------
@@ -506,18 +515,37 @@ class FigureRuntime implements KineglyphController {
     this.#timeOutput = output;
   }
 
+  /** Forgets the built control buttons so the next render rebuilds them from the current scene. */
+  #invalidateMachineControls(): void {
+    const bar = this.#machineBar;
+    if (bar === undefined) return;
+    delete bar.dataset.controls;
+    bar.replaceChildren();
+  }
+
   #renderMachineControls(): void {
     const bar = this.#machineBar;
     if (bar === undefined) return;
     const controls = this.#resolved.controls ?? [];
     if (this.machine === undefined || controls.length === 0) {
       bar.hidden = true;
-      bar.replaceChildren();
+      this.#invalidateMachineControls();
       return;
     }
     bar.hidden = false;
-    const signature = controls.map((control) => `${control.id}:${control.label}`).join("|");
-    if (bar.dataset.controls === signature) {
+    // The signature covers every behavioural field so a same-looking control never keeps a
+    // stale click handler; buttons are only reused while the whole control set is identical.
+    const signature = JSON.stringify(
+      controls.map((control) => [
+        control.id,
+        control.label,
+        control.kind ?? "event",
+        control.event ?? "",
+        control.group ?? "",
+        control.description ?? "",
+      ]),
+    );
+    if (bar.dataset.controls === signature && bar.childElementCount > 0) {
       this.#syncMachineControls();
       return;
     }
@@ -849,6 +877,56 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
     controllers.push(controller);
   }
   return controllers;
+}
+
+// ---------------------------------------------------------------------------------------------
+// In-view start (article pages, galleries)
+// ---------------------------------------------------------------------------------------------
+
+export interface StartWhenVisibleOptions {
+  /**
+   * Fraction of the element that must be visible. Kept deliberately low (default 0.06) because
+   * tall narrow figures may never reach a high ratio inside a short viewport.
+   */
+  readonly threshold?: number;
+  /** Extra margin around the viewport; defaults to starting slightly before the figure scrolls in. */
+  readonly rootMargin?: string;
+  /** Fire once (default) or on every entry. */
+  readonly once?: boolean;
+  /** Called immediately when IntersectionObserver is unavailable. Defaults to true. */
+  readonly fallbackImmediately?: boolean;
+}
+
+/**
+ * Invokes `start` the first time `element` scrolls into view. Returns a disposer. Intended for
+ * galleries and long articles so figures play when the reader reaches them.
+ */
+export function startWhenVisible(
+  element: Element,
+  start: () => void,
+  options: StartWhenVisibleOptions = {},
+): () => void {
+  const view = element.ownerDocument.defaultView;
+  const Observer = view?.IntersectionObserver;
+  if (typeof Observer !== "function") {
+    if (options.fallbackImmediately !== false) start();
+    return () => undefined;
+  }
+  let fired = false;
+  const observer = new Observer(
+    (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (options.once !== false) {
+        if (fired) return;
+        fired = true;
+        observer.disconnect();
+      }
+      start();
+    },
+    { threshold: options.threshold ?? 0.06, rootMargin: options.rootMargin ?? "0px 0px -10% 0px" },
+  );
+  observer.observe(element);
+  return () => observer.disconnect();
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -2,7 +2,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTheme, defineScene, type SceneDefinition } from "@kineglyph/core";
-import { autoMount, mountKineglyph, registerScene, registerTheme, STYLE_ID } from "../src/index.js";
+import {
+  autoMount,
+  mountKineglyph,
+  registerScene,
+  registerTheme,
+  startWhenVisible,
+  STYLE_ID,
+} from "../src/index.js";
 import { STYLE_ID as STYLE_ID_EXPORT } from "../src/styles.js";
 
 const scene: SceneDefinition = defineScene({
@@ -238,6 +245,132 @@ describe("mountKineglyph", () => {
     expect(controller.state.width).toBe(390);
     expect(controller.state.layout).toBe("narrow");
     controller.destroy();
+  });
+
+  it("clears aria-busy on mount and removes it on destroy", () => {
+    const element = host();
+    element.setAttribute("aria-busy", "true");
+    const controller = mountKineglyph(element, { scene, autoplay: false });
+    expect(element.getAttribute("aria-busy")).toBe("false");
+    controller.destroy();
+    expect(element.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("rebuilds machine controls across setScene so no stale handlers or empty bars survive", () => {
+    const controller = mountKineglyph(host(), { scene, autoplay: false });
+    const bar = (): HTMLElement | null => controller.element.querySelector(".kg-figure__machine");
+    expect(bar()?.hidden).toBe(false);
+    // Same control ids/labels but different events: the buttons must send the new events.
+    const swapped: SceneDefinition = defineScene({
+      ...scene,
+      id: "lab-swapped",
+      controls: [
+        {
+          id: "pick-a",
+          label: "Pick A",
+          event: "PICK_B",
+          activeWhen: { state: "b" },
+          group: "Intent",
+        },
+        {
+          id: "pick-b",
+          label: "Pick B",
+          event: "PICK_A",
+          activeWhen: { state: "a" },
+          group: "Intent",
+        },
+        { id: "reset", kind: "reset", label: "Reset" },
+      ],
+    });
+    controller.setScene(swapped);
+    controller.element.querySelector<HTMLButtonElement>('[data-control="pick-a"]')?.click();
+    expect(controller.state.machineState?.state).toBe("b");
+    // A scene without a machine hides and empties the bar…
+    const plain: SceneDefinition = defineScene({
+      schemaVersion: 2,
+      id: "plain",
+      title: "Plain",
+      root: { id: "root", type: "group", children: [{ id: "t", type: "text", text: "Plain" }] },
+    });
+    controller.setScene(plain);
+    expect(bar()?.hidden).toBe(true);
+    expect(bar()?.childElementCount).toBe(0);
+    // …and returning to a machine scene with the original signature rebuilds live buttons.
+    controller.setScene(scene);
+    expect(bar()?.hidden).toBe(false);
+    controller.element.querySelector<HTMLButtonElement>('[data-control="pick-a"]')?.click();
+    expect(controller.state.machineState?.state).toBe("a");
+    // setScene can start a machine in an explicit state.
+    controller.setScene(scene, {
+      initialState: { state: "b", variables: { intent: "b" }, selection: null },
+    });
+    expect(controller.state.machineState?.state).toBe("b");
+    expect(
+      controller.element.querySelector('[data-control="pick-b"]')?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    controller.destroy();
+  });
+
+  it("starts figures when they scroll into view with a low threshold", () => {
+    const observed: Element[] = [];
+    let callback: IntersectionObserverCallback | undefined;
+    let options: IntersectionObserverInit | undefined;
+    class FakeObserver {
+      constructor(cb: IntersectionObserverCallback, init?: IntersectionObserverInit) {
+        callback = cb;
+        options = init;
+      }
+      observe(target: Element): void {
+        observed.push(target);
+      }
+      disconnect(): void {
+        observed.length = 0;
+      }
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [];
+    }
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    const element = host();
+    let starts = 0;
+    const stop = startWhenVisible(element, () => {
+      starts += 1;
+    });
+    expect(observed).toEqual([element]);
+    expect(options?.threshold).toBeLessThanOrEqual(0.1);
+    // A very tall figure only ever reaches a small ratio; it must still start.
+    callback?.(
+      [
+        {
+          isIntersecting: true,
+          intersectionRatio: 0.07,
+          target: element,
+        } as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+    callback?.(
+      [
+        {
+          isIntersecting: true,
+          intersectionRatio: 0.5,
+          target: element,
+        } as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+    expect(starts).toBe(1);
+    stop();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    let immediate = 0;
+    startWhenVisible(element, () => {
+      immediate += 1;
+    });
+    expect(immediate).toBe(1);
   });
 
   it("auto-mounts registered scenes from data attributes", () => {

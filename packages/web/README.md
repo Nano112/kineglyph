@@ -36,6 +36,23 @@ controller.destroy(); // removes DOM, listeners, observers, and animations
 `controller.state` reports time, duration, playing, reducedMotion, width, layout, machineState,
 and the inspected target. `controller.scene` is the current `ResolvedScene`.
 
+### Lifecycle guarantees
+
+- Mounting sets `aria-busy="false"` on the host (hosts may advertise `aria-busy="true"` while
+  waiting for the script); `destroy()` removes the attribute, the DOM, listeners, observers, and
+  animations, and the controller then throws on use.
+- Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts
+  from the beginning. `setReducedMotion(true)` also stops flow strokes and disables playback
+  controls; the `prefers-reduced-motion` media query is followed live unless overridden.
+- `setScene(scene, { initialState? })` re-mounts a different figure in place: a fresh machine
+  (optionally started in `initialState`), rebuilt machine controls (never a stale handler even when
+  ids and labels repeat), and a reset timeline. `setTheme` and `resize` keep time and state.
+- Stage listeners are attached once per mount; re-renders replace SVG markup only, so no duplicate
+  listeners accumulate. Ids are prefixed per mount (`kineglyph-<n>` or your `idPrefix`), so
+  markers, clip paths, and titles never collide between figures.
+- `startWhenVisible(element, start, { threshold, rootMargin, once })` starts a figure when it
+  scrolls into view (low default threshold so very tall narrow figures still start).
+
 ### Options
 
 | Option            | Default         | Purpose                                                          |
