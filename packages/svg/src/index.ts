@@ -388,6 +388,20 @@ export function edgeDashArray(
   };
 }
 
+/**
+ * Dash/reveal attributes for a node path (polylines, custom paths): solid strokes reveal with a
+ * normalised dasharray, dashed/dotted strokes keep their pattern while revealing.
+ */
+export function pathDashAttrs(
+  dash: EdgeDashKind,
+  strokeWidth: number,
+  length: number,
+  progress: number,
+  precision = 3,
+): EdgeDashResult {
+  return edgeDashArray(dash, Math.max(0.5, strokeWidth), length, progress, precision);
+}
+
 function renderEdge(edge: UnknownRecord, index: number, context: RenderContext): string {
   const { rootId, precision } = context;
   const id = string(edge.id) ?? `edge-${index + 1}`;
@@ -872,8 +886,10 @@ function renderStructuredShape(
       : dash === "dotted"
         ? `0.01 ${number(Math.max(3, strokeWidth * 2.4), precision)}`
         : undefined;
+  const ownerId = nodeId(node, 0);
   const paint: Attrs = [
     ["class", "kg-node-shape"],
+    ["data-shape-of", ownerId],
     ["fill", fill],
     ["stroke", stroke],
     ["stroke-width", strokeWidth > 0 ? number(strokeWidth, precision) : undefined],
@@ -929,7 +945,7 @@ function renderStructuredShape(
       );
     }
     case "text":
-      return renderTextBlock(record(node.text), "kg-text", precision, progress);
+      return renderTextBlock(record(node.text), "kg-text", precision, progress, ownerId);
     case "badge":
       return (
         element(
@@ -977,19 +993,29 @@ function renderStructuredShape(
       const offsetX = x + (width - vw * scale) / 2;
       const offsetY = y + (height - vh * scale) / 2;
       const scaledStroke = strokeWidth > 0 ? strokeWidth / scale : 0;
+      const pathLength = finiteNumber(path.length, Math.hypot(vw, vh));
+      const dashKind: EdgeDashKind = dash === "dashed" || dash === "dotted" ? dash : "solid";
+      const reveal = pathDashAttrs(dashKind, scaledStroke, pathLength, progress, precision);
+      // Explicit authored caps win; dotted patterns default to round caps so 0.01-length dashes
+      // still render as dots.
+      const lineCap = string(appearance.lineCap) ?? reveal.linecap ?? "round";
       return element(
         "path",
         [
           ["class", "kg-node-shape kg-path"],
+          ["data-shape-of", ownerId],
           ["d", string(path.d) ?? ""],
           ["fill", fill],
           ["stroke", stroke],
           ["stroke-width", scaledStroke > 0 ? number(scaledStroke, precision) : undefined],
-          ["stroke-linecap", "round"],
+          ["fill-opacity", numeric(appearance.opacity, precision)],
+          ["stroke-opacity", numeric(appearance.opacity, precision)],
+          ["stroke-linecap", lineCap],
           ["stroke-linejoin", "round"],
-          ["stroke-dasharray", dashAttr === undefined ? undefined : dashAttr],
-          ["pathLength", progress < 1 ? "1" : undefined],
-          ["stroke-dasharray", progress < 1 ? `${number(progress, precision)} 1` : dashAttr],
+          ["pathLength", reveal.pathLength],
+          ["stroke-dasharray", reveal.dasharray],
+          ["data-path-length", number(pathLength, precision)],
+          ["data-dash", dashKind],
           [
             "transform",
             `translate(${number(offsetX, precision)} ${number(offsetY, precision)}) scale(${number(scale, precision)})`,
@@ -1201,6 +1227,7 @@ function renderTextBlock(
   className: string,
   precision: number,
   progress: number,
+  owner?: string,
 ): string {
   const lines = records(text.lines);
   const box = record(text.box);
@@ -1219,6 +1246,7 @@ function renderTextBlock(
     "text",
     [
       ["class", className],
+      ["data-text-of", owner],
       ["font-family", string(text.fontFamily)],
       ["font-size", number(fontSize, precision)],
       ["font-weight", numeric(text.fontWeight, precision)],

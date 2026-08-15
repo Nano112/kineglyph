@@ -12,7 +12,7 @@ export const FIGURE_STYLES = `
 .kg-figure__stage .kg-node--interactive:focus-visible>.kg-node-shape{stroke:var(--kg-shell-accent);stroke-width:2.5}
 .kg-figure__stage .kg-edge-group[role=img]:hover .kg-edge{filter:brightness(1.25)}
 .kg-figure__readout{display:grid;grid-template-columns:minmax(110px,.4fr) minmax(140px,.7fr) minmax(220px,1.5fr);gap:16px;align-items:baseline;min-height:64px;padding:16px 22px;border-top:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}
-.kg-figure__readout strong{font-size:15px}.kg-figure__readout>span:last-child{color:var(--kg-shell-muted);font-size:13px;line-height:1.45}
+.kg-figure__readout strong{font-size:15px}.kg-figure__body{color:var(--kg-shell-muted);font-size:13px;line-height:1.45}
 .kg-figure__fields{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:8px 0 0;font-size:12px}
 .kg-figure__fields dt{color:var(--kg-shell-muted);font-weight:600}
 .kg-figure__fields dd{margin:0;color:var(--kg-shell-text);font-variant-numeric:tabular-nums}

@@ -39,6 +39,11 @@ function scopeNode(node: SceneNode, prefix: string): SceneNode {
     };
     return group;
   }
+  if (scoped.type === "legend")
+    return {
+      ...scoped,
+      items: scoped.items.map((item) => ({ ...item, id: scopeId(prefix, item.id) })),
+    };
   return scoped;
 }
 
@@ -54,6 +59,13 @@ export function scopeFragment(fragment: SceneFragment, prefix: string): SceneFra
           edges: fragment.edges.map((edge) => ({
             ...edge,
             id: scopeId(prefix, edge.id),
+            ...(edge.labels === undefined
+              ? {}
+              : {
+                  labels: edge.labels.map((label) =>
+                    label.id === undefined ? label : { ...label, id: scopeId(prefix, label.id) },
+                  ),
+                }),
             from:
               typeof edge.from === "string"
                 ? scopeId(prefix, edge.from)
@@ -80,6 +92,13 @@ export function scopeFragment(fragment: SceneFragment, prefix: string): SceneFra
             ...control,
             id: scopeId(prefix, control.id),
           })),
+        }),
+    ...(fragment.diagnostics === undefined
+      ? {}
+      : {
+          diagnostics: fragment.diagnostics.map((entry) =>
+            entry.path === undefined ? entry : { ...entry, path: scopeId(prefix, entry.path) },
+          ),
         }),
   };
 }

@@ -145,6 +145,11 @@ export interface GroupNode extends BaseNode {
   readonly columns?: Responsive<number>;
   readonly frame?: FrameStyle;
   readonly clip?: boolean;
+  /**
+   * Escape hatch: children may extend beyond the content box without overflow diagnostics
+   * (e.g. tick labels or callouts around a coordinates area).
+   */
+  readonly allowOverflow?: boolean;
   readonly children: readonly SceneNode[];
 }
 

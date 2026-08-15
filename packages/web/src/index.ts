@@ -216,8 +216,9 @@ class FigureRuntime implements KineglyphController {
     if (options.readout !== false) {
       this.#readout = doc.createElement("div");
       this.#readout.className = "kg-figure__readout";
+      // The body is a <div> so structured fields (<dl>) stay valid HTML inside it.
       this.#readout.innerHTML =
-        '<span class="kg-figure__eyebrow"></span><strong></strong><span></span>';
+        '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
       this.#shell.append(this.#readout);
     }
     if (options.machineControls !== false) {
@@ -698,9 +699,7 @@ class FigureRuntime implements KineglyphController {
       const active = event.target instanceof Element ? event.target : null;
       const group = active?.closest("[data-focus-group]");
       if (group === null || group === undefined) return;
-      const members = [...group.querySelectorAll<HTMLElement>("[data-node-id][tabindex]")].filter(
-        (member) => member !== group,
-      );
+      const members = focusGroupMembers(group);
       if (members.length === 0) return;
       const index = members.findIndex((member) => member === active);
       let next: number;
@@ -1015,6 +1014,30 @@ function prefersReducedMotion(element: HTMLElement): boolean {
   const view = element.ownerDocument.defaultView;
   if (view === null || typeof view.matchMedia !== "function") return false;
   return view.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Direct roving members of a focus group: focusable descendants whose nearest focus group is this
+ * one (nested focus groups are their own tab stops), skipping hidden, inert, or aria-hidden marks.
+ */
+function focusGroupMembers(group: Element): HTMLElement[] {
+  return [...group.querySelectorAll<HTMLElement>("[data-node-id][tabindex]")].filter((member) => {
+    if (member === group) return false;
+    if (member.hasAttribute("data-focus-group")) return false;
+    const owner = member.parentElement?.closest("[data-focus-group]") ?? null;
+    if (owner !== group) return false;
+    for (let el: Element | null = member; el !== null && el !== group; el = el.parentElement) {
+      if (
+        el.getAttribute("data-hidden") === "true" ||
+        el.getAttribute("display") === "none" ||
+        el.getAttribute("aria-hidden") === "true" ||
+        el.hasAttribute("inert") ||
+        el.hasAttribute("hidden")
+      )
+        return false;
+    }
+    return true;
+  });
 }
 
 function cssEscape(value: string): string {

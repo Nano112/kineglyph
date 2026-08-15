@@ -227,7 +227,7 @@ describe("structured scene rendering", () => {
     expect(svg).toContain('clip-path="url(#kinds-node-card-clip)"');
     // Text carries explicit fonts and fills so static rasterisers never depend on CSS variables.
     expect(svg).toMatch(
-      /<text class="kg-text" font-family="[^"]+" font-size="24" font-weight="650"[^>]*fill="#15171a"/,
+      /<text class="kg-text"[^>]*font-family="[^"]+" font-size="24" font-weight="650"[^>]*fill="#15171a"/,
     );
     expect(svg).toContain(`fill="${theme.colors.success}"`);
     expect(svg).toContain('class="kg-canvas"');
@@ -319,5 +319,87 @@ describe("structured scene rendering", () => {
       `translate(${Number(parts.tx.toFixed(3))} ${Number(parts.ty.toFixed(3))}) scale(0.75)`,
     );
     expect(half).toContain(`transform="${nodeTransform(bar2, 0, 0, 0.75, 3)}"`);
+  });
+  it("marks path shapes with their owner, keeps authored line caps, and names inspect-only marks", () => {
+    const scene: SceneDefinition = {
+      schemaVersion: 2,
+      id: "paths",
+      title: "Paths",
+      root: {
+        id: "root",
+        type: "group",
+        layout: "stack",
+        gap: 8,
+        children: [
+          {
+            id: "line",
+            type: "polyline",
+            width: 200,
+            height: 60,
+            points: [
+              [0, 1],
+              [0.5, 0],
+              [1, 1],
+            ],
+            lineCap: "butt",
+            dash: "dotted",
+            stroke: "chart1",
+            strokeWidth: 3,
+            interactive: true,
+            inspect: {
+              role: "Series",
+              title: "Latency p95",
+              summary: "Milliseconds per request",
+              fields: [{ label: "Points", value: "3" }],
+            },
+          },
+          {
+            id: "cell",
+            type: "rect",
+            width: 40,
+            height: 40,
+            fill: "chart2",
+            interactive: true,
+            inspect: {
+              role: "Cell",
+              title: "Row 1 · Col 2",
+              fields: [{ label: "Value", value: "7" }],
+            },
+          },
+        ],
+      },
+      timeline: {
+        duration: 100,
+        tracks: [
+          {
+            id: "draw",
+            target: "line",
+            property: "progress",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 100, value: 1 },
+            ],
+          },
+        ],
+      },
+    };
+    const resolved = resolveScene(scene, { width: 400, theme });
+    const half = renderSvg(seekTimeline(resolved, 50), { idPrefix: "p" });
+    // The path shape is attributable to its node (the runtime updates it by owner, not position).
+    expect(half).toMatch(/<path class="kg-node-shape kg-path" data-shape-of="line"/);
+    // Authored line cap survives while revealing; the dotted pattern is preserved mid-progress.
+    expect(half).toMatch(/data-shape-of="line"[^>]*stroke-linecap="butt"/);
+    expect(half).toMatch(/data-shape-of="line"[^>]*data-dash="dotted"/);
+    expect(half).toMatch(/data-shape-of="line"[^>]*pathLength="/);
+    const dash = /data-shape-of="line"[^>]*stroke-dasharray="([^"]+)"/.exec(half)?.[1] ?? "";
+    expect(dash.split(" ").length).toBeGreaterThan(2);
+    // Inspect-only marks get an accessible name and description from inspect.
+    expect(half).toMatch(/data-node-id="cell"[\s\S]*?<title[^>]*>Row 1 · Col 2<\/title>/);
+    expect(half).toMatch(/<title[^>]*>Latency p95<\/title>/);
+    expect(half).toMatch(/<desc[^>]*>Milliseconds per request<\/desc>/);
+    // Full progress: plain dotted pattern, no reveal remainder.
+    const done = renderSvg(seekTimeline(resolved, 100), { idPrefix: "p" });
+    const doneDash = /data-shape-of="line"[^>]*stroke-dasharray="([^"]+)"/.exec(done)?.[1] ?? "";
+    expect(doneDash.split(" ")).toHaveLength(2);
   });
 });

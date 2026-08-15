@@ -201,10 +201,15 @@ function buildView(
     bind.hidden !== undefined ? truthy(signal(bind.hidden)) : pickOr(node.hidden, layout, false);
   const boundWidth = numeric(signal(bind.width));
   const boundHeight = numeric(signal(bind.height));
+  // Rects, polylines, and coordinate spaces have no natural width: they fill unless sized.
   const width =
     boundWidth ??
     pick(node.width, layout) ??
-    (node.type === "rect" || node.type === "polyline" ? "fill" : undefined);
+    (node.type === "rect" ||
+    node.type === "polyline" ||
+    (node.type === "group" && node.layout === "coordinates")
+      ? "fill"
+      : undefined);
   const height = boundHeight ?? pick(node.height, layout);
   const boundText = bind.text === undefined ? undefined : signal(bind.text);
   const boundTone = bind.tone === undefined ? undefined : signal(bind.tone);
@@ -609,6 +614,11 @@ function percentFraction(value: Length | undefined): number | undefined {
   return Number.isFinite(parsed) ? Math.max(0, parsed / 100) : undefined;
 }
 
+/** Percent heights resolve against the parent's known inner height; otherwise they hug. */
+function percentHeightBasis(child: View, innerHeight: number | undefined): number | undefined {
+  return percentFraction(child.height) !== undefined ? innerHeight : undefined;
+}
+
 function resolveChildWidth(
   child: View,
   available: number,
@@ -876,7 +886,7 @@ function layoutGroup(
             stretchAll || child.alignSelf === "stretch",
             context,
           ),
-          undefined,
+          percentHeightBasis(child, innerHeight),
           context,
         ),
       );
@@ -952,7 +962,7 @@ function layoutGroup(
       const available = innerWidth - gap * Math.max(0, children.length - 1);
       const widths = allocateFlex(specs, available);
       const naturals = children.map((child, index) =>
-        layoutNode(child, widths[index] ?? 0, undefined, context),
+        layoutNode(child, widths[index] ?? 0, percentHeightBasis(child, innerHeight), context),
       );
       const rowHeight = innerHeight ?? Math.max(0, ...naturals.map((child) => child.height));
       const finals = naturals.map((child) =>
@@ -998,7 +1008,7 @@ function layoutGroup(
               (child.justifySelf ?? undefined) === "stretch",
             context,
           ),
-          undefined,
+          percentHeightBasis(child, innerHeight),
           context,
         ),
       );
@@ -1040,7 +1050,7 @@ function layoutGroup(
             child.alignSelf === "stretch" || (child.justifySelf ?? undefined) === "stretch",
             context,
           ),
-          undefined,
+          percentHeightBasis(child, innerHeight),
           context,
         ),
       );
@@ -1155,8 +1165,9 @@ function layoutGroup(
   placed.height = forcedHeight ?? Math.max(view.minHeight, contentHeight + pad.top + pad.bottom);
   const limitBottom = placed.height - pad.bottom + 0.5;
   const limitRight = width - pad.right + 0.5;
+  const overflowAllowed = view.node.type === "group" && view.node.allowOverflow === true;
   for (const child of results) {
-    if (view.layout === "coordinates") break;
+    if (overflowAllowed) break;
     if (
       child.x + child.width > limitRight ||
       child.y + child.height > limitBottom ||
@@ -1298,6 +1309,7 @@ function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance
         strokeWidth: node.strokeWidth ?? theme.strokes.regular,
         radius: 0,
         ...(node.dash === undefined ? {} : { dash: node.dash }),
+        ...(node.lineCap === undefined ? {} : { lineCap: node.lineCap }),
       };
     case "image":
       return {
@@ -1398,9 +1410,11 @@ function emit(
   const node = view.node;
   const label =
     node.label ??
+    node.inspect?.title ??
     (view.type === "text" || view.type === "badge" || view.type === "callout"
       ? (view.text ?? "")
       : "");
+  const description = view.description ?? node.inspect?.summary;
   const kind: ResolvedNode["kind"] =
     view.type === "group"
       ? "group"
@@ -1492,7 +1506,7 @@ function emit(
     kind,
     ...rect,
     label,
-    ...(view.description === undefined ? {} : { description: view.description }),
+    ...(description === undefined ? {} : { description }),
     appearance,
     state: {
       opacity: view.opacity,
@@ -1530,6 +1544,7 @@ function emit(
           path: {
             d: polylinePath(node, placed.width, placed.height, precision),
             viewBox: { width: Math.max(1e-6, placed.width), height: Math.max(1e-6, placed.height) },
+            length: round(polylineLength(node, placed.width, placed.height), precision),
           },
         }
       : {}),
@@ -1884,37 +1899,22 @@ export function polylinePath(
       if (previous === undefined || current === undefined) continue;
       parts.push(`L ${n(current.x)} ${n(previous.y)}`, `L ${n(current.x)} ${n(current.y)}`);
     }
-  } else if (curve === "monotone" && pts.length > 2) {
-    // Fritsch–Carlson monotone cubic interpolation, emitted as cubic Béziers.
-    const count = pts.length;
-    const dx: number[] = [];
-    const dy: number[] = [];
-    const slopes: number[] = [];
-    for (let index = 0; index < count - 1; index += 1) {
+  } else if (curve === "monotone" && pts.length > 2 && isStrictlyIncreasingX(pts)) {
+    // Fritsch–Carlson monotone cubic interpolation (slope-limited), emitted as cubic Béziers.
+    // Uneven spacing is handled by the weighted three-point tangent (Fritsch–Butland) and the
+    // α/β circle limiter, so the curve never overshoots the data envelope.
+    const tangents = monotoneTangents(pts);
+    for (let index = 0; index < pts.length - 1; index += 1) {
       const a = pts[index];
       const b = pts[index + 1];
       if (a === undefined || b === undefined) continue;
-      dx.push(b.x - a.x);
-      dy.push(b.y - a.y);
-      slopes.push(dx[index] === 0 ? 0 : (dy[index] ?? 0) / (dx[index] ?? 1));
-    }
-    const tangents: number[] = [slopes[0] ?? 0];
-    for (let index = 1; index < count - 1; index += 1) {
-      const left = slopes[index - 1] ?? 0;
-      const right = slopes[index] ?? 0;
-      tangents.push(left * right <= 0 ? 0 : (left + right) / 2);
-    }
-    tangents.push(slopes[count - 2] ?? 0);
-    for (let index = 0; index < count - 1; index += 1) {
-      const a = pts[index];
-      const b = pts[index + 1];
-      if (a === undefined || b === undefined) continue;
-      const step = (dx[index] ?? 0) / 3;
+      const step = (b.x - a.x) / 3;
       const c1 = { x: a.x + step, y: a.y + step * (tangents[index] ?? 0) };
       const c2 = { x: b.x - step, y: b.y - step * (tangents[index + 1] ?? 0) };
       parts.push(`C ${n(c1.x)} ${n(c1.y)} ${n(c2.x)} ${n(c2.y)} ${n(b.x)} ${n(b.y)}`);
     }
   } else {
+    // Linear (also the fallback for monotone when x is not strictly increasing).
     for (let index = 1; index < pts.length; index += 1) {
       const current = pts[index];
       if (current !== undefined) parts.push(`L ${n(current.x)} ${n(current.y)}`);
@@ -1927,4 +1927,136 @@ export function polylinePath(
       parts.push(`L ${n(last.x)} ${n(baselineY)}`, `L ${n(first.x)} ${n(baselineY)}`, "Z");
   } else if (node.closed === true) parts.push("Z");
   return parts.join(" ");
+}
+
+function isStrictlyIncreasingX(pts: readonly Point[]): boolean {
+  for (let index = 1; index < pts.length; index += 1) {
+    const a = pts[index - 1];
+    const b = pts[index];
+    if (a === undefined || b === undefined || !(b.x > a.x)) return false;
+  }
+  return true;
+}
+
+/**
+ * Slope-limited monotone tangents (Fritsch–Carlson with Fritsch–Butland initial estimates).
+ * Requires strictly increasing x. Exported for tests.
+ */
+export function monotoneTangents(pts: readonly Point[]): number[] {
+  const count = pts.length;
+  if (count < 2) return pts.map(() => 0);
+  const h: number[] = [];
+  const delta: number[] = [];
+  for (let index = 0; index < count - 1; index += 1) {
+    const a = pts[index];
+    const b = pts[index + 1];
+    if (a === undefined || b === undefined) continue;
+    h.push(b.x - a.x);
+    delta.push((b.y - a.y) / (b.x - a.x));
+  }
+  const m: number[] = new Array<number>(count).fill(0);
+  // Interior tangents: zero at local extrema/plateaus, otherwise the weighted harmonic mean.
+  for (let index = 1; index < count - 1; index += 1) {
+    const d0 = delta[index - 1] ?? 0;
+    const d1 = delta[index] ?? 0;
+    const h0 = h[index - 1] ?? 0;
+    const h1 = h[index] ?? 0;
+    if (d0 * d1 <= 0) m[index] = 0;
+    else {
+      const w1 = 2 * h1 + h0;
+      const w2 = h1 + 2 * h0;
+      m[index] = (w1 + w2) / (w1 / d0 + w2 / d1);
+    }
+  }
+  // End tangents: one-sided three-point estimate, clamped to preserve the end interval's shape.
+  const endTangent = (dNear: number, dFar: number, hNear: number, hFar: number): number => {
+    let value = ((2 * hNear + hFar) * dNear - hNear * dFar) / (hNear + hFar);
+    if (Math.sign(value) !== Math.sign(dNear)) value = 0;
+    else if (Math.sign(dNear) !== Math.sign(dFar) && Math.abs(value) > Math.abs(3 * dNear))
+      value = 3 * dNear;
+    return value;
+  };
+  m[0] =
+    count > 2 ? endTangent(delta[0] ?? 0, delta[1] ?? 0, h[0] ?? 0, h[1] ?? 0) : (delta[0] ?? 0);
+  m[count - 1] =
+    count > 2
+      ? endTangent(
+          delta[count - 2] ?? 0,
+          delta[count - 3] ?? 0,
+          h[count - 2] ?? 0,
+          h[count - 3] ?? 0,
+        )
+      : (delta[0] ?? 0);
+  // Fritsch–Carlson limiter: keep (α, β) inside the circle of radius 3.
+  for (let index = 0; index < count - 1; index += 1) {
+    const d = delta[index] ?? 0;
+    if (d === 0) {
+      m[index] = 0;
+      m[index + 1] = 0;
+      continue;
+    }
+    const alpha = (m[index] ?? 0) / d;
+    const beta = (m[index + 1] ?? 0) / d;
+    const radius = alpha * alpha + beta * beta;
+    if (radius > 9) {
+      const tau = 3 / Math.sqrt(radius);
+      m[index] = tau * alpha * d;
+      m[index + 1] = tau * beta * d;
+    }
+  }
+  return m;
+}
+
+/** Approximate polyline length in local box units (curves sampled deterministically). */
+export function polylineLength(
+  node: {
+    readonly points: readonly (readonly [number, number])[];
+    readonly space?: "fraction" | "px";
+    readonly curve?: "linear" | "monotone" | "step";
+    readonly closed?: boolean;
+    readonly baseline?: number;
+  },
+  width: number,
+  height: number,
+): number {
+  const px = node.space === "px";
+  const pts = node.points.map(([x, y]) => ({ x: px ? x : x * width, y: px ? y : y * height }));
+  if (pts.length < 2) return 0;
+  let total = 0;
+  const curve = node.curve ?? "linear";
+  const tangents =
+    curve === "monotone" && pts.length > 2 && isStrictlyIncreasingX(pts)
+      ? monotoneTangents(pts)
+      : undefined;
+  for (let index = 1; index < pts.length; index += 1) {
+    const a = pts[index - 1];
+    const b = pts[index];
+    if (a === undefined || b === undefined) continue;
+    if (curve === "step") total += Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+    else if (tangents !== undefined) {
+      const step = (b.x - a.x) / 3;
+      const c1 = { x: a.x + step, y: a.y + step * (tangents[index - 1] ?? 0) };
+      const c2 = { x: b.x - step, y: b.y - step * (tangents[index] ?? 0) };
+      let previous = a;
+      for (let sample = 1; sample <= 16; sample += 1) {
+        const t = sample / 16;
+        const u = 1 - t;
+        const point = {
+          x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
+          y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y,
+        };
+        total += Math.hypot(point.x - previous.x, point.y - previous.y);
+        previous = point;
+      }
+    } else total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  if (node.baseline !== undefined && first !== undefined && last !== undefined) {
+    const baselineY = px ? node.baseline : node.baseline * height;
+    total +=
+      Math.abs(last.y - baselineY) + Math.abs(last.x - first.x) + Math.abs(baselineY - first.y);
+  } else if (node.closed === true && first !== undefined && last !== undefined)
+    total += Math.hypot(last.x - first.x, last.y - first.y);
+  return total;
 }

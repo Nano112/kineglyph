@@ -216,9 +216,9 @@ describe("mountKineglyph", () => {
     expect(controller.element.querySelector(".kg-figure__readout strong")?.textContent).toBe(
       "Card A",
     );
-    expect(
-      controller.element.querySelector(".kg-figure__readout > span:last-child")?.textContent,
-    ).toBe("Choose engine A");
+    expect(controller.element.querySelector(".kg-figure__body")?.textContent).toBe(
+      "Choose engine A",
+    );
     controller.inspect(null);
     expect(inspected).toEqual(["card-a", "none"]);
     controller.destroy();
@@ -388,5 +388,152 @@ describe("mountKineglyph", () => {
     expect(autoMount()).toHaveLength(0);
     controllers[0]?.destroy();
     expect(autoMount()).toHaveLength(1);
+  });
+});
+
+describe("keyboard inspection", () => {
+  const chart: SceneDefinition = defineScene({
+    schemaVersion: 2,
+    id: "chart",
+    title: "Chart",
+    description: "One tab stop per series; arrows move between marks.",
+    root: {
+      id: "root",
+      type: "group",
+      layout: "stack",
+      gap: 8,
+      children: [
+        {
+          id: "series-a",
+          type: "group",
+          layout: "row",
+          gap: 8,
+          focusGroup: true,
+          label: "Series A",
+          children: [
+            {
+              id: "a-1",
+              type: "rect",
+              width: 40,
+              height: 30,
+              fill: "chart1",
+              interactive: true,
+              inspect: {
+                role: "Bar",
+                title: "A · Q1",
+                summary: "First quarter",
+                fields: [{ label: "Value", value: "12" }],
+              },
+            },
+            {
+              id: "a-hidden",
+              type: "rect",
+              width: 40,
+              height: 30,
+              fill: "chart1",
+              interactive: true,
+              hidden: true,
+              label: "Hidden A",
+            },
+            {
+              id: "a-2",
+              type: "rect",
+              width: 40,
+              height: 30,
+              fill: "chart1",
+              interactive: true,
+              inspect: { role: "Bar", title: "A · Q2", fields: [{ label: "Value", value: "9" }] },
+            },
+            {
+              id: "nested",
+              type: "group",
+              layout: "row",
+              focusGroup: true,
+              label: "Nested",
+              children: [
+                {
+                  id: "n-1",
+                  type: "rect",
+                  width: 20,
+                  height: 20,
+                  fill: "chart2",
+                  interactive: true,
+                  label: "Nested mark",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "series-b",
+          type: "group",
+          layout: "row",
+          gap: 8,
+          focusGroup: true,
+          label: "Series B",
+          children: [
+            {
+              id: "b-1",
+              type: "rect",
+              width: 40,
+              height: 30,
+              fill: "chart2",
+              interactive: true,
+              inspect: { role: "Bar", title: "B · Q1", fields: [{ label: "Value", value: "4" }] },
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  function key(target: Element, key: string): void {
+    target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  }
+
+  it("keeps one tab stop per focus group and cycles only direct, visible members with arrows", () => {
+    const controller = mountKineglyph(host(), {
+      scene: chart,
+      theme: createTheme(),
+      autoplay: false,
+    });
+    const svg = controller.element;
+    const group = svg.querySelector<SVGElement>('[data-node-id="series-a"]');
+    const bar1 = svg.querySelector<SVGElement>('[data-node-id="a-1"]');
+    const bar2 = svg.querySelector<SVGElement>('[data-node-id="a-2"]');
+    const nested = svg.querySelector<SVGElement>('[data-node-id="nested"]');
+    const nestedMark = svg.querySelector<SVGElement>('[data-node-id="n-1"]');
+    expect(group?.getAttribute("tabindex")).toBe("0");
+    expect(bar1?.getAttribute("tabindex")).toBe("-1");
+    expect(bar2?.getAttribute("tabindex")).toBe("-1");
+    // Nested focus groups are their own tab stop; their marks are not members of the outer group.
+    expect(nested?.getAttribute("tabindex")).toBe("0");
+    expect(nestedMark?.getAttribute("tabindex")).toBe("-1");
+    expect(svg.querySelector('[data-node-id="a-hidden"]')?.getAttribute("display")).toBe("none");
+    // From the group, ArrowRight enters the first member; then cycles a-1 → a-2 → a-1 (skips hidden and nested).
+    (group as unknown as HTMLElement).focus();
+    key(group as Element, "ArrowRight");
+    expect(document.activeElement).toBe(bar1);
+    key(bar1 as Element, "ArrowRight");
+    expect(document.activeElement).toBe(bar2);
+    key(bar2 as Element, "ArrowRight");
+    expect(document.activeElement).toBe(bar1);
+    key(bar1 as Element, "End");
+    expect(document.activeElement).toBe(bar2);
+    key(bar2 as Element, "Home");
+    expect(document.activeElement).toBe(bar1);
+    key(bar1 as Element, "ArrowLeft");
+    expect(document.activeElement).toBe(bar2);
+    // Focusing a mark inspects it: structured readout with role/title/fields in a <div> body.
+    const readout = controller.element.querySelector(".kg-figure__readout");
+    expect(readout?.querySelector(".kg-figure__eyebrow")?.textContent).toBe("Bar");
+    expect(readout?.querySelector("strong")?.textContent).toBe("A · Q2");
+    const body = readout?.querySelector(".kg-figure__body");
+    expect(body?.tagName.toLowerCase()).toBe("div");
+    expect(body?.querySelector("dl.kg-figure__fields dt")?.textContent).toBe("Value");
+    expect(body?.querySelector("dl.kg-figure__fields dd")?.textContent).toBe("9");
+    // Inspect-only marks still get an accessible name from inspect.title.
+    expect(bar2?.querySelector("title")?.textContent).toBe("A · Q2");
+    controller.destroy();
   });
 });

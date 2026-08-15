@@ -13,6 +13,24 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+const EDGE_PROPERTIES: ReadonlySet<string> = new Set([
+  "opacity",
+  "progress",
+  "edgeReveal",
+  "highlight",
+  "flow",
+]);
+const NODE_PROPERTIES: ReadonlySet<string> = new Set([
+  "opacity",
+  "translateX",
+  "translateY",
+  "scale",
+  "progress",
+  "highlight",
+  "revealX",
+  "revealY",
+]);
+
 function easing(name: TimelineKeyframe["easing"], t: number): number {
   switch (name ?? "linear") {
     case "easeIn":
@@ -30,10 +48,8 @@ function validateTimeline(timeline: AnimationTimeline, scene: ResolvedScene): vo
   if (!Number.isFinite(timeline.duration) || timeline.duration < 0) {
     throw new RangeError("timeline duration must be finite and non-negative");
   }
-  const targets = new Set([
-    ...scene.nodes.map((node) => node.id),
-    ...scene.edges.map((edge) => edge.id),
-  ]);
+  const edgeIds = new Set(scene.edges.map((edge) => edge.id));
+  const targets = new Set([...scene.nodes.map((node) => node.id), ...edgeIds]);
   const trackIds = new Set<string>();
   timeline.tracks.forEach((track, trackIndex) => {
     if (trackIds.has(track.id)) throw new Error(`duplicate timeline track id: ${track.id}`);
@@ -42,6 +58,15 @@ function validateTimeline(timeline: AnimationTimeline, scene: ResolvedScene): vo
       throw new Error(`timeline track ${track.id} targets missing scene id ${track.target}`);
     if (track.keyframes.length === 0)
       throw new Error(`timeline track ${track.id} must contain a keyframe`);
+    const targetsEdge = edgeIds.has(track.target);
+    if (targetsEdge && !EDGE_PROPERTIES.has(track.property))
+      throw new Error(
+        `timeline track ${track.id}: ${track.property} cannot target edge ${track.target} (edges accept opacity, progress/edgeReveal, highlight, flow)`,
+      );
+    if (!targetsEdge && !NODE_PROPERTIES.has(track.property))
+      throw new Error(
+        `timeline track ${track.id}: ${track.property} cannot target node ${track.target} (nodes accept opacity, translateX/Y, scale, progress, highlight, revealX/Y)`,
+      );
     let previous = -Infinity;
     track.keyframes.forEach((keyframe, keyframeIndex) => {
       if (
@@ -139,8 +164,6 @@ function updateEdge(
     else if (track.property === "highlight")
       state.highlight = Math.max(clamp(value, 0, 1), edge.state.highlight ?? 0);
     else if (track.property === "flow") state.flow = clamp(value, 0, 1);
-    else if (track.property === "revealX" || track.property === "revealY")
-      state.progress = clamp(value, 0, 1);
     else throw new Error(`${track.property} track ${track.id} cannot target edge ${edge.id}`);
   }
   const count = numberValue(edge.metadata?.packetCount);

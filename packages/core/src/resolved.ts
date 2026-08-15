@@ -19,6 +19,7 @@ export interface ResolvedNodeAppearance {
   readonly radius: number;
   readonly opacity?: number;
   readonly dash?: "solid" | "dashed" | "dotted";
+  readonly lineCap?: "round" | "square" | "butt";
 }
 
 export interface ResolvedEdgeAppearance {
@@ -117,6 +118,8 @@ export interface ResolvedNode extends Rect {
   readonly path?: {
     readonly d: string;
     readonly viewBox: { readonly width: number; readonly height: number };
+    /** Approximate path length in local units, used to keep dash patterns stable while revealing. */
+    readonly length?: number;
   };
   readonly image?: {
     readonly href: string;

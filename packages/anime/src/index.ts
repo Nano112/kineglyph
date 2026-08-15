@@ -14,6 +14,7 @@ import {
   highlightStroke,
   markerId,
   nodeTransformParts,
+  pathDashAttrs,
   renderMarkerDefinition,
   revealClipRect,
   type EdgeDashKind,
@@ -520,16 +521,51 @@ export class KineglyphSceneAnimator {
       element.style.setProperty("--kg-highlight", String(highlight));
       if (highlight > 0) element.setAttribute("data-highlight", String(round(highlight)));
       else element.removeAttribute("data-highlight");
-      const shape = element.querySelector(":scope > .kg-node-shape");
-      if (shape instanceof SVGElement && node.appearance.stroke !== undefined) {
+      const shape = element.querySelector(`.kg-node-shape[data-shape-of="${cssEscape(node.id)}"]`);
+      if (shape instanceof SVGElement) {
+        // Path shapes are drawn in their own viewBox units, so stroke widths (and therefore dash
+        // patterns) are divided by the same scale the static renderer uses.
+        const isPath = isSvgTag(shape, "path");
+        const unitScale = isPath ? pathUnitScale(node) : 1;
         const base = node.appearance.stroke === "none" ? accent : node.appearance.stroke;
         const width = node.appearance.stroke === "none" ? 0 : node.appearance.strokeWidth;
+        let strokeWidth = width;
         if (node.appearance.stroke !== "none" || highlight > 0) {
           const outline = highlightStroke(base, accent, highlight, width);
           shape.setAttribute("stroke", outline.stroke);
-          if (outline.strokeWidth > 0)
-            shape.setAttribute("stroke-width", String(round(outline.strokeWidth)));
+          strokeWidth = outline.strokeWidth;
+          if (strokeWidth > 0)
+            shape.setAttribute("stroke-width", String(round(strokeWidth / unitScale)));
         }
+        // Path progress (polylines, custom paths): update the real dash attributes so live playback
+        // matches static frames, preserving authored dashed/dotted patterns while revealing.
+        if (isPath && shape.hasAttribute("data-path-length")) {
+          const length = Number(shape.getAttribute("data-path-length")) || 0;
+          const dashKind = (shape.getAttribute("data-dash") ?? "solid") as EdgeDashKind;
+          const attrs = pathDashAttrs(
+            dashKind,
+            strokeWidth / unitScale,
+            length,
+            node.state.progress,
+          );
+          if (attrs.pathLength === undefined) shape.removeAttribute("pathLength");
+          else shape.setAttribute("pathLength", attrs.pathLength);
+          if (attrs.dasharray === undefined) shape.removeAttribute("stroke-dasharray");
+          else shape.setAttribute("stroke-dasharray", attrs.dasharray);
+        }
+      }
+      // Text progress: reveal lines the same way the static renderer does.
+      const text = element.querySelector(`text[data-text-of="${cssEscape(node.id)}"]`);
+      if (text instanceof SVGElement) {
+        const spans = [...text.querySelectorAll("tspan")];
+        const visible =
+          node.state.progress >= 1
+            ? spans.length
+            : Math.max(0, Math.round(spans.length * node.state.progress));
+        spans.forEach((span, index) => {
+          if (index < visible) span.removeAttribute("opacity");
+          else span.setAttribute("opacity", "0");
+        });
       }
     }
   }
@@ -627,6 +663,16 @@ function round(value: number): number {
 }
 
 /** Tag-name check that works in browsers and DOM shims lacking specific SVG element globals. */
+/** Same scale the SVG renderer applies to a path node's viewBox (see renderStructuredNode). */
+function pathUnitScale(node: ResolvedNode): number {
+  const path = (node as { path?: { viewBox?: { width?: number; height?: number } } }).path;
+  const vw = path?.viewBox?.width;
+  const vh = path?.viewBox?.height;
+  const w = typeof vw === "number" && vw > 0 ? vw : 24;
+  const h = typeof vh === "number" && vh > 0 ? vh : 24;
+  return Math.max(1e-6, Math.min(node.width / w, node.height / h));
+}
+
 function isSvgTag(element: Element, tag: string): element is SVGElement {
   return element instanceof SVGElement && element.tagName.toLowerCase() === tag;
 }
