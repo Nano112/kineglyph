@@ -3,7 +3,7 @@
 import { StrictMode, act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTheme, definePipeline } from "@kineglyph/core";
+import { createTheme, definePipeline, defineScene } from "@kineglyph/core";
 import { KineglyphFigure, type KineglyphFigureHandle } from "../src/index.js";
 
 class TestResizeObserver implements ResizeObserver {
@@ -129,5 +129,57 @@ describe("KineglyphFigure in React StrictMode", () => {
     });
     expect(node?.style.opacity).toBe("1");
     expect(node?.style.transform).toContain("scale(1)");
+  });
+
+  it("drives a scene state machine through the handle and its controls under StrictMode", () => {
+    const scene = defineScene({
+      schemaVersion: 2,
+      id: "strict-lab",
+      title: "Strict lab",
+      description: "Machine-driven figure",
+      machine: {
+        id: "lab",
+        initial: "idle",
+        states: { idle: { on: { GO: "done" } }, done: { on: { RESET: "idle" } } },
+        signals: { label: { match: { state: true }, cases: { done: "Done" }, default: "Idle" } },
+      },
+      root: {
+        id: "root",
+        type: "group",
+        children: [{ id: "status", type: "text", text: "Idle", bind: { text: "label" } }],
+      },
+      controls: [
+        { id: "go", label: "Go", event: "GO", activeWhen: { state: "done" } },
+        { id: "reset", kind: "reset", label: "Reset" },
+      ],
+    });
+    const handle = createRef<KineglyphFigureHandle>();
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <StrictMode>
+          <KineglyphFigure ref={handle} figure={scene} theme={createTheme()} autoplay={false} />
+        </StrictMode>,
+      );
+    });
+    const status = (): string =>
+      container.querySelector('[data-node-id="status"] text')?.textContent ?? "";
+    expect(status()).toBe("Idle");
+    act(() => {
+      handle.current?.send("GO");
+    });
+    expect(status()).toBe("Done");
+    expect(handle.current?.controller?.state.machineState?.state).toBe("done");
+    const go = container.querySelector<HTMLButtonElement>('[data-control="go"]');
+    expect(go?.getAttribute("aria-pressed")).toBe("true");
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-control="reset"]')?.click();
+    });
+    expect(status()).toBe("Idle");
+    // StrictMode mounted twice; only one figure shell may remain.
+    expect(container.querySelectorAll(".kg-figure")).toHaveLength(1);
+    act(() => root?.unmount());
+    root = undefined;
+    expect(container.querySelectorAll(".kg-figure")).toHaveLength(0);
   });
 });
