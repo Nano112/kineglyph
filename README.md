@@ -1,9 +1,8 @@
-<p align="center">
-  <img src="./docs/assets/readme/cover.svg" alt="Kineglyph: technical illustrations with a pulse" width="1200">
-</p>
+<h1 align="center">Kineglyph</h1>
 
 <p align="center">
-  <strong>Typed scenes for diagrams, data graphics, and interactive explainers.</strong><br>
+  <strong>Technical illustrations with a pulse.</strong><br>
+  Typed scenes for diagrams, data graphics, and interactive explainers.<br>
   Render them live or export the same definition to SVG, PNG, and GIF.
 </p>
 
