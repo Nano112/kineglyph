@@ -244,21 +244,6 @@ export function card(id: string, options: CardOptions): GroupNode {
       }),
     );
   if (options.extras !== undefined) children.push(...options.extras);
-  const {
-    eyebrow: _eyebrow,
-    title: _title,
-    body: _body,
-    motif: _motif,
-    tone: _tone,
-    badge: _badge,
-    badgeTone: _badgeTone,
-    extras: _extras,
-    bodyBind: _bodyBind,
-    titleBind: _titleBind,
-    badgeBind: _badgeBind,
-    compact: _compact,
-    ...rest
-  } = options;
   return stack(id, children, {
     gap: options.compact ? 6 : 8,
     padding: options.compact ? [12, 14] : [16, 18],
@@ -266,8 +251,46 @@ export function card(id: string, options: CardOptions): GroupNode {
     width: "fill",
     label: options.label ?? options.title,
     ...(options.body === undefined ? {} : { description: options.body }),
-    ...rest,
+    ...containerOptions(options),
   });
+}
+
+const CONTAINER_KEYS: readonly (keyof ContainerOptions)[] = [
+  "gap",
+  "padding",
+  "align",
+  "justify",
+  "width",
+  "height",
+  "minWidth",
+  "maxWidth",
+  "grow",
+  "columns",
+  "frame",
+  "hidden",
+  "z",
+  "label",
+  "description",
+  "interactive",
+  "onActivate",
+  "bind",
+  "metadata",
+  "alignSelf",
+  "clip",
+];
+
+/** Picks only the generic container options out of a richer recipe options object. */
+function containerOptions(
+  options: ContainerOptions,
+  omit: readonly (keyof ContainerOptions)[] = [],
+): ContainerOptions {
+  const picked: Record<string, unknown> = {};
+  for (const key of CONTAINER_KEYS) {
+    if (omit.includes(key)) continue;
+    const value = options[key];
+    if (value !== undefined) picked[key] = value;
+  }
+  return picked as ContainerOptions;
 }
 
 /** Muted framed region grouping related cards, with an optional eyebrow and title. */
@@ -291,26 +314,17 @@ export function panel(
       ),
     );
   if (options.title !== undefined) head.push(heading(`${id}-title`, options.title));
-  const {
-    eyebrow: _eyebrow,
-    title: _title,
-    layout: bodyLayout,
-    tone: _tone,
-    columns,
-    gap,
-    ...rest
-  } = options;
-  const content = container(`${id}-content`, bodyLayout ?? "stack", children, {
-    gap: gap ?? 12,
+  const content = container(`${id}-content`, options.layout ?? "stack", children, {
+    gap: options.gap ?? 12,
     width: "fill",
-    ...(columns === undefined ? {} : { columns }),
+    ...(options.columns === undefined ? {} : { columns: options.columns }),
   });
   return stack(id, head.length > 0 ? [stack(`${id}-head`, head, { gap: 2 }), content] : [content], {
     gap: 12,
     padding: 16,
     frame: { fill: "surfaceMuted", stroke: "border", dash: "dashed" },
     width: "fill",
-    ...rest,
+    ...containerOptions(options, ["columns", "gap"]),
   });
 }
 
