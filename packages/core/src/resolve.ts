@@ -537,44 +537,54 @@ interface FlexItem {
  * is redistributed until stable. Input order is the tie-breaker.
  */
 function allocateFlex(items: readonly FlexItem[], available: number): number[] {
-  const sizes = items.map((item) => item.basis);
+  const clampItem = (item: FlexItem, size: number): number =>
+    Math.min(item.max, Math.max(item.min, size));
+  const sizes = items.map((item) => clampItem(item, item.basis));
+  // Items that can neither grow nor shrink are frozen at their clamped basis from the start.
   const frozen = items.map((item) => item.grow <= 0 && item.shrink <= 0);
   for (let guard = 0; guard < 64; guard += 1) {
-    const used = sizes.reduce(
-      (sum, size, index) =>
-        sum +
-        (frozen[index]
-          ? Math.min(items[index]?.max ?? size, Math.max(items[index]?.min ?? size, size))
-          : size),
-      0,
-    );
+    // Every unfrozen item restarts from its basis; free space is measured against frozen sizes
+    // and unfrozen bases, so freezing one item redistributes its share instead of shrinking others.
+    let used = 0;
+    items.forEach((item, index) => {
+      used += frozen[index] ? (sizes[index] ?? 0) : item.basis;
+    });
     const free = available - used;
     const growing = free > 0;
     const active = items
       .map((item, index) => ({ item, index }))
       .filter(({ item, index }) => !frozen[index] && (growing ? item.grow > 0 : item.shrink > 0));
-    if (active.length === 0 || Math.abs(free) < 1e-6) break;
-    const totalWeight = active.reduce(
-      (sum, { item }) => sum + (growing ? item.grow : item.shrink * Math.max(item.basis, 1e-6)),
-      0,
-    );
+    if (active.length === 0 || Math.abs(free) < 1e-6) {
+      items.forEach((item, index) => {
+        if (!frozen[index]) sizes[index] = clampItem(item, item.basis);
+      });
+      break;
+    }
+    const weightOf = (item: FlexItem): number =>
+      growing ? item.grow : item.shrink * Math.max(item.basis, 1e-6);
+    const totalWeight = active.reduce((sum, { item }) => sum + weightOf(item), 0);
     if (totalWeight <= 0) break;
     let violated = false;
     for (const { item, index } of active) {
-      const weight = growing ? item.grow : item.shrink * Math.max(item.basis, 1e-6);
-      const proposed = (sizes[index] ?? 0) + free * (weight / totalWeight);
-      const clamped = Math.min(item.max, Math.max(item.min, proposed));
+      const proposed = item.basis + free * (weightOf(item) / totalWeight);
+      const clamped = clampItem(item, proposed);
+      sizes[index] = clamped;
       if (Math.abs(clamped - proposed) > 1e-9) {
         frozen[index] = true;
         violated = true;
       }
-      sizes[index] = clamped;
     }
+    // Unfrozen items that could not participate in this direction keep their clamped basis.
+    items.forEach((item, index) => {
+      if (!frozen[index] && !active.some((entry) => entry.index === index))
+        sizes[index] = clampItem(item, item.basis);
+    });
     if (!violated) break;
   }
-  return sizes.map((size, index) =>
-    Math.min(items[index]?.max ?? size, Math.max(items[index]?.min ?? size, size)),
-  );
+  return sizes.map((size, index) => {
+    const item = items[index];
+    return item === undefined ? size : clampItem(item, size);
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -618,11 +628,15 @@ function layoutNode(
   width: number,
   availableHeight: number | undefined,
   context: LayoutContext,
+  /** True when a parent stretches this child (align: "stretch"): adopt the available height. */
+  stretch = false,
 ): Placed {
   const placed: Placed = { view, x: 0, y: 0, width, height: 0, children: [] };
   const fixedHeight = typeof view.height === "number" ? view.height : undefined;
   const fillHeight =
-    view.height === "fill" && availableHeight !== undefined ? availableHeight : undefined;
+    (view.height === "fill" || stretch) && availableHeight !== undefined
+      ? availableHeight
+      : undefined;
   switch (view.type) {
     case "text": {
       const font = view.font ?? fallbackFont;
@@ -862,7 +876,7 @@ function layoutGroup(
       const finals = naturals.map((child, index) => {
         const target = heights[index] ?? child.height;
         return Math.abs(target - child.height) > 1e-6
-          ? layoutNode(child.view, child.width, target, context)
+          ? layoutNode(child.view, child.width, target, context, true)
           : child;
       });
       const total = finals.reduce((sum, child) => sum + child.height, 0) + totalGap;
@@ -918,7 +932,7 @@ function layoutGroup(
         stretchHeight(child.view, view.align) &&
         typeof child.view.height !== "number" &&
         Math.abs(child.height - rowHeight) > 1e-6
-          ? layoutNode(child.view, child.width, rowHeight, context)
+          ? layoutNode(child.view, child.width, rowHeight, context, true)
           : child,
       );
       const total =
@@ -970,7 +984,7 @@ function layoutGroup(
             stretchHeight(child.view, view.align) &&
             typeof child.view.height !== "number" &&
             Math.abs(child.height - rowHeight) > 1e-6
-              ? layoutNode(child.view, child.width, rowHeight, context)
+              ? layoutNode(child.view, child.width, rowHeight, context, true)
               : child;
           const cellX = pad.left + index * (columnWidth + gap);
           const horizontal = final.view.justifySelf ?? justifyToAlign(view.justify);
@@ -1009,7 +1023,7 @@ function layoutGroup(
           (child.view.height === "fill" || child.view.alignSelf === "stretch") &&
           typeof child.view.height !== "number" &&
           Math.abs(child.height - extent) > 1e-6
-            ? layoutNode(child.view, child.width, extent, context)
+            ? layoutNode(child.view, child.width, extent, context, true)
             : child;
         const horizontal = final.view.justifySelf ?? justifyToAlign(view.justify, "center");
         const vertical = final.view.alignSelf ?? view.align ?? "center";
@@ -1570,6 +1584,13 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
       },
     });
     if (resolved === undefined) continue;
+    for (const labelId of resolved.collidingLabels)
+      diagnostics.push({
+        severity: "warning",
+        code: "label-collision",
+        message: `edge label ${labelId} overlaps a node in the ${layout} layout; hide it per layout, shorten it, or widen the gap`,
+        path: definition.id,
+      });
     const boundHighlight = bind.highlight === undefined ? undefined : signals[bind.highlight];
     const boundOpacity = bind.opacity === undefined ? undefined : numeric(signals[bind.opacity]);
     const boundProgress = bind.progress === undefined ? undefined : numeric(signals[bind.progress]);

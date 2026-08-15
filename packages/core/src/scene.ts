@@ -359,7 +359,11 @@ export function isResponsiveMap<T>(value: Responsive<T>): value is ResponsiveMap
   return keys.length > 0 && keys.every((key) => RESPONSIVE_KEYS.has(key));
 }
 
-/** Resolves a responsive value for a layout; narrower layouts fall back to wider definitions. */
+/**
+ * Resolves a responsive value for a layout. The cascade is desktop-first: narrower layouts fall
+ * back to wider definitions (`compact` → `wide`, `narrow` → `compact` → `wide`), while a value
+ * declared only for a narrower layout never leaks into a wider one.
+ */
 export function pick<T>(value: Responsive<T> | undefined, layout: LayoutName): T | undefined {
   if (value === undefined) return undefined;
   if (!isResponsiveMap(value)) return value;
@@ -367,8 +371,8 @@ export function pick<T>(value: Responsive<T> | undefined, layout: LayoutName): T
     layout === "narrow"
       ? ["narrow", "compact", "wide"]
       : layout === "compact"
-        ? ["compact", "wide", "narrow"]
-        : ["wide", "compact", "narrow"];
+        ? ["compact", "wide"]
+        : ["wide"];
   for (const name of order) {
     const candidate = value[name];
     if (candidate !== undefined) return candidate;

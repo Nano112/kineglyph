@@ -69,27 +69,34 @@ interface ArcParameters {
   readonly sweepAngle: number;
 }
 
-/** Converts SVG endpoint arc parameters (circular) to a centre parameterisation. */
+/**
+ * Converts SVG endpoint arc parameters (circular, no rotation) to a centre parameterisation
+ * following the SVG implementation notes (F.6.5), so sampled points sit exactly on the arc a
+ * renderer draws for the emitted `A` command.
+ */
 function arcParameters(segment: Extract<PathSegment, { kind: "arc" }>): ArcParameters | undefined {
   const chord = distance(segment.from, segment.to);
   if (chord === 0) return undefined;
   const radius = Math.max(segment.radius, chord / 2);
-  const mid = { x: (segment.from.x + segment.to.x) / 2, y: (segment.from.y + segment.to.y) / 2 };
-  const h = Math.sqrt(Math.max(0, radius * radius - (chord / 2) * (chord / 2)));
-  const ux = (segment.to.x - segment.from.x) / chord;
-  const uy = (segment.to.y - segment.from.y) / chord;
-  // Perpendicular (left of travel in screen space).
-  const px = -uy;
-  const py = ux;
-  const sign = segment.sweep === segment.largeArc ? 1 : -1;
-  const center = { x: mid.x + px * h * sign, y: mid.y + py * h * sign };
-  const startAngle = Math.atan2(segment.from.y - center.y, segment.from.x - center.x);
-  const endAngle = Math.atan2(segment.to.y - center.y, segment.to.x - center.x);
+  const x1p = (segment.from.x - segment.to.x) / 2;
+  const y1p = (segment.from.y - segment.to.y) / 2;
+  const rr = radius * radius;
+  const numerator = rr * rr - rr * y1p * y1p - rr * x1p * x1p;
+  const denominator = rr * y1p * y1p + rr * x1p * x1p;
+  const coefficient =
+    (segment.largeArc === segment.sweep ? -1 : 1) *
+    Math.sqrt(Math.max(0, denominator === 0 ? 0 : numerator / denominator));
+  const cxp = coefficient * ((radius * y1p) / radius);
+  const cyp = coefficient * -((radius * x1p) / radius);
+  const center = {
+    x: cxp + (segment.from.x + segment.to.x) / 2,
+    y: cyp + (segment.from.y + segment.to.y) / 2,
+  };
+  const startAngle = Math.atan2((y1p - cyp) / radius, (x1p - cxp) / radius);
+  const endAngle = Math.atan2((-y1p - cyp) / radius, (-x1p - cxp) / radius);
   let sweepAngle = endAngle - startAngle;
-  if (segment.sweep === 1 && sweepAngle < 0) sweepAngle += Math.PI * 2;
   if (segment.sweep === 0 && sweepAngle > 0) sweepAngle -= Math.PI * 2;
-  if (segment.largeArc === 0 && Math.abs(sweepAngle) > Math.PI)
-    sweepAngle -= Math.sign(sweepAngle) * Math.PI * 2;
+  else if (segment.sweep === 1 && sweepAngle < 0) sweepAngle += Math.PI * 2;
   return { center, startAngle, sweepAngle };
 }
 

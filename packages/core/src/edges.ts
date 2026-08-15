@@ -61,6 +61,8 @@ export interface ResolvedEdgeGeometry {
   readonly geometry: PathGeometry;
   readonly packetCount: number;
   readonly packetPeriod: number;
+  /** Labels that still overlap a node after every nudge was tried. */
+  readonly collidingLabels: readonly string[];
 }
 
 type Side = Exclude<EdgeSide, "auto">;
@@ -333,8 +335,9 @@ function arcSegments(a: Point, b: Point, bend: number): PathSegment[] {
   const sagitta = Math.min(Math.abs(bend), chord / 2);
   if (chord < 1e-6 || sagitta < 0.5) return [{ kind: "line", from: a, to: b }];
   const radius = (chord * chord) / (8 * sagitta) + sagitta / 2;
-  // Positive bend bows to the right of travel (clockwise in screen space).
-  const sweep: 0 | 1 = bend >= 0 ? 1 : 0;
+  // Positive bend bows to the right of travel. In screen space (y down) that is the
+  // counter-clockwise SVG sweep (flag 0); negative bend uses the positive-angle sweep (flag 1).
+  const sweep: 0 | 1 = bend >= 0 ? 0 : 1;
   return [{ kind: "arc", from: a, to: b, radius, sweep, largeArc: 0 }];
 }
 
@@ -425,6 +428,7 @@ export function resolveEdge(
   ];
   const labels: ResolvedEdgeLabel[] = [];
   const claimed: Rect[] = [];
+  const collidingLabels: string[] = [];
   for (const label of definedLabels) {
     const text = context.overrides?.labelText?.get(label.id) ?? label.text;
     const hidden =
@@ -464,6 +468,8 @@ export function resolveEdge(
       const y = Math.min(Math.max(box.y, bounds.y), bounds.y + bounds.height - box.height);
       box = { ...box, x, y };
     }
+    if (!hidden && context.obstacles.some((obstacle) => rectsIntersect(box, obstacle, 1)))
+      collidingLabels.push(label.id);
     claimed.push(box);
     const color =
       "tone" in label && label.tone !== undefined
@@ -527,7 +533,7 @@ export function resolveEdge(
       : {}),
     ...(edge.metadata === undefined ? {} : { metadata: edge.metadata }),
   };
-  return { edge: resolved, geometry, packetCount, packetPeriod };
+  return { edge: resolved, geometry, packetCount, packetPeriod, collidingLabels };
 }
 
 export const EDGE_SAMPLE_COUNT = 32;

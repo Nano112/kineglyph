@@ -45,9 +45,9 @@ describe("edge grammar", () => {
     const curve = resolve({ id: "c", from: "a", to: "c", route: "curve", curvature: 0.8 });
     expect(curve.edge.path).toMatch(/^M 100 30 C /);
     const arc = resolve({ id: "r", from: "a", to: "b", route: "arc", bend: 40 });
-    expect(arc.edge.path).toMatch(/A [\d.]+ [\d.]+ 0 0 1 300 30$/);
+    expect(arc.edge.path).toMatch(/A [\d.]+ [\d.]+ 0 0 0 300 30$/);
     const arcUp = resolve({ id: "r2", from: "a", to: "b", route: "arc", bend: -40 });
-    expect(arcUp.edge.path).toMatch(/A [\d.]+ [\d.]+ 0 0 0 300 30$/);
+    expect(arcUp.edge.path).toMatch(/A [\d.]+ [\d.]+ 0 0 1 300 30$/);
     expect(arc.geometry.length).toBeGreaterThan(200);
     expect(arc.geometry.pointAt(0.5).y).toBeGreaterThan(30);
     expect(arcUp.geometry.pointAt(0.5).y).toBeLessThan(30);

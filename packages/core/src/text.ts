@@ -25,6 +25,9 @@ export interface WrapOptions {
   readonly ellipsis?: boolean;
 }
 
+/** Slack for floating-point round trips between measured widths and hug-sized boxes. */
+const EPSILON = 0.01;
+
 const MONO_PATTERN =
   /mono|menlo|consolas|courier|sfmono|jetbrains|fira code|source code|ibm plex mono/i;
 
@@ -72,7 +75,7 @@ function splitLongWord(word: string, maxWidth: number, font: TextFont): string[]
   let current = "";
   for (const character of characters) {
     const candidate = current + character;
-    if (current.length > 0 && measureText(candidate, font) > maxWidth) {
+    if (current.length > 0 && measureText(candidate, font) > maxWidth + EPSILON) {
       chunks.push(current);
       current = character;
     } else current = candidate;
@@ -101,10 +104,11 @@ export function wrapText(
   };
 
   outer: for (const word of words) {
-    const pieces = measureText(word, font) > width ? splitLongWord(word, width, font) : [word];
+    const pieces =
+      measureText(word, font) > width + EPSILON ? splitLongWord(word, width, font) : [word];
     for (const piece of pieces) {
       const candidate = current.length === 0 ? piece : `${current} ${piece}`;
-      if (measureText(candidate, font) <= width) {
+      if (measureText(candidate, font) <= width + EPSILON) {
         current = candidate;
         continue;
       }

@@ -228,7 +228,8 @@ export function card(id: string, options: CardOptions): GroupNode {
     header.push(stack(`${id}-heading`, titleBlock, { gap: 2, width: "fill" }));
   }
   const children: SceneNode[] = [];
-  if (header.length > 0) children.push(row(`${id}-header`, header, { gap: 12, align: "center" }));
+  if (header.length > 0)
+    children.push(row(`${id}-header`, header, { gap: 12, align: "center", width: "fill" }));
   else children.push(...titleBlock);
   if (options.body !== undefined)
     children.push(
