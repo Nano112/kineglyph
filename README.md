@@ -1,9 +1,5 @@
-<h1 align="center">Kineglyph</h1>
-
 <p align="center">
-  <strong>Technical illustrations with a pulse.</strong><br>
-  Typed scenes for diagrams, data graphics, and interactive explainers.<br>
-  Render them live or export the same definition to SVG, PNG, and GIF.
+  <img src="./docs/assets/readme/cover.svg" alt="Kineglyph: technical illustrations with a pulse" width="1400">
 </p>
 
 <p align="center">
@@ -14,104 +10,171 @@
   <a href="./packages/export/README.md">Export</a>
 </p>
 
-Kineglyph is a deterministic TypeScript scene compiler. A figure keeps its structure, motion,
-state, inspection data, and theme in one serializable definition. The browser runtime and the
-exporter consume that same scene, so an article embed and its static fallback cannot quietly
-become two different drawings.
+Kineglyph is a TypeScript scene system for technical diagrams, data graphics, and interactive
+explainers. Geometry, motion, state, inspection data, and theme live in one serializable
+definition. That definition can run as accessible SVG in a page or be exported to SVG, PNG, and
+GIF.
 
-The project began with technical illustrations for the Nucleation documentation. Its primitives
-now cover node diagrams, matrices, build sequences, benchmark charts, heatmaps, and state-driven
-explainers.
+## Compose a figure
 
-## Author the idea
-
-`figure()` handles ids, responsive layout, connectors, timeline placement, and machine wiring.
-The result is still an ordinary `SceneDefinition`; `defineScene()` remains available when direct
-control over the scene IR is useful.
+`figure()` assigns stable ids, resolves responsive layout, routes connectors, and places motion on
+one timeline.
 
 ```ts
-import { createTheme, figure, resolveScene, seekTimeline } from "@kineglyph/core";
-import { renderSvg } from "@kineglyph/svg";
+import { figure } from "@kineglyph/core";
 
-const scene = figure("data-to-shape", { title: "Data becomes geometry" }, (f) => {
-  const data = f.card({ title: "Data", body: "Input values", motif: "code" });
-  const shape = f.card({ title: "Shape", body: "Resolved geometry", motif: "box" });
-  const edge = f.connect(data, shape, {
-    route: "curve",
-    head: "arrow",
-    label: "resolve",
+export const fillFigure = figure("fill", { title: "Shape plus brush" }, (f) => {
+  const shape = f.card({
+    eyebrow: "WHERE",
+    title: "Sphere",
+    body: "Selects cells",
+    motif: "sphere",
+    tone: "info",
   });
+  const brush = f.card({
+    eyebrow: "WHAT",
+    title: "Stripes",
+    body: "Chooses blocks",
+    motif: "brush",
+    tone: "warning",
+  });
+  const fill = f.card({ title: "BuildingTool.fill", motif: "blocks" });
+  const result = f.card({ title: "Filled schematic", motif: "cube", tone: "success" });
 
-  f.root(f.flow([data, shape], { gap: 24 }));
-  f.sequence([f.reveal(data), f.draw(edge), f.reveal(shape)]);
+  const where = f.connect(shape, fill, { route: "curve", head: "arrow", label: "where" });
+  const what = f.connect(brush, fill, { route: "curve", head: "arrow", label: "what" });
+  const build = f.connect(fill, result, { head: "arrow", label: "build" });
+
+  f.root(f.flow([f.stack([shape, brush]), fill, result], { gap: 48 }));
+  f.sequence([
+    [f.reveal(shape), f.reveal(brush)],
+    [f.draw(where), f.draw(what)],
+    f.reveal(fill),
+    f.draw(build),
+    f.reveal(result),
+  ]);
 });
-
-const resolved = resolveScene(scene, { width: 960, theme: createTheme() });
-const svg = renderSvg(seekTimeline(resolved, 720));
 ```
 
-The compact API is the common path. Three lower-level seams stay exposed for generated work:
+<p align="center">
+  <img src="./docs/assets/readme/shapes-and-brushes.svg" alt="A Kineglyph diagram showing a shape and brush composed into a filled schematic" width="960">
+</p>
 
-| Surface          | Input                                      | Output you keep                                     |
-| ---------------- | ------------------------------------------ | --------------------------------------------------- |
-| `figure()`       | nodes, layout recipes, edges, motion       | a validated scene with stable ids                   |
-| `plot<Row>()`    | typed rows, channels, marks, annotations   | a scene fragment plus handles, domains, and ticks   |
-| `defineScene()`  | the serializable scene IR                  | direct control over nodes, timelines, and machines  |
-| `resolveScene()` | a scene, container width, theme, and state | fixed geometry ready for rendering or frame seeking |
+Layout recipes include stack, row, grid, overlay, normalized coordinates, and absolute placement.
+Every layout can supply `wide`, `compact`, and `narrow` values. The resolver recomputes geometry at
+each breakpoint.
 
-## Keep the pulse
+## Plot typed data
 
-Timelines contain serializable keyframe tracks. State machines add events, guards, variables,
-actions, and derived signals. A signal can change copy, visibility, tone, opacity, progress, or
-geometry without replacing the scene.
+`plot<Row>()` checks channel names against the row type. It returns a normal scene fragment plus
+stable handles, domains, ticks, descriptions, and diagnostics.
 
-The live runtime applies resolved frames with Anime.js. GIF export samples the same timeline at
-fixed times. This animation was produced from `smartSimulationScene` by the Kineglyph CLI:
+```ts
+import { area, dot, line, plot, range, rule } from "@kineglyph/plot";
+
+const activeChunks = [
+  { second: 0, active: 8 },
+  { second: 1, active: 21 },
+  { second: 2, active: 39 },
+  { second: 3, active: 62 },
+  { second: 4, active: 78 },
+  { second: 5, active: 86 },
+  { second: 6, active: 82 },
+  { second: 7, active: 88 },
+  { second: 8, active: 84 },
+  { second: 9, active: 87 },
+];
+
+const trend = plot(activeChunks, {
+  id: "stream-trend",
+  x: "second",
+  y: "active",
+  marks: [area({ curve: "monotone" }), line({ curve: "monotone" }), dot()],
+  annotations: [range({ y: [75, 92], label: "steady operating band" }), rule({ y: 80 })],
+  axes: { x: { label: "Elapsed time (s)" }, y: { label: "Active chunks" } },
+  motion: "auto",
+});
+
+trend.fragment;
+trend.handles.series.active.line;
+```
 
 <p align="center">
-  <img src="./docs/assets/readme/smart-simulation.gif" alt="An exported Kineglyph animation stepping through a redstone simulation scene" width="800">
+  <img src="./docs/assets/readme/throughput-over-time.svg" alt="A layered time series rendered by Kineglyph" width="960">
 </p>
+
+Bars, stacked bars, lines, areas, dots, heatmaps, and sparklines share the same theme, interaction,
+and export path.
+
+```ts
+import { heatmap, plot } from "@kineglyph/plot";
+
+const matrix = plot(
+  [
+    { workload: "Dense", operation: "fill", speedup: 38 },
+    { workload: "Dense", operation: "set", speedup: 8 },
+    { workload: "Sparse", operation: "fill", speedup: 1 },
+    { workload: "Sparse", operation: "set", speedup: 29 },
+  ],
+  {
+    id: "operation-matrix",
+    marks: heatmap({
+      row: "workload",
+      column: "operation",
+      value: "speedup",
+      domain: [0, 40],
+      cellLabels: true,
+    }),
+  },
+);
+
+matrix.handles.cells?.[1]?.[1];
+```
+
+<p align="center">
+  <img src="./docs/assets/readme/operation-heatmap.svg" alt="A responsive operation heatmap rendered by Kineglyph" width="960">
+</p>
+
+## Animate the same scene
+
+Timelines are serializable keyframe tracks. The browser runtime applies their resolved frames with
+Anime.js. The exporter samples those tracks at fixed times, so the live and recorded versions use
+the same geometry.
+
+<p align="center">
+  <img src="./docs/assets/readme/throughput-over-time@2x.gif" alt="A high-resolution Kineglyph animation drawing a time series" width="800">
+</p>
+
+The GIF above is 1600 pixels wide and displayed at half size.
 
 ```sh
 kineglyph-export gif \
-  --scene ./packages/scenes/dist/index.js#smartSimulationScene \
-  --theme ./packages/scenes/dist/index.js#themes.nucleation \
+  --scene './packages/scenes/dist/index.js#throughputOverTimeScene' \
+  --theme './packages/scenes/dist/index.js#themes.nucleation' \
   --width-container 960 \
-  --width 800 \
-  --fps 8 \
-  --out smart-simulation.gif
+  --width 1600 \
+  --fps 12 \
+  --out throughput.gif
 ```
 
-## Draw more than graphs
+State machines can drive the same timeline. Events, guards, variables, actions, and derived
+signals can bind to copy, visibility, tone, opacity, progress, and geometry. Random-access state
+resolution keeps tests and exports deterministic.
 
-The scene grammar is broad enough for explanatory graphics and narrow enough to stay inspectable.
+## Embed it
 
-- Layouts: stack, row, grid, overlay, normalized coordinates, and absolute placement
-- Marks: text, rect, circle, path, polyline, image, motif, badge, legend, and callout
-- Connectors: straight, orthogonal, curve, and arc routes with six endpoint styles
-- Plots: bars, stacked bars, lines, areas, dots, heatmaps, sparklines, axes, and annotations
-- Interaction: keyboard inspection, roving focus groups, machine controls, and reduced motion
-- Themes: semantic color, typography, strokes, corner geometry, motion timing, and ornament
-
-Layouts resolve at named `wide`, `compact`, and `narrow` breakpoints. Geometry is recomputed for
-the chosen layout instead of scaling a desktop drawing into a phone-sized rectangle.
-
-## Put it in a page
-
-The web controller is framework-neutral. React calls the same controller, and the self-contained
-browser bundle works in a Blade template or a plain script tag.
+The framework-neutral controller owns resize observation, playback, state events, inspection, and
+cleanup.
 
 ```ts
 import { mountKineglyph } from "@kineglyph/web";
 
-const controller = mountKineglyph(document.querySelector("#figure"), {
-  scene,
-  theme,
-});
-
+const controller = mountKineglyph(document.querySelector("#figure"), { scene, theme });
 controller.send("NEXT");
 controller.seek(900);
 ```
+
+React is a thin wrapper over that controller:
 
 ```tsx
 import { KineglyphFigure } from "@kineglyph/react";
@@ -119,14 +182,10 @@ import { KineglyphFigure } from "@kineglyph/react";
 <KineglyphFigure figure={scene} theme={theme} />;
 ```
 
-See the working [Laravel Blade component](./examples/laravel-blade/README.md) for a server-rendered
-integration.
+The self-contained browser bundle also works from a plain script tag or a Blade component. See the
+working [Laravel example](./examples/laravel-blade/README.md).
 
-## What ships here
-
-The catalogue contains twelve scenes: eight Nucleation illustrations and four quantitative
-examples. Each scene can be projected through the Nucleation, Pock, or Schematio theme and checked
-at 1200, 820, and 390 pixel container widths.
+## Packages
 
 | Package             | Responsibility                                                    |
 | ------------------- | ----------------------------------------------------------------- |
@@ -134,33 +193,29 @@ at 1200, 820, and 390 pixel container widths.
 | `@kineglyph/svg`    | accessible SVG serialization and motifs                           |
 | `@kineglyph/anime`  | scoped Anime.js frame application                                 |
 | `@kineglyph/plot`   | typed plots, scales, marks, axes, annotations, and stable handles |
-| `@kineglyph/web`    | framework-neutral controller and self-contained browser bundle    |
+| `@kineglyph/web`    | framework-neutral controller and browser bundle                   |
 | `@kineglyph/react`  | React component and imperative handle                             |
-| `@kineglyph/export` | deterministic SVG, PNG, and GIF output plus the export CLI        |
-| `@kineglyph/scenes` | catalogue scenes, shared recipes, and product themes              |
+| `@kineglyph/export` | SVG, PNG, GIF, and the `kineglyph-export` CLI                     |
+| `@kineglyph/scenes` | twelve catalogue scenes, shared recipes, and three themes         |
 
 ## Run the workbench
 
-Kineglyph currently requires Node.js 22.12 or newer.
+Kineglyph requires Node.js 22.12 or newer.
 
 ```sh
 npm install
 npm run dev
 ```
 
-The playground serves the full catalogue at `#/`, individual scenes at `#/scene/<slug>`, and the
-plain browser integration at `#/embed`.
-
-Before committing a scene or compiler change, run the complete local gate:
+The playground serves the catalogue at `#/`, individual scenes at `#/scene/<slug>`, and the plain
+browser integration at `#/embed`.
 
 ```sh
 npm run check
 ```
 
-That command checks formatting, builds every workspace, lints, runs the strict TypeScript pass,
-executes the test suite, and audits dependencies.
+This runs formatting, builds every workspace, lints, typechecks, tests, and audits dependencies.
 
 ## Status
 
-Kineglyph is pre-release. Scene, edge, plot, and machine contracts are typed and serializable, but
-package APIs may still change. The repository is MIT licensed.
+Kineglyph is pre-release. Package APIs may still change. The repository is MIT licensed.
