@@ -125,6 +125,17 @@ describe("exportPng", () => {
       exportPng(withImageNode(scene, { metadata: { live: true } }), { fonts }),
       "live-media",
     );
+    const liveWithFallback = await exportPng(
+      withImageNode(scene, {
+        image: {
+          live: true,
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23ffffff'/%3E%3C/svg%3E",
+          alt: "Static fallback",
+        },
+      }),
+      { scale: 0.25, fonts },
+    );
+    expect(pngInfo(liveWithFallback).width).toBeGreaterThan(0);
     // A static image node is fine.
     const staticImage = await exportPng(withImageNode(scene, { image: { live: false } }), {
       scale: 0.25,

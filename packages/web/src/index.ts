@@ -924,6 +924,11 @@ export interface AutoMountOptions {
   readonly selector?: string;
   readonly scenes?: Readonly<Record<string, FigureSource>>;
   readonly themes?: Readonly<Record<string, ThemeTokens>>;
+  /** Per-host runtime options for live surfaces, callbacks, or application-specific defaults. */
+  readonly mountOptions?: (
+    element: HTMLElement,
+    sceneId: string,
+  ) => Partial<Omit<MountOptions, "scene">>;
 }
 
 /**
@@ -953,6 +958,7 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
         : (options.themes?.[themeName] ?? themeRegistry.get(themeName));
     const layout = element.dataset.layout as FigureLayoutRequest | undefined;
     const width = element.dataset.width === undefined ? undefined : Number(element.dataset.width);
+    const additional = options.mountOptions?.(element, sceneId) ?? {};
     const controller = mountKineglyph(element, {
       scene,
       ...(theme === undefined ? {} : { theme }),
@@ -965,6 +971,7 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
         ? {}
         : { reducedMotion: element.dataset.reducedMotion === "true" }),
       ...(element.dataset.idPrefix === undefined ? {} : { idPrefix: element.dataset.idPrefix }),
+      ...additional,
     });
     element.dataset.kineglyphMounted = "true";
     controller.on("destroy", () => {

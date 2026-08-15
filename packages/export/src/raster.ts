@@ -84,7 +84,7 @@ function resvgBackground(color: string | undefined): string | undefined {
 
 type UnknownRecord = Record<string, unknown>;
 
-/** Rejects scenes containing media that only exists at runtime (live images, streams). */
+/** Rejects scenes containing media that has no deterministic static fallback. */
 export function assertNoLiveMedia(scene: ResolvedScene): void {
   for (const node of walkNodes(scene.nodes)) {
     if (isLiveMedia(node)) {
@@ -109,7 +109,10 @@ function isLiveMedia(node: UnknownRecord): boolean {
   if (node.kind !== "image") return false;
   const image = isRecord(node.image) ? node.image : {};
   const metadata = isRecord(node.metadata) ? node.metadata : {};
-  return image.live === true || metadata.live === true || node.live === true;
+  if (metadata.live === true || node.live === true) return true;
+  if (image.live !== true) return false;
+  const fallback = typeof image.href === "string" ? image.href : image.src;
+  return typeof fallback !== "string" || fallback.length === 0;
 }
 
 function isRecord(value: unknown): value is UnknownRecord {

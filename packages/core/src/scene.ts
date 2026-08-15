@@ -293,7 +293,7 @@ export interface ImageMark extends BaseNode {
   readonly alt: string;
   readonly fit?: "contain" | "cover" | "fill";
   readonly radius?: number;
-  /** Live-only media (video, canvas, streams) cannot be exported statically. */
+  /** Replace this image at runtime; `src` remains the deterministic static/export fallback. */
   readonly live?: boolean;
 }
 

@@ -550,6 +550,94 @@ const sdfFocus = focusModel("sdf-flow", SDF_FOCUS, {
   body: "Keeping both branches on the same field avoids the drift caused by unrelated noise functions.",
 });
 
+function sdfControlTransitions(state: string) {
+  return {
+    SHAPE_BLOOM: {
+      target: state,
+      actions: [{ type: "set" as const, var: "shape", value: "bloom" }],
+    },
+    SHAPE_RINGS: {
+      target: state,
+      actions: [{ type: "set" as const, var: "shape", value: "rings" }],
+    },
+    SHAPE_FRAME: {
+      target: state,
+      actions: [{ type: "set" as const, var: "shape", value: "frame" }],
+    },
+    MATERIAL_FIELD: {
+      target: state,
+      actions: [{ type: "set" as const, var: "material", value: "field" }],
+    },
+    MATERIAL_CALCITE: {
+      target: state,
+      actions: [{ type: "set" as const, var: "material", value: "calcite" }],
+    },
+    MATERIAL_COPPER: {
+      target: state,
+      actions: [{ type: "set" as const, var: "material", value: "copper" }],
+    },
+  };
+}
+
+const sdfMachine: StateMachineDefinition = {
+  ...sdfFocus.machine,
+  variables: { ...sdfFocus.machine.variables, shape: "bloom", material: "field" },
+  states: Object.fromEntries(
+    Object.entries(sdfFocus.machine.states).map(([stateId, state]) => [
+      stateId,
+      {
+        ...state,
+        on: { ...state.on, ...sdfControlTransitions(stateId) },
+      },
+    ]),
+  ),
+};
+
+const sdfControls: readonly SceneControl[] = [
+  {
+    id: "sdf-shape-bloom",
+    label: "Bloom",
+    event: "SHAPE_BLOOM",
+    group: "Shape",
+    activeWhen: { var: "shape", op: "eq", value: "bloom" },
+  },
+  {
+    id: "sdf-shape-rings",
+    label: "Rings",
+    event: "SHAPE_RINGS",
+    group: "Shape",
+    activeWhen: { var: "shape", op: "eq", value: "rings" },
+  },
+  {
+    id: "sdf-shape-frame",
+    label: "Frame",
+    event: "SHAPE_FRAME",
+    group: "Shape",
+    activeWhen: { var: "shape", op: "eq", value: "frame" },
+  },
+  {
+    id: "sdf-material-field",
+    label: "Field ramp",
+    event: "MATERIAL_FIELD",
+    group: "Material",
+    activeWhen: { var: "material", op: "eq", value: "field" },
+  },
+  {
+    id: "sdf-material-calcite",
+    label: "Calcite",
+    event: "MATERIAL_CALCITE",
+    group: "Material",
+    activeWhen: { var: "material", op: "eq", value: "calcite" },
+  },
+  {
+    id: "sdf-material-copper",
+    label: "Copper",
+    event: "MATERIAL_COPPER",
+    group: "Material",
+    activeWhen: { var: "material", op: "eq", value: "copper" },
+  },
+];
+
 function contourField(): GroupNode {
   return {
     ...stack(
@@ -647,14 +735,26 @@ const sdfResult = {
   ...stack(
     "sdf-schematic",
     [
-      motif("sdf-result-cube", "cube", { tone: "accent", size: 76 }),
-      labelBlock("sdf-result-copy", "FILL", "Schematic", "editable blocks"),
+      {
+        id: "sdf-live-build",
+        type: "image" as const,
+        src: `data:image/svg+xml,${encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 176"><g fill="none" stroke="#8994a3" stroke-width="2"><path d="M120 19 205 62v67l-85 42-85-42V62Z" opacity=".34"/><path d="m35 62 85 43 85-43M120 105v66" opacity=".28"/></g><g fill="#8994a3"><rect x="74" y="65" width="24" height="24" rx="3" opacity=".45"/><rect x="100" y="51" width="24" height="24" rx="3" opacity=".7"/><rect x="126" y="66" width="24" height="24" rx="3" opacity=".52"/><rect x="100" y="79" width="24" height="24" rx="3" opacity=".86"/><rect x="126" y="94" width="24" height="24" rx="3" opacity=".7"/><rect x="74" y="94" width="24" height="24" rx="3" opacity=".6"/></g><circle cx="120" cy="105" r="54" fill="none" stroke="#62d4c3" stroke-width="2" stroke-dasharray="4 7" opacity=".8"/></svg>',
+        )}`,
+        alt: "Interactive Minecraft schematic generated from the selected SDF",
+        fit: "contain" as const,
+        live: true,
+        width: { wide: 220, compact: 180, narrow: "fill" },
+        height: { wide: 176, compact: 150, narrow: 210 },
+        radius: 8,
+      },
+      labelBlock("sdf-result-copy", "LIVE · WASM", "Schematic", "drag to inspect"),
     ],
     {
-      gap: 14,
+      gap: 10,
       align: "center",
-      padding: 20,
-      frame: material("floating", { radius: 10 }),
+      padding: { wide: 14, compact: 12, narrow: 14 },
+      frame: material("raised", { radius: 10 }),
       width: "fill",
     },
   ),
@@ -702,13 +802,13 @@ export const sdfAndFieldsScene: SceneDefinition = defineScene({
   title: "SDFs and scalar fields",
   description:
     "One scalar field splits into a geometry branch and a material branch before fill recombines them.",
-  breakpoints: { wide: 780, compact: 520 },
+  breakpoints: { wide: 900, compact: 520 },
   background: "canvas",
   root: artboard("sdf", "SDF + FIELDS", "One number. Two readings. One build.", {
     id: "sdf-map",
     type: "group",
-    layout: { wide: "row", compact: "stack" },
-    gap: { wide: 74, compact: 34 },
+    layout: { wide: "row", compact: "row", narrow: "stack" },
+    gap: { wide: 64, compact: 30, narrow: 34 },
     align: "stretch",
     width: "fill",
     children: [
@@ -725,8 +825,8 @@ export const sdfAndFieldsScene: SceneDefinition = defineScene({
     ],
   }),
   edges: sdfEdges,
-  machine: sdfFocus.machine,
-  controls: sdfFocus.controls,
+  machine: sdfMachine,
+  controls: sdfControls,
   timeline: sceneTimeline(
     ["sdf-field", "sdf-geometry", "sdf-material", "sdf-schematic"],
     sdfEdges.map((edge) => edge.id),
@@ -740,7 +840,7 @@ export const sdfAndFieldsEntry = entry(
   "SDF and fields",
   "One scalar field bifurcates into occupancy and material, then recombines as editable blocks.",
   sdfAndFieldsScene,
-  "Focus the field, either reading, or the resulting schematic.",
+  "Choose a volume and material, then drag the generated schematic to inspect the result.",
   "Contours arrive first, the two interpretations split apart, and fill closes the loop.",
 );
 

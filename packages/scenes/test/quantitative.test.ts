@@ -14,6 +14,7 @@ import {
   benchmarkBreakdownScene,
   bottleneckLensScene,
   operationHeatmapScene,
+  themeNames,
   themes,
   throughputOverTimeScene,
 } from "../src/index.js";
@@ -52,7 +53,7 @@ describe("quantitative examples", () => {
       "chartNegative",
       "chartNeutral",
     ] as const;
-    const palettes = Object.values(themes).map((theme) => keys.map((key) => theme.colors[key]));
+    const palettes = themeNames.map((name) => keys.map((key) => themes[name].colors[key]));
     for (const palette of palettes) {
       expect(palette.every((color) => /^#[0-9a-f]{6}$/i.test(color))).toBe(true);
       expect(new Set(palette.slice(0, 6)).size).toBe(6);

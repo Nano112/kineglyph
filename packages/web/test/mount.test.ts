@@ -488,6 +488,21 @@ describe("mountKineglyph", () => {
     controllers[0]?.destroy();
     expect(autoMount()).toHaveLength(1);
   });
+
+  it("accepts per-host mount options for application live surfaces", () => {
+    registerScene("live-lab", scene);
+    document.body.innerHTML = '<div data-kineglyph="live-lab"></div>';
+    const controllers = autoMount({
+      mountOptions: (_element, sceneId) => ({
+        className: `app-${sceneId}`,
+        controls: false,
+      }),
+    });
+    expect(controllers).toHaveLength(1);
+    expect(document.querySelector(".kg-figure")?.classList.contains("app-live-lab")).toBe(true);
+    expect(document.querySelector(".kg-figure__controls")).toBeNull();
+    controllers[0]?.destroy();
+  });
 });
 
 describe("keyboard inspection", () => {
