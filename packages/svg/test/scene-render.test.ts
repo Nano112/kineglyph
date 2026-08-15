@@ -128,7 +128,7 @@ describe("structured scene rendering", () => {
     expect(svg).toContain('marker-end="url(#fig-a-m-arrow-');
     expect(svg).toContain('class="kg-edge kg-edge--dashed"');
     expect(svg).toContain('class="kg-edge kg-edge--dotted"');
-    expect(svg).toContain('class="kg-edge kg-edge--flow"');
+    expect(svg).toContain('class="kg-edge kg-edge--flow kg-edge--flowing"');
     expect(svg).toContain('data-edge-packet="e-flow"');
     expect(svg).toContain('class="kg-edges kg-edges--above"');
     expect(svg).toContain(">sync</text>");

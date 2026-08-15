@@ -526,6 +526,7 @@ export class KineglyphSceneAnimator {
       else element.setAttribute("pathLength", dash.pathLength);
       if (dash.dasharray === undefined) element.removeAttribute("stroke-dasharray");
       else element.setAttribute("stroke-dasharray", dash.dasharray);
+      element.classList.toggle("kg-edge--flowing", dashKind === "flow" && edge.state.progress >= 1);
       element.style.strokeDasharray = "";
       element.style.strokeDashoffset = "";
       const head = (element.getAttribute("data-head") ?? edge.head ?? "none") as EdgeMarkerKind;

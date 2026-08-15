@@ -424,7 +424,15 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
   const flow = unit(firstNumber(state.flow), packets.length > 0 ? 1 : 0);
   const pathAttrs: Attrs = [
     ["id", `${rootId}-${domId(id)}`],
-    ["class", classes("kg-edge", `kg-edge--${dashKind}`, string(edge.className))],
+    [
+      "class",
+      classes(
+        "kg-edge",
+        `kg-edge--${dashKind}`,
+        dashKind === "flow" && progress >= 1 && "kg-edge--flowing",
+        string(edge.className),
+      ),
+    ],
     ["d", d],
     ["fill", "none"],
     ["stroke", paint.stroke],
@@ -1746,9 +1754,9 @@ const BASE_STYLES = escapeXml(
     ".kg-node--interactive:focus-visible>.kg-node-shape,.kg-node--interactive[data-inspected=true]>.kg-node-shape{stroke:var(--kg-accent);stroke-width:2}" +
     ".kg-node--interactive:hover>.kg-node-shape{filter:brightness(1.06)}" +
     "@keyframes kg-flow{to{stroke-dashoffset:-1000}}" +
-    ".kg-edge--flow{animation:kg-flow 40s linear infinite}" +
-    ".kg-scene[data-paused] .kg-edge--flow,.kg-scene[data-reduced-motion] .kg-edge--flow{animation-play-state:paused}" +
-    "@media(prefers-reduced-motion:reduce){.kg-edge--flow{animation:none}}",
+    ".kg-edge--flowing{animation:kg-flow 40s linear infinite}" +
+    ".kg-scene[data-paused] .kg-edge--flowing,.kg-scene[data-reduced-motion] .kg-edge--flowing{animation-play-state:paused}" +
+    "@media(prefers-reduced-motion:reduce){.kg-edge--flowing{animation:none}}",
 );
 
 type Attrs = Array<[string, string | undefined | false]>;
