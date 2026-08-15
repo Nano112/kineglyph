@@ -69,14 +69,23 @@ produce a single-frame GIF.
 kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file>
     [--theme <module>#<export>] [--width N] [--height N] [--scale N] [--time MS]
     [--fps N] [--hold-last MS] [--no-loop] [--background transparent|theme|<color>]
-    [--layout wide|stacked] [--width-container N] [--font <path>]... [--no-system-fonts]
+    [--layout auto|wide|compact|narrow] [--state <machine state>] [--width-container N]
+    [--font <path>]... [--no-system-fonts]
 ```
 
 `--scene` is imported dynamically. The chosen export (default export, then `scene`, then
-`pipeline`, or `#name`) may be a `ResolvedScene`, a `PipelineDefinition` (resolved with
-`resolvePipeline` at `--width-container`, default 960), or a `resolve({ width, theme, layout })`
-function. `--theme` points at theme tokens or a factory such as `createTheme`. Export errors print
-`error: <message>` and exit with code 1.
+`pipeline`, or `#name` — dotted paths such as `#themes.pock` walk into exported records) may be a
+`ResolvedScene`, a `SceneDefinition` (resolved with `resolveScene` at `--width-container`, default
+960, optionally in a named `--layout` and a machine `--state`), a `PipelineDefinition` (resolved
+with `resolvePipeline`), or a `resolve({ width, theme, layout, state })` function. `--theme`
+points at theme tokens or a factory such as `createTheme`. Export errors print `error: <message>`
+and exit with code 1.
+
+```sh
+kineglyph-export png --scene node_modules/@kineglyph/scenes/dist/index.js#smartSimulationScene \
+  --theme node_modules/@kineglyph/scenes/dist/index.js#themes.pock --state circuit \
+  --width-container 1200 --out smart-simulation-circuit.png
+```
 
 ## Determinism
 
