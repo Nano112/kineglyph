@@ -173,9 +173,11 @@ export function timeline(
   tracks: ReadonlyArray<TimelineTrack | readonly TimelineTrack[]>,
   duration?: number,
 ): AnimationTimeline {
-  const flat = tracks.flatMap((entry) =>
-    Array.isArray(entry) ? entry : [entry],
-  ) as TimelineTrack[];
+  const flat: TimelineTrack[] = [];
+  for (const entry of tracks) {
+    if (Array.isArray(entry)) flat.push(...(entry as readonly TimelineTrack[]));
+    else flat.push(entry as TimelineTrack);
+  }
   const ids = new Set<string>();
   let last = 0;
   for (const entry of flat) {

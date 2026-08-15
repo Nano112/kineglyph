@@ -290,7 +290,7 @@ function containerOptions(
     const value = options[key];
     if (value !== undefined) picked[key] = value;
   }
-  return picked as ContainerOptions;
+  return picked;
 }
 
 /** Muted framed region grouping related cards, with an optional eyebrow and title. */
