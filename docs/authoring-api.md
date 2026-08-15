@@ -44,7 +44,7 @@ export const buildTimes = figure(
         y: ["dense", "sparse"], // two series inferred from wide data
         marks: bar(),
         annotations: [rule({ y: 8, label: "budget" })],
-        y: { label: "ms", ticks: { wide: 5, narrow: 3 } },
+        axes: { y: { label: "ms", ticks: { wide: 5, narrow: 3 } } },
         valueLabels: "auto",
       }),
     );
