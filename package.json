@@ -9,10 +9,10 @@
     "packages/core",
     "packages/svg",
     "packages/anime",
-    "packages/react",
-    "packages/export",
     "packages/scenes",
     "packages/web",
+    "packages/react",
+    "packages/export",
     "apps/playground"
   ],
   "scripts": {
