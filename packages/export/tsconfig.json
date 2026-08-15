@@ -1,8 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "noEmit": true
+    "rootDir": ".",
+    "noEmit": true,
+    "allowJs": true,
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "test/**/*.mjs", "scripts/**/*.mjs"]
 }

@@ -1,10 +1,12 @@
 {
   "name": "@kineglyph/export",
-  "version": "0.1.0",
-  "description": "Export contracts for Kineglyph; raster backends are intentionally deferred.",
+  "version": "0.2.0",
+  "description": "Deterministic SVG, PNG (resvg), and GIF export for Kineglyph scenes.",
   "license": "MIT",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/cli.js"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -13,11 +15,20 @@
       "import": "./dist/index.js"
     }
   },
+  "bin": {
+    "kineglyph-export": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node ./scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@kineglyph/core": "*",
+    "@kineglyph/svg": "*",
+    "@resvg/resvg-js": "^2.6.2",
+    "gifenc": "^1.0.3"
   }
 }
