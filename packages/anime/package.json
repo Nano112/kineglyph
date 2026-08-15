@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@kineglyph/core": "*",
+    "@kineglyph/svg": "*",
     "animejs": "^4.5.0"
   }
 }

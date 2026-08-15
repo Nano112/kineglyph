@@ -1,0 +1,1729 @@
+/**
+ * Deterministic layout resolver for the general scene schema.
+ *
+ * Widths flow top-down (rows allocate space by min/preferred/max/grow water-filling), heights
+ * flow bottom-up (text wraps at its resolved width), then positions are assigned top-down.
+ * Equal inputs produce byte-equivalent geometry; nothing here reads the DOM.
+ */
+import { assignPorts, packetPositions, resolveEdge, type EdgeNodeBox } from "./edges.js";
+import { rectsIntersect } from "./geometry.js";
+import {
+  createMachineState,
+  evaluateSignals,
+  validateStateMachine,
+  type MachineState,
+  type VariableValue,
+} from "./machine.js";
+import {
+  resolvePipeline,
+  type PipelineDefinition,
+  type ResolvePipelineOptions,
+} from "./pipeline.js";
+import type {
+  ResolvedEdge,
+  ResolvedLegendItem,
+  ResolvedNode,
+  ResolvedNodeAppearance,
+  ResolvedScene,
+  ResolvedText,
+} from "./resolved.js";
+import type { Point, Rect, SemanticTextStyle } from "./schema.js";
+import {
+  defineScene,
+  pick,
+  pickOr,
+  type Align,
+  type Anchor,
+  type GroupLayout,
+  type Insets,
+  type Justify,
+  type LayoutName,
+  type Length,
+  type Paint,
+  type SceneDefinition,
+  type SceneDiagnostic,
+  type SceneNode,
+  type SceneNodeType,
+} from "./scene.js";
+import { measureText, wrapText, type TextFont, type TextLine } from "./text.js";
+import { defaultTheme, paintColor, projectTheme, withAlpha, type ThemeTokens } from "./theme.js";
+
+export interface ResolveSceneOptions {
+  readonly width: number;
+  readonly layout?: LayoutName | "auto";
+  readonly theme?: ThemeTokens;
+  readonly machineState?: MachineState;
+  /** Extra or overriding signal values, useful for tests and export snapshots. */
+  readonly signals?: Readonly<Record<string, VariableValue>>;
+  readonly precision?: number;
+}
+
+const DEFAULT_BREAKPOINTS = { wide: 900, compact: 560 } as const;
+
+/** Chooses the named layout for a container width. */
+export function chooseLayout(
+  width: number,
+  breakpoints: SceneDefinition["breakpoints"] | undefined,
+  requested: LayoutName | "auto" = "auto",
+): LayoutName {
+  if (requested !== "auto") return requested;
+  const wide = breakpoints?.wide ?? DEFAULT_BREAKPOINTS.wide;
+  const compact = breakpoints?.compact ?? DEFAULT_BREAKPOINTS.compact;
+  if (width >= wide) return "wide";
+  if (width >= compact) return "compact";
+  return "narrow";
+}
+
+// ---------------------------------------------------------------------------------------------
+// Effective views (responsive picks + bindings applied)
+// ---------------------------------------------------------------------------------------------
+
+interface Insets4 {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+interface View {
+  readonly node: SceneNode;
+  readonly id: string;
+  readonly type: SceneNodeType;
+  readonly hidden: boolean;
+  readonly width: Length | undefined;
+  readonly height: Length | undefined;
+  readonly minWidth: number;
+  readonly maxWidth: number;
+  readonly minHeight: number;
+  readonly grow: number;
+  readonly alignSelf: Align | undefined;
+  readonly justifySelf: Align | undefined;
+  readonly position:
+    { readonly x: number; readonly y: number; readonly anchor: Anchor } | undefined;
+  readonly z: number;
+  readonly opacity: number;
+  readonly highlight: number;
+  readonly progress: number;
+  readonly tone: Paint | undefined;
+  readonly text: string | undefined;
+  readonly description: string | undefined;
+  readonly font: TextFont | undefined;
+  readonly textColor: string;
+  readonly textAlign: "start" | "center" | "end";
+  readonly transform: "none" | "uppercase";
+  readonly maxLines: number;
+  // group
+  readonly layout: GroupLayout;
+  readonly gap: number;
+  readonly padding: Insets4;
+  readonly align: Align | undefined;
+  readonly justify: Justify;
+  readonly columns: number;
+  readonly children: readonly View[];
+  // marks
+  readonly iconSize: number;
+  readonly circleRadius: number;
+  readonly pointer: "none" | "up" | "down" | "left" | "right";
+  readonly legendDirection: "row" | "column";
+}
+
+interface PlacedLegendItem {
+  readonly item: {
+    readonly id: string;
+    readonly label: string;
+    readonly swatch: Paint;
+    readonly shape: "square" | "circle" | "line" | "dashed";
+  };
+  readonly box: Rect;
+}
+
+interface Placed {
+  readonly view: View;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  readonly children: Placed[];
+  lines?: readonly TextLine[];
+  truncated?: boolean;
+  legendItems?: PlacedLegendItem[];
+  calloutBody?: Rect;
+  calloutTip?: Point;
+  overflowX?: boolean;
+  overflowY?: boolean;
+}
+
+function insets(value: Insets | undefined, fallback: number): Insets4 {
+  if (value === undefined)
+    return { top: fallback, right: fallback, bottom: fallback, left: fallback };
+  if (typeof value === "number") return { top: value, right: value, bottom: value, left: value };
+  if (value.length === 2)
+    return { top: value[0], right: value[1], bottom: value[0], left: value[1] };
+  return { top: value[0], right: value[1], bottom: value[2], left: value[3] };
+}
+
+function fontFor(style: SemanticTextStyle, theme: ThemeTokens): TextFont {
+  const token = theme.typography[style];
+  return {
+    family: token.family,
+    size: token.size,
+    weight: token.weight,
+    lineHeight: token.lineHeight,
+    ...(token.letterSpacing === undefined ? {} : { letterSpacing: token.letterSpacing }),
+  };
+}
+
+function truthy(value: VariableValue | undefined): boolean {
+  return value !== undefined && value !== null && value !== false && value !== 0 && value !== "";
+}
+
+function numeric(value: VariableValue | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function unit(value: number | undefined, fallback: number): number {
+  return value === undefined ? fallback : Math.min(1, Math.max(0, value));
+}
+
+const DEFAULT_ANCHOR: Anchor = "top-left";
+
+function buildView(
+  node: SceneNode,
+  layout: LayoutName,
+  theme: ThemeTokens,
+  signals: Readonly<Record<string, VariableValue>>,
+  parentZ: number,
+): View {
+  const bind = node.bind ?? {};
+  const signal = (key: string | undefined): VariableValue | undefined =>
+    key === undefined ? undefined : signals[key];
+  const hidden =
+    bind.hidden !== undefined ? truthy(signal(bind.hidden)) : pickOr(node.hidden, layout, false);
+  const boundWidth = numeric(signal(bind.width));
+  const boundHeight = numeric(signal(bind.height));
+  const width = boundWidth ?? pick(node.width, layout);
+  const height = boundHeight ?? pick(node.height, layout);
+  const boundText = bind.text === undefined ? undefined : signal(bind.text);
+  const boundTone = bind.tone === undefined ? undefined : signal(bind.tone);
+  const boundDescription = bind.description === undefined ? undefined : signal(bind.description);
+  const z = node.z ?? parentZ;
+  const isGroup = node.type === "group";
+  const positionRaw = pick(node.position, layout);
+  const position =
+    positionRaw === undefined
+      ? undefined
+      : { x: positionRaw.x, y: positionRaw.y, anchor: positionRaw.anchor ?? DEFAULT_ANCHOR };
+
+  let text: string | undefined;
+  let font: TextFont | undefined;
+  let textColor = theme.colors.text;
+  let textAlign: "start" | "center" | "end" = "start";
+  let transform: "none" | "uppercase" = "none";
+  let maxLines = Number.POSITIVE_INFINITY;
+  let tone: Paint | undefined;
+  let iconSize = 24;
+  let circleRadius = 12;
+  let pointer: View["pointer"] = "none";
+  let legendDirection: "row" | "column" = "row";
+
+  if (typeof boundTone === "string" && boundTone.length > 0) tone = boundTone as Paint;
+
+  switch (node.type) {
+    case "text": {
+      const style = pickOr(node.textStyle, layout, "body");
+      font = fontFor(style, theme);
+      text =
+        typeof boundText === "string"
+          ? boundText
+          : boundText === undefined || boundText === null
+            ? node.text
+            : String(boundText);
+      const defaultColor =
+        style === "label" || style === "caption" ? theme.colors.textMuted : theme.colors.text;
+      textColor = paintColor(node.color, theme, "text", defaultColor);
+      textAlign = pickOr(node.align, layout, "start");
+      transform =
+        node.transform ??
+        (style === "label" && theme.ornament.eyebrow === true ? "uppercase" : "none");
+      maxLines = node.wrap === false ? 1 : pickOr(node.maxLines, layout, Number.POSITIVE_INFINITY);
+      break;
+    }
+    case "badge": {
+      const style = pickOr(node.textStyle, layout, "label");
+      font = fontFor(style, theme);
+      text = typeof boundText === "string" ? boundText : node.text;
+      tone ??= node.tone ?? "accent";
+      transform = style === "label" && theme.ornament.eyebrow === true ? "uppercase" : "none";
+      maxLines = 1;
+      break;
+    }
+    case "callout": {
+      const style = pickOr(node.textStyle, layout, "caption");
+      font = fontFor(style, theme);
+      text = typeof boundText === "string" ? boundText : node.text;
+      tone ??= node.tone ?? "accent";
+      textColor = theme.colors.text;
+      pointer = pickOr(node.pointer, layout, "none");
+      maxLines = pickOr(node.maxLines, layout, 4);
+      break;
+    }
+    case "legend": {
+      const style = pickOr(node.textStyle, layout, "caption");
+      font = fontFor(style, theme);
+      textColor = theme.colors.textMuted;
+      legendDirection = pickOr(node.direction, layout, "row");
+      break;
+    }
+    case "icon":
+      iconSize = pickOr(node.size, layout, 24);
+      tone ??= node.tone ?? "accent";
+      break;
+    case "circle":
+      circleRadius = pickOr(node.radius, layout, 12);
+      break;
+    default:
+      break;
+  }
+
+  const description = typeof boundDescription === "string" ? boundDescription : node.description;
+
+  return {
+    node,
+    id: node.id,
+    type: node.type,
+    hidden,
+    width,
+    height,
+    minWidth: pickOr(node.minWidth, layout, 0),
+    maxWidth: pickOr(node.maxWidth, layout, Number.POSITIVE_INFINITY),
+    minHeight: pickOr(node.minHeight, layout, 0),
+    grow: pickOr(node.grow, layout, 0),
+    alignSelf: pick(node.alignSelf, layout),
+    justifySelf: pick(node.justifySelf, layout),
+    position,
+    z,
+    opacity:
+      bind.opacity !== undefined ? unit(numeric(signal(bind.opacity)), 1) : (node.opacity ?? 1),
+    highlight:
+      bind.highlight !== undefined
+        ? unit(numeric(signal(bind.highlight)) ?? (truthy(signal(bind.highlight)) ? 1 : 0), 0)
+        : 0,
+    progress: bind.progress !== undefined ? unit(numeric(signal(bind.progress)), 1) : 1,
+    tone,
+    text,
+    description,
+    font,
+    textColor,
+    textAlign,
+    transform,
+    maxLines,
+    layout: isGroup ? pickOr(node.layout, layout, "stack") : "stack",
+    gap: isGroup ? pickOr(node.gap, layout, theme.spacing.sm) : 0,
+    padding: isGroup ? insets(pick(node.padding, layout), 0) : insets(undefined, 0),
+    align: isGroup ? pick(node.align, layout) : undefined,
+    justify: isGroup ? pickOr(node.justify, layout, "start") : "start",
+    columns: isGroup ? Math.max(1, Math.floor(pickOr(node.columns, layout, 2))) : 1,
+    children: isGroup
+      ? node.children.map((child) => buildView(child, layout, theme, signals, z))
+      : [],
+    iconSize,
+    circleRadius,
+    pointer,
+    legendDirection,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Measurement
+// ---------------------------------------------------------------------------------------------
+
+const BADGE_PAD_X = 10;
+const BADGE_PAD_Y = 4;
+const CALLOUT_POINTER = 8;
+const LEGEND_SWATCH = 12;
+const LEGEND_SWATCH_GAP = 7;
+const LEGEND_ITEM_GAP = 16;
+
+function displayText(view: View): string {
+  const text = view.text ?? "";
+  return view.transform === "uppercase" ? text.toUpperCase() : text;
+}
+
+function calloutPadding(view: View): Insets4 {
+  const node = view.node;
+  return node.type === "callout" ? insets(pick(node.padding, "wide"), 0) : insets(undefined, 0);
+}
+
+function visibleChildren(view: View): readonly View[] {
+  return view.children.filter((child) => !child.hidden);
+}
+
+/** Natural, unwrapped width of a node. */
+function intrinsicWidth(view: View, layout: LayoutName): number {
+  if (typeof view.width === "number") return view.width;
+  switch (view.type) {
+    case "text":
+      return view.font === undefined ? 0 : longestLineWidth(displayText(view), view.font);
+    case "badge":
+      return (
+        (view.font === undefined ? 0 : measureText(displayText(view), view.font)) + BADGE_PAD_X * 2
+      );
+    case "callout": {
+      const pad = calloutPaddingResolved(view);
+      const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
+      return (
+        (view.font === undefined ? 0 : longestLineWidth(displayText(view), view.font)) +
+        pad.left +
+        pad.right +
+        pointerX
+      );
+    }
+    case "icon":
+      return view.iconSize;
+    case "circle":
+      return view.circleRadius * 2;
+    case "path": {
+      const node = view.node;
+      if (node.type !== "path") return 0;
+      if (typeof view.height === "number")
+        return (view.height * node.viewBox.width) / node.viewBox.height;
+      return node.viewBox.width;
+    }
+    case "image":
+      return typeof view.height === "number" ? view.height * 1.6 : 160;
+    case "rect":
+      return Math.max(view.minWidth, 0);
+    case "legend": {
+      const node = view.node;
+      if (node.type !== "legend" || view.font === undefined) return 0;
+      const widths = node.items.map(
+        (item) =>
+          LEGEND_SWATCH + LEGEND_SWATCH_GAP + measureText(item.label, view.font ?? fallbackFont),
+      );
+      const gap = pickOr(node.gap, layout, LEGEND_ITEM_GAP);
+      return view.legendDirection === "row"
+        ? widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1)
+        : Math.max(0, ...widths);
+    }
+    case "group": {
+      const children = visibleChildren(view);
+      const pad = view.padding.left + view.padding.right;
+      switch (view.layout) {
+        case "row":
+          return (
+            children.reduce((sum, child) => sum + intrinsicWidth(child, layout), 0) +
+            view.gap * Math.max(0, children.length - 1) +
+            pad
+          );
+        case "grid": {
+          const widest = Math.max(0, ...children.map((child) => intrinsicWidth(child, layout)));
+          return widest * view.columns + view.gap * (view.columns - 1) + pad;
+        }
+        case "absolute":
+          return (
+            Math.max(
+              0,
+              ...children.map((child) => (child.position?.x ?? 0) + intrinsicWidth(child, layout)),
+            ) + pad
+          );
+        default:
+          return Math.max(0, ...children.map((child) => intrinsicWidth(child, layout))) + pad;
+      }
+    }
+  }
+}
+
+const fallbackFont: TextFont = { family: "sans-serif", size: 12, weight: 400, lineHeight: 16 };
+
+function longestLineWidth(text: string, font: TextFont): number {
+  return Math.max(0, ...text.split(/\n/).map((line) => measureText(line.trim(), font)));
+}
+
+function longestWordWidth(text: string, font: TextFont): number {
+  return Math.max(0, ...text.split(/\s+/).map((word) => measureText(word, font)));
+}
+
+/** Smallest width a node can be squeezed to before its content must overflow. */
+function minContentWidth(view: View, layout: LayoutName): number {
+  if (typeof view.width === "number") return view.width;
+  switch (view.type) {
+    case "text":
+      return Math.max(
+        view.minWidth,
+        view.font === undefined
+          ? 0
+          : Math.min(longestWordWidth(displayText(view), view.font), intrinsicWidth(view, layout)),
+      );
+    case "badge":
+    case "icon":
+    case "circle":
+    case "legend":
+      return Math.max(
+        view.minWidth,
+        view.type === "legend"
+          ? Math.min(intrinsicWidth(view, layout), 96)
+          : intrinsicWidth(view, layout),
+      );
+    case "callout": {
+      const pad = calloutPaddingResolved(view);
+      const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
+      return Math.max(
+        view.minWidth,
+        (view.font === undefined ? 0 : longestWordWidth(displayText(view), view.font)) +
+          pad.left +
+          pad.right +
+          pointerX,
+      );
+    }
+    case "path":
+    case "image":
+      return Math.max(view.minWidth, Math.min(intrinsicWidth(view, layout), 48));
+    case "rect":
+      return view.minWidth;
+    case "group": {
+      const children = visibleChildren(view);
+      const pad = view.padding.left + view.padding.right;
+      switch (view.layout) {
+        case "row":
+          return (
+            children.reduce((sum, child) => sum + minContentWidth(child, layout), 0) +
+            view.gap * Math.max(0, children.length - 1) +
+            pad
+          );
+        case "grid": {
+          const widest = Math.max(0, ...children.map((child) => minContentWidth(child, layout)));
+          return widest * view.columns + view.gap * (view.columns - 1) + pad;
+        }
+        case "absolute":
+          return (
+            Math.max(
+              0,
+              ...children.map((child) => (child.position?.x ?? 0) + minContentWidth(child, layout)),
+            ) + pad
+          );
+        default:
+          return Math.max(
+            view.minWidth,
+            Math.max(0, ...children.map((child) => minContentWidth(child, layout))) + pad,
+          );
+      }
+    }
+  }
+}
+
+function calloutPaddingResolved(view: View): Insets4 {
+  const explicit = calloutPadding(view);
+  const node = view.node;
+  if (node.type === "callout" && node.padding !== undefined) return explicit;
+  return { top: 8, right: 12, bottom: 8, left: 12 };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Width allocation (deterministic capped water-filling)
+// ---------------------------------------------------------------------------------------------
+
+interface FlexItem {
+  /** Hypothetical main size before free space is distributed (flex-basis). */
+  readonly basis: number;
+  readonly min: number;
+  readonly max: number;
+  readonly grow: number;
+  readonly shrink: number;
+}
+
+/**
+ * Deterministic flexible allocation: free space is distributed by grow weights (or removed by
+ * shrink weights scaled by basis), items violating their min/max are frozen, and the remainder
+ * is redistributed until stable. Input order is the tie-breaker.
+ */
+function allocateFlex(items: readonly FlexItem[], available: number): number[] {
+  const sizes = items.map((item) => item.basis);
+  const frozen = items.map((item) => item.grow <= 0 && item.shrink <= 0);
+  for (let guard = 0; guard < 64; guard += 1) {
+    const used = sizes.reduce(
+      (sum, size, index) =>
+        sum +
+        (frozen[index]
+          ? Math.min(items[index]?.max ?? size, Math.max(items[index]?.min ?? size, size))
+          : size),
+      0,
+    );
+    const free = available - used;
+    const growing = free > 0;
+    const active = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) => !frozen[index] && (growing ? item.grow > 0 : item.shrink > 0));
+    if (active.length === 0 || Math.abs(free) < 1e-6) break;
+    const totalWeight = active.reduce(
+      (sum, { item }) => sum + (growing ? item.grow : item.shrink * Math.max(item.basis, 1e-6)),
+      0,
+    );
+    if (totalWeight <= 0) break;
+    let violated = false;
+    for (const { item, index } of active) {
+      const weight = growing ? item.grow : item.shrink * Math.max(item.basis, 1e-6);
+      const proposed = (sizes[index] ?? 0) + free * (weight / totalWeight);
+      const clamped = Math.min(item.max, Math.max(item.min, proposed));
+      if (Math.abs(clamped - proposed) > 1e-9) {
+        frozen[index] = true;
+        violated = true;
+      }
+      sizes[index] = clamped;
+    }
+    if (!violated) break;
+  }
+  return sizes.map((size, index) =>
+    Math.min(items[index]?.max ?? size, Math.max(items[index]?.min ?? size, size)),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------------------------
+
+interface LayoutContext {
+  readonly layout: LayoutName;
+  readonly theme: ThemeTokens;
+  readonly diagnostics: SceneDiagnostic[];
+}
+
+function resolveChildWidth(
+  child: View,
+  available: number,
+  stretch: boolean,
+  context: LayoutContext,
+): number {
+  if (typeof child.width === "number") return clampWidth(child, child.width);
+  if (child.width === "fill" || stretch) return clampWidth(child, Math.max(0, available));
+  return clampWidth(
+    child,
+    Math.min(
+      Math.max(0, available),
+      Math.max(intrinsicWidth(child, context.layout), child.minWidth),
+    ),
+  );
+}
+
+function clampWidth(view: View, width: number): number {
+  return Math.min(view.maxWidth, Math.max(view.minWidth, width));
+}
+
+function stretchHeight(child: View, parentAlign: Align | undefined): boolean {
+  return child.height === "fill" || (child.alignSelf ?? parentAlign) === "stretch";
+}
+
+/** Lays out a node into a Placed tree with positions relative to the node's own origin. */
+function layoutNode(
+  view: View,
+  width: number,
+  availableHeight: number | undefined,
+  context: LayoutContext,
+): Placed {
+  const placed: Placed = { view, x: 0, y: 0, width, height: 0, children: [] };
+  const fixedHeight = typeof view.height === "number" ? view.height : undefined;
+  const fillHeight =
+    view.height === "fill" && availableHeight !== undefined ? availableHeight : undefined;
+  switch (view.type) {
+    case "text": {
+      const font = view.font ?? fallbackFont;
+      const maxLines =
+        fixedHeight === undefined
+          ? view.maxLines
+          : Math.max(1, Math.min(view.maxLines, Math.floor(fixedHeight / font.lineHeight)));
+      const paragraphs = displayText(view).split(/\n/);
+      const lines: TextLine[] = [];
+      let truncated = false;
+      for (const paragraph of paragraphs) {
+        const remaining = maxLines - lines.length;
+        if (remaining <= 0) {
+          truncated = true;
+          break;
+        }
+        const wrapped = wrapText(paragraph, width, font, { maxLines: remaining });
+        lines.push(...wrapped);
+        if (wrapped.some((line) => line.text.endsWith("…"))) truncated = true;
+      }
+      placed.lines = lines;
+      placed.truncated = truncated;
+      placed.height =
+        fixedHeight ?? fillHeight ?? Math.max(view.minHeight, lines.length * font.lineHeight);
+      break;
+    }
+    case "badge": {
+      const font = view.font ?? fallbackFont;
+      const lines = wrapText(displayText(view), Math.max(1, width - BADGE_PAD_X * 2), font, {
+        maxLines: 1,
+      });
+      placed.lines = lines;
+      placed.truncated = lines.some((line) => line.text.endsWith("…"));
+      placed.height = fixedHeight ?? Math.max(view.minHeight, font.lineHeight + BADGE_PAD_Y * 2);
+      break;
+    }
+    case "callout": {
+      const font = view.font ?? fallbackFont;
+      const pad = calloutPaddingResolved(view);
+      const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
+      const pointerY = view.pointer === "up" || view.pointer === "down" ? CALLOUT_POINTER : 0;
+      const textWidth = Math.max(1, width - pad.left - pad.right - pointerX);
+      const lines = wrapText(displayText(view), textWidth, font, { maxLines: view.maxLines });
+      placed.lines = lines;
+      placed.truncated = lines.some((line) => line.text.endsWith("…"));
+      const bodyHeight = lines.length * font.lineHeight + pad.top + pad.bottom;
+      placed.height = fixedHeight ?? Math.max(view.minHeight, bodyHeight + pointerY);
+      const body = {
+        x: view.pointer === "left" ? CALLOUT_POINTER : 0,
+        y: view.pointer === "up" ? CALLOUT_POINTER : 0,
+        width: width - pointerX,
+        height: placed.height - pointerY,
+      };
+      placed.calloutBody = body;
+      placed.calloutTip =
+        view.pointer === "up"
+          ? { x: body.x + Math.min(24, body.width / 2), y: 0 }
+          : view.pointer === "down"
+            ? { x: body.x + Math.min(24, body.width / 2), y: placed.height }
+            : view.pointer === "left"
+              ? { x: 0, y: body.y + Math.min(18, body.height / 2) }
+              : view.pointer === "right"
+                ? { x: width, y: body.y + Math.min(18, body.height / 2) }
+                : { x: body.x, y: body.y };
+      break;
+    }
+    case "legend": {
+      const node = view.node;
+      const font = view.font ?? fallbackFont;
+      if (node.type !== "legend") break;
+      const gap = pickOr(node.gap, context.layout, LEGEND_ITEM_GAP);
+      const items = node.items.map((item) => ({
+        item: {
+          id: item.id,
+          label: item.label,
+          swatch: item.swatch,
+          shape: item.shape ?? "square",
+        },
+        width: LEGEND_SWATCH + LEGEND_SWATCH_GAP + measureText(item.label, font),
+      }));
+      const boxes: NonNullable<Placed["legendItems"]> = [];
+      if (view.legendDirection === "column") {
+        items.forEach((entry, index) => {
+          boxes.push({
+            item: entry.item,
+            box: {
+              x: 0,
+              y: index * (font.lineHeight + gap / 2),
+              width: Math.min(width, entry.width),
+              height: font.lineHeight,
+            },
+          });
+        });
+        placed.height =
+          fixedHeight ??
+          Math.max(
+            view.minHeight,
+            items.length * font.lineHeight + Math.max(0, items.length - 1) * (gap / 2),
+          );
+      } else {
+        let x = 0;
+        let row = 0;
+        for (const entry of items) {
+          if (x > 0 && x + entry.width > width + 1e-6) {
+            x = 0;
+            row += 1;
+          }
+          boxes.push({
+            item: entry.item,
+            box: {
+              x,
+              y: row * (font.lineHeight + 4),
+              width: Math.min(width, entry.width),
+              height: font.lineHeight,
+            },
+          });
+          x += entry.width + gap;
+        }
+        placed.height =
+          fixedHeight ?? Math.max(view.minHeight, (row + 1) * font.lineHeight + row * 4);
+      }
+      placed.legendItems = boxes;
+      break;
+    }
+    case "icon":
+      placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, view.iconSize);
+      break;
+    case "circle":
+      placed.height =
+        fixedHeight ??
+        fillHeight ??
+        Math.max(
+          view.minHeight,
+          typeof view.width === "number" ? view.width : view.circleRadius * 2,
+        );
+      break;
+    case "path": {
+      const node = view.node;
+      const aspect = node.type === "path" ? node.viewBox.height / node.viewBox.width : 1;
+      placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, width * aspect);
+      break;
+    }
+    case "image":
+      placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, width * 0.625);
+      break;
+    case "rect":
+      placed.height = fixedHeight ?? fillHeight ?? Math.max(view.minHeight, 8);
+      break;
+    case "group":
+      layoutGroup(view, placed, width, fixedHeight ?? fillHeight, context);
+      break;
+  }
+  return placed;
+}
+
+function layoutGroup(
+  view: View,
+  placed: Placed,
+  width: number,
+  forcedHeight: number | undefined,
+  context: LayoutContext,
+): void {
+  const pad = view.padding;
+  const innerWidth = Math.max(0, width - pad.left - pad.right);
+  const innerHeight =
+    forcedHeight === undefined ? undefined : Math.max(0, forcedHeight - pad.top - pad.bottom);
+  const children = visibleChildren(view);
+  const gap = view.gap;
+  const results: Placed[] = [];
+  let contentHeight = 0;
+
+  const alignCross = (child: Placed, extent: number, fallback: Align): number => {
+    const align = child.view.alignSelf ?? view.align ?? fallback;
+    const size = view.layout === "row" ? child.height : child.width;
+    switch (align) {
+      case "center":
+        return (extent - size) / 2;
+      case "end":
+        return extent - size;
+      default:
+        return 0;
+    }
+  };
+
+  const distribute = (count: number, free: number): { lead: number; between: number } => {
+    if (free <= 0 || count === 0) return { lead: 0, between: 0 };
+    switch (view.justify) {
+      case "center":
+        return { lead: free / 2, between: 0 };
+      case "end":
+        return { lead: free, between: 0 };
+      case "between":
+        return count > 1
+          ? { lead: 0, between: free / (count - 1) }
+          : { lead: free / 2, between: 0 };
+      case "around":
+        return { lead: free / (count * 2), between: free / count };
+      case "evenly":
+        return { lead: free / (count + 1), between: free / (count + 1) };
+      default:
+        return { lead: 0, between: 0 };
+    }
+  };
+
+  switch (view.layout) {
+    case "stack": {
+      const stretchAll = view.align === "stretch";
+      const naturals = children.map((child) =>
+        layoutNode(
+          child,
+          resolveChildWidth(
+            child,
+            innerWidth,
+            stretchAll || child.alignSelf === "stretch",
+            context,
+          ),
+          undefined,
+          context,
+        ),
+      );
+      const fillChildren = children.filter((child) => child.height === "fill");
+      const totalGap = gap * Math.max(0, children.length - 1);
+      const fixedTotal = naturals.reduce(
+        (sum, child) => sum + (child.view.height === "fill" ? 0 : child.height),
+        0,
+      );
+      let heights = naturals.map((child) => child.height);
+      if (innerHeight !== undefined && fillChildren.length > 0) {
+        const free = Math.max(0, innerHeight - fixedTotal - totalGap);
+        const totalGrow = fillChildren.reduce((sum, child) => sum + Math.max(child.grow, 1), 0);
+        heights = naturals.map((child) =>
+          child.view.height === "fill"
+            ? (free * Math.max(child.view.grow, 1)) / totalGrow
+            : child.height,
+        );
+      }
+      const finals = naturals.map((child, index) => {
+        const target = heights[index] ?? child.height;
+        return Math.abs(target - child.height) > 1e-6
+          ? layoutNode(child.view, child.width, target, context)
+          : child;
+      });
+      const total = finals.reduce((sum, child) => sum + child.height, 0) + totalGap;
+      const extent = innerHeight ?? total;
+      const { lead, between } = distribute(finals.length, extent - total);
+      let y = pad.top + lead;
+      for (const child of finals) {
+        child.x = pad.left + alignCross(child, innerWidth, "start");
+        child.y = y;
+        y += child.height + gap + between;
+        results.push(child);
+      }
+      contentHeight = total;
+      break;
+    }
+    case "row": {
+      const specs: FlexItem[] = children.map((child) => {
+        if (typeof child.width === "number") {
+          const width = clampWidth(child, child.width);
+          return { basis: width, min: width, max: width, grow: 0, shrink: 0 };
+        }
+        const minContent = Math.min(minContentWidth(child, context.layout), child.maxWidth);
+        if (child.width === "fill") {
+          const min = Math.max(child.minWidth, minContent);
+          return {
+            basis: 0,
+            min,
+            max: child.maxWidth,
+            grow: child.grow > 0 ? child.grow : 1,
+            shrink: 0,
+          };
+        }
+        const basis = clampWidth(
+          child,
+          Math.max(intrinsicWidth(child, context.layout), child.minWidth),
+        );
+        const min = Math.min(basis, Math.max(child.minWidth, minContent));
+        return {
+          basis,
+          min,
+          max: child.grow > 0 ? child.maxWidth : basis,
+          grow: child.grow,
+          shrink: 1,
+        };
+      });
+      const available = innerWidth - gap * Math.max(0, children.length - 1);
+      const widths = allocateFlex(specs, available);
+      const naturals = children.map((child, index) =>
+        layoutNode(child, widths[index] ?? 0, undefined, context),
+      );
+      const rowHeight = innerHeight ?? Math.max(0, ...naturals.map((child) => child.height));
+      const finals = naturals.map((child) =>
+        stretchHeight(child.view, view.align) &&
+        typeof child.view.height !== "number" &&
+        Math.abs(child.height - rowHeight) > 1e-6
+          ? layoutNode(child.view, child.width, rowHeight, context)
+          : child,
+      );
+      const total =
+        finals.reduce((sum, child) => sum + child.width, 0) + gap * Math.max(0, finals.length - 1);
+      const { lead, between } = distribute(finals.length, innerWidth - total);
+      let x = pad.left + lead;
+      for (const child of finals) {
+        child.x = x;
+        child.y = pad.top + alignCross(child, rowHeight, "start");
+        x += child.width + gap + between;
+        results.push(child);
+      }
+      if (total > innerWidth + 0.5) {
+        placed.overflowX = true;
+        context.diagnostics.push({
+          severity: "warning",
+          code: "overflow",
+          message: `row ${view.id} content (${round(total, 1)}px) exceeds its ${round(innerWidth, 1)}px inner width in the ${context.layout} layout`,
+          path: view.id,
+        });
+      }
+      contentHeight = rowHeight;
+      break;
+    }
+    case "grid": {
+      const columns = view.columns;
+      const columnWidth = Math.max(0, (innerWidth - gap * (columns - 1)) / columns);
+      const naturals = children.map((child) =>
+        layoutNode(
+          child,
+          resolveChildWidth(
+            child,
+            columnWidth,
+            view.align === "stretch" ||
+              child.alignSelf === "stretch" ||
+              (child.justifySelf ?? undefined) === "stretch",
+            context,
+          ),
+          undefined,
+          context,
+        ),
+      );
+      let y = pad.top;
+      for (let start = 0; start < naturals.length; start += columns) {
+        const row = naturals.slice(start, start + columns);
+        const rowHeight = Math.max(0, ...row.map((child) => child.height));
+        row.forEach((child, index) => {
+          const final =
+            stretchHeight(child.view, view.align) &&
+            typeof child.view.height !== "number" &&
+            Math.abs(child.height - rowHeight) > 1e-6
+              ? layoutNode(child.view, child.width, rowHeight, context)
+              : child;
+          const cellX = pad.left + index * (columnWidth + gap);
+          const horizontal = final.view.justifySelf ?? justifyToAlign(view.justify);
+          final.x =
+            cellX +
+            (horizontal === "center"
+              ? (columnWidth - final.width) / 2
+              : horizontal === "end"
+                ? columnWidth - final.width
+                : 0);
+          final.y = y + alignCross(final, rowHeight, "start");
+          results.push(final);
+        });
+        y += rowHeight + gap;
+      }
+      contentHeight = Math.max(0, y - pad.top - gap);
+      break;
+    }
+    case "overlay": {
+      const naturals = children.map((child) =>
+        layoutNode(
+          child,
+          resolveChildWidth(
+            child,
+            innerWidth,
+            child.alignSelf === "stretch" || (child.justifySelf ?? undefined) === "stretch",
+            context,
+          ),
+          undefined,
+          context,
+        ),
+      );
+      const extent = innerHeight ?? Math.max(0, ...naturals.map((child) => child.height));
+      for (const child of naturals) {
+        const final =
+          (child.view.height === "fill" || child.view.alignSelf === "stretch") &&
+          typeof child.view.height !== "number" &&
+          Math.abs(child.height - extent) > 1e-6
+            ? layoutNode(child.view, child.width, extent, context)
+            : child;
+        const horizontal = final.view.justifySelf ?? justifyToAlign(view.justify, "center");
+        const vertical = final.view.alignSelf ?? view.align ?? "center";
+        final.x =
+          pad.left +
+          (horizontal === "center"
+            ? (innerWidth - final.width) / 2
+            : horizontal === "end"
+              ? innerWidth - final.width
+              : 0);
+        final.y =
+          pad.top +
+          (vertical === "center"
+            ? (extent - final.height) / 2
+            : vertical === "end"
+              ? extent - final.height
+              : 0);
+        results.push(final);
+      }
+      contentHeight = extent;
+      break;
+    }
+    case "absolute": {
+      let maxBottom = 0;
+      for (const child of children) {
+        const position = child.position ?? { x: 0, y: 0, anchor: "top-left" as Anchor };
+        const available = Math.max(0, innerWidth - position.x);
+        const childWidth = resolveChildWidth(child, available, false, context);
+        const availableHeight =
+          innerHeight === undefined ? undefined : Math.max(0, innerHeight - position.y);
+        const final = layoutNode(child, childWidth, availableHeight, context);
+        const anchored = anchorOffset(position.anchor, final.width, final.height);
+        final.x = pad.left + position.x - anchored.x;
+        final.y = pad.top + position.y - anchored.y;
+        maxBottom = Math.max(maxBottom, final.y + final.height - pad.top);
+        results.push(final);
+      }
+      contentHeight = maxBottom;
+      break;
+    }
+  }
+
+  placed.children.push(...results);
+  // Hidden children keep real geometry (out of flow) so ids stay addressable for tracks and toggles.
+  for (const child of view.children) {
+    if (!child.hidden) continue;
+    const ghostContext: LayoutContext = { ...context, diagnostics: [] };
+    const ghost = layoutNode(
+      child,
+      resolveChildWidth(child, innerWidth, false, ghostContext),
+      undefined,
+      ghostContext,
+    );
+    ghost.x = pad.left;
+    ghost.y = pad.top;
+    placed.children.push(ghost);
+  }
+  placed.height = forcedHeight ?? Math.max(view.minHeight, contentHeight + pad.top + pad.bottom);
+  const limitBottom = placed.height - pad.bottom + 0.5;
+  const limitRight = width - pad.right + 0.5;
+  for (const child of results) {
+    if (
+      child.x + child.width > limitRight ||
+      child.y + child.height > limitBottom ||
+      child.x < pad.left - 0.5 ||
+      child.y < pad.top - 0.5
+    ) {
+      if (view.layout === "row" && placed.overflowX === true) continue;
+      context.diagnostics.push({
+        severity: "warning",
+        code: "overflow",
+        message: `${child.view.type} ${child.view.id} extends outside the content box of ${view.id} in the ${context.layout} layout`,
+        path: child.view.id,
+      });
+    }
+  }
+  if (view.layout !== "overlay") {
+    for (let i = 0; i < results.length; i += 1) {
+      for (let j = i + 1; j < results.length; j += 1) {
+        const a = results[i];
+        const b = results[j];
+        if (a === undefined || b === undefined) continue;
+        if (rectsIntersect(a, b, 0.5)) {
+          context.diagnostics.push({
+            severity: "warning",
+            code: "overlap",
+            message: `${a.view.id} overlaps ${b.view.id} inside ${view.id} in the ${context.layout} layout`,
+            path: view.id,
+          });
+        }
+      }
+    }
+  }
+}
+
+function justifyToAlign(justify: Justify, fallback: Align = "start"): Align {
+  switch (justify) {
+    case "center":
+      return "center";
+    case "end":
+      return "end";
+    case "start":
+      return "start";
+    default:
+      return fallback;
+  }
+}
+
+function anchorOffset(anchor: Anchor, width: number, height: number): Point {
+  switch (anchor) {
+    case "top":
+      return { x: width / 2, y: 0 };
+    case "top-right":
+      return { x: width, y: 0 };
+    case "left":
+      return { x: 0, y: height / 2 };
+    case "center":
+      return { x: width / 2, y: height / 2 };
+    case "right":
+      return { x: width, y: height / 2 };
+    case "bottom-left":
+      return { x: 0, y: height };
+    case "bottom":
+      return { x: width / 2, y: height };
+    case "bottom-right":
+      return { x: width, y: height };
+    default:
+      return { x: 0, y: 0 };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Resolution
+// ---------------------------------------------------------------------------------------------
+
+function round(value: number, precision: number): number {
+  const scale = 10 ** precision;
+  return Math.round((value + Number.EPSILON) * scale) / scale;
+}
+
+interface Emitted {
+  readonly nodes: ResolvedNode[];
+  readonly boxes: Map<string, EdgeNodeBox>;
+  readonly obstacles: Rect[];
+}
+
+function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance {
+  const node = view.node;
+  const stroke = (paint: Paint | undefined, fallback: string): string =>
+    paintColor(paint, theme, "stroke", fallback);
+  const fill = (paint: Paint | undefined, fallback: string): string =>
+    paintColor(paint, theme, "fill", fallback);
+  switch (node.type) {
+    case "group": {
+      const frame = node.frame;
+      if (frame === undefined) return { fill: "none", stroke: "none", strokeWidth: 0, radius: 0 };
+      return {
+        fill: fill(frame.fill, "none"),
+        stroke: stroke(frame.stroke, "none"),
+        strokeWidth: frame.strokeWidth ?? theme.strokes.hairline,
+        radius: frame.radius ?? theme.radii.lg,
+        ...(frame.opacity === undefined ? {} : { opacity: frame.opacity }),
+        ...(frame.dash === undefined ? {} : { dash: frame.dash }),
+      };
+    }
+    case "rect":
+      return {
+        fill: fill(view.tone ?? node.fill, theme.colors.surface),
+        stroke: stroke(node.stroke, view.tone === undefined ? theme.colors.border : "none"),
+        strokeWidth: node.strokeWidth ?? theme.strokes.hairline,
+        radius: node.radius ?? theme.radii.md,
+        ...(node.dash === undefined ? {} : { dash: node.dash }),
+      };
+    case "circle":
+      return {
+        fill: fill(view.tone ?? node.fill, theme.colors.surface),
+        stroke: stroke(node.stroke, view.tone === undefined ? theme.colors.border : "none"),
+        strokeWidth: node.strokeWidth ?? theme.strokes.hairline,
+        radius: 0,
+        ...(node.dash === undefined ? {} : { dash: node.dash }),
+      };
+    case "path":
+      return {
+        fill: fill(view.tone ?? node.fill, "none"),
+        stroke: stroke(
+          node.stroke,
+          view.tone === undefined && node.fill === undefined ? theme.colors.accent : "none",
+        ),
+        strokeWidth: node.strokeWidth ?? theme.strokes.thin,
+        radius: 0,
+        ...(node.dash === undefined ? {} : { dash: node.dash }),
+      };
+    case "image":
+      return {
+        fill: "none",
+        stroke: "none",
+        strokeWidth: 0,
+        radius: node.radius ?? theme.radii.sm,
+      };
+    case "badge": {
+      const tone = paintColor(view.tone ?? "accent", theme, "stroke", theme.colors.accent);
+      const variant = node.variant ?? "soft";
+      if (variant === "solid")
+        return { fill: tone, stroke: "none", strokeWidth: 0, radius: theme.radii.pill };
+      if (variant === "outline")
+        return {
+          fill: "none",
+          stroke: tone,
+          strokeWidth: theme.strokes.hairline,
+          radius: theme.radii.pill,
+        };
+      return {
+        fill: withAlpha(tone, 0.16),
+        stroke: "none",
+        strokeWidth: 0,
+        radius: theme.radii.pill,
+      };
+    }
+    case "callout": {
+      const tone = paintColor(view.tone ?? "accent", theme, "stroke", theme.colors.accent);
+      return {
+        fill: theme.colors.surfaceRaised,
+        stroke: tone,
+        strokeWidth: theme.strokes.hairline,
+        radius: theme.radii.md,
+      };
+    }
+    case "icon": {
+      const tone = paintColor(view.tone ?? "accent", theme, "stroke", theme.colors.accent);
+      return {
+        fill: paintColor(node.background, theme, "fill", "none"),
+        stroke: tone,
+        strokeWidth: theme.strokes.thin,
+        radius: 0,
+      };
+    }
+    case "text":
+    case "legend":
+      return { fill: "none", stroke: "none", strokeWidth: 0, radius: 0 };
+  }
+}
+
+function textBlock(
+  view: View,
+  placed: Placed,
+  origin: Point,
+  box: Rect,
+  precision: number,
+  colorOverride?: string,
+): ResolvedText | undefined {
+  if (placed.lines === undefined || view.font === undefined) return undefined;
+  const font = view.font;
+  return {
+    lines: placed.lines.map((line) => ({ text: line.text, width: round(line.width, precision) })),
+    fontFamily: font.family,
+    fontSize: font.size,
+    fontWeight: font.weight,
+    lineHeight: font.lineHeight,
+    letterSpacing: font.letterSpacing ?? 0,
+    color: colorOverride ?? view.textColor,
+    align: view.textAlign,
+    transform: view.transform,
+    box: {
+      x: round(origin.x + box.x, precision),
+      y: round(origin.y + box.y, precision),
+      width: round(box.width, precision),
+      height: round(box.height, precision),
+    },
+  };
+}
+
+function emit(
+  placed: Placed,
+  origin: Point,
+  parent: string | undefined,
+  theme: ThemeTokens,
+  precision: number,
+  out: Emitted,
+): void {
+  const view = placed.view;
+  const x = origin.x + placed.x;
+  const y = origin.y + placed.y;
+  const rect: Rect = {
+    x: round(x, precision),
+    y: round(y, precision),
+    width: round(placed.width, precision),
+    height: round(placed.height, precision),
+  };
+  const node = view.node;
+  const label =
+    node.label ??
+    (view.type === "text" || view.type === "badge" || view.type === "callout"
+      ? (view.text ?? "")
+      : "");
+  const kind: ResolvedNode["kind"] =
+    view.type === "group"
+      ? "group"
+      : view.type === "rect"
+        ? "rect"
+        : view.type === "circle"
+          ? "circle"
+          : view.type;
+  const appearance = frameAppearance(view, theme);
+  const badgeText =
+    view.type === "badge"
+      ? ((node.type === "badge" ? node.variant : undefined) ?? "soft") === "solid"
+        ? theme.colors.accentContrast
+        : paintColor(view.tone ?? "accent", theme, "text", theme.colors.accent)
+      : undefined;
+  let text: ResolvedText | undefined;
+  if (view.type === "text")
+    text = textBlock(
+      view,
+      placed,
+      { x, y },
+      { x: 0, y: 0, width: placed.width, height: placed.height },
+      precision,
+    );
+  else if (view.type === "badge")
+    text = textBlock(
+      view,
+      placed,
+      { x, y },
+      {
+        x: BADGE_PAD_X,
+        y: BADGE_PAD_Y,
+        width: Math.max(0, placed.width - BADGE_PAD_X * 2),
+        height: Math.max(0, placed.height - BADGE_PAD_Y * 2),
+      },
+      precision,
+      badgeText,
+    );
+  else if (view.type === "callout" && placed.calloutBody !== undefined) {
+    const pad = calloutPaddingResolved(view);
+    text = textBlock(
+      view,
+      placed,
+      { x, y },
+      {
+        x: placed.calloutBody.x + pad.left,
+        y: placed.calloutBody.y + pad.top,
+        width: Math.max(0, placed.calloutBody.width - pad.left - pad.right),
+        height: Math.max(0, placed.calloutBody.height - pad.top - pad.bottom),
+      },
+      precision,
+    );
+  }
+  const legend =
+    view.type === "legend" && placed.legendItems !== undefined && view.font !== undefined
+      ? {
+          items: placed.legendItems.map((entry): ResolvedLegendItem => ({
+            id: entry.item.id,
+            label: entry.item.label,
+            swatch: paintColor(entry.item.swatch, theme, "fill", theme.colors.accent),
+            shape: entry.item.shape,
+            box: {
+              x: round(x + entry.box.x, precision),
+              y: round(y + entry.box.y, precision),
+              width: round(entry.box.width, precision),
+              height: round(entry.box.height, precision),
+            },
+          })),
+          text: {
+            fontFamily: view.font.family,
+            fontSize: view.font.size,
+            fontWeight: view.font.weight,
+            lineHeight: view.font.lineHeight,
+            letterSpacing: view.font.letterSpacing ?? 0,
+            color: view.textColor,
+            align: "start" as const,
+            transform: "none" as const,
+          },
+        }
+      : undefined;
+  const iconColor =
+    view.type === "icon"
+      ? paintColor(view.tone ?? "accent", theme, "stroke", theme.colors.accent)
+      : undefined;
+  const resolved: ResolvedNode = {
+    id: view.id,
+    kind,
+    ...rect,
+    label,
+    ...(view.description === undefined ? {} : { description: view.description }),
+    appearance,
+    state: {
+      opacity: view.opacity,
+      translateX: 0,
+      translateY: 0,
+      scale: 1,
+      progress: view.progress,
+      highlight: view.highlight,
+    },
+    interactive: node.interactive ?? false,
+    focusable: node.interactive ?? false,
+    metadata: node.metadata ?? {},
+    ...(parent === undefined ? {} : { parent }),
+    z: view.z,
+    ...(view.hidden ? { hidden: true } : {}),
+    ...(node.type === "group" && node.clip === true ? { clip: true } : {}),
+    ...(node.onActivate === undefined ? {} : { onActivate: node.onActivate }),
+    ...(text === undefined ? {} : { text }),
+    ...(view.type === "icon" && node.type === "icon"
+      ? {
+          icon: {
+            name: node.icon,
+            size: view.iconSize,
+            color: iconColor ?? theme.colors.accent,
+            background: appearance.fill,
+          },
+        }
+      : {}),
+    ...(node.type === "path" ? { path: { d: node.d, viewBox: node.viewBox } } : {}),
+    ...(node.type === "image"
+      ? {
+          image: {
+            href: node.src,
+            alt: node.alt,
+            fit: node.fit ?? "contain",
+            live: node.live ?? false,
+          },
+        }
+      : {}),
+    ...(legend === undefined ? {} : { legend }),
+    ...(view.type === "callout" &&
+    placed.calloutBody !== undefined &&
+    placed.calloutTip !== undefined
+      ? {
+          callout: {
+            pointer: view.pointer,
+            tip: {
+              x: round(x + placed.calloutTip.x, precision),
+              y: round(y + placed.calloutTip.y, precision),
+            },
+            body: {
+              x: round(x + placed.calloutBody.x, precision),
+              y: round(y + placed.calloutBody.y, precision),
+              width: round(placed.calloutBody.width, precision),
+              height: round(placed.calloutBody.height, precision),
+            },
+          },
+        }
+      : {}),
+  };
+  out.nodes.push(resolved);
+  out.boxes.set(view.id, {
+    id: view.id,
+    ...rect,
+    kind:
+      kind === "circle"
+        ? "circle"
+        : kind === "group"
+          ? "group"
+          : kind === "rect"
+            ? "rect"
+            : "other",
+  });
+  if (!view.hidden && view.type !== "group") out.obstacles.push(rect);
+  const sorted = [...placed.children].sort((a, b) => a.view.z - b.view.z);
+  for (const child of sorted) emit(child, { x, y }, view.id, theme, precision, out);
+}
+
+/** Resolves a general scene definition into finite, renderer-ready geometry. */
+export function resolveScene(input: SceneDefinition, options: ResolveSceneOptions): ResolvedScene {
+  const scene = defineScene(input);
+  const theme = options.theme ?? defaultTheme;
+  const precision = options.precision ?? 3;
+  if (!Number.isFinite(options.width) || options.width <= 0)
+    throw new RangeError("resolveScene width must be a positive, finite number");
+  const layout = chooseLayout(options.width, scene.breakpoints, options.layout ?? "auto");
+  const diagnostics: SceneDiagnostic[] = [];
+
+  let machineState: MachineState | undefined;
+  let signals: Record<string, VariableValue> = {};
+  if (scene.machine !== undefined) {
+    const nodeIds = new Set<string>();
+    const collect = (node: SceneNode): void => {
+      nodeIds.add(node.id);
+      if (node.type === "group") node.children.forEach(collect);
+    };
+    collect(scene.root);
+    const validation = validateStateMachine(scene.machine, { nodeIds });
+    const errors = validation.diagnostics.filter((entry) => entry.severity === "error");
+    if (errors.length > 0)
+      throw new Error(
+        `invalid state machine ${scene.machine.id}:\n${errors.map((entry) => `- ${entry.message}`).join("\n")}`,
+      );
+    machineState = options.machineState ?? createMachineState(scene.machine);
+    signals = { ...evaluateSignals(scene.machine, machineState) };
+  }
+  if (options.signals !== undefined) signals = { ...signals, ...options.signals };
+  checkBindings(scene, signals, diagnostics);
+
+  const padding = insets(pick(scene.padding, layout), layout === "narrow" ? 16 : 24);
+  const rootView = buildView(scene.root, layout, theme, signals, 0);
+  const rootWidth = Math.max(0, options.width - padding.left - padding.right);
+  const context: LayoutContext = { layout, theme, diagnostics };
+  const placedRoot = layoutNode(
+    { ...rootView, width: rootView.width ?? "fill" },
+    rootWidth,
+    typeof rootView.height === "number" ? rootView.height : undefined,
+    context,
+  );
+  placedRoot.x = padding.left;
+  placedRoot.y = padding.top;
+  const emitted: Emitted = { nodes: [], boxes: new Map(), obstacles: [] };
+  emit(placedRoot, { x: 0, y: 0 }, undefined, theme, precision, emitted);
+  for (const node of emitted.nodes)
+    if (node.text !== undefined && node.text.lines.some((line) => line.text.endsWith("…")))
+      diagnostics.push({
+        severity: "warning",
+        code: "text-truncated",
+        message: `text in ${node.id} was truncated in the ${layout} layout`,
+        path: node.id,
+      });
+
+  const height = round(placedRoot.height + padding.top + padding.bottom, precision);
+  const width = round(options.width, precision);
+
+  const edgeDefinitions = scene.edges ?? [];
+  const ports = assignPorts(edgeDefinitions, layout, emitted.boxes);
+  const labelFont = fontFor("caption", theme);
+  const edges: ResolvedEdge[] = [];
+  for (const definition of edgeDefinitions) {
+    const port = ports.get(definition.id);
+    if (port === undefined) continue;
+    const bind = definition.bind ?? {};
+    const boundTone = bind.tone === undefined ? undefined : signals[bind.tone];
+    const boundHidden = bind.hidden === undefined ? undefined : truthy(signals[bind.hidden]);
+    const boundLabel = bind.label === undefined ? undefined : signals[bind.label];
+    const labelHidden = new Set<string>();
+    const labelText = new Map<string, string>();
+    (definition.labels ?? []).forEach((label, index) => {
+      const id = label.id ?? `${definition.id}-label-${index + 1}`;
+      if (label.bind?.hidden !== undefined && truthy(signals[label.bind.hidden]))
+        labelHidden.add(id);
+      if (label.bind?.text !== undefined) {
+        const value = signals[label.bind.text];
+        if (typeof value === "string") labelText.set(id, value);
+      }
+    });
+    if (typeof boundLabel === "string") labelText.set(`${definition.id}-label`, boundLabel);
+    const resolved = resolveEdge(definition, port, {
+      layout,
+      theme,
+      boxes: emitted.boxes,
+      obstacles: emitted.obstacles,
+      labelFont,
+      labelColor: theme.colors.textMuted,
+      precision,
+      overrides: {
+        ...(typeof boundTone === "string" ? { tone: boundTone } : {}),
+        ...(boundHidden === undefined ? {} : { hidden: boundHidden }),
+        ...(typeof boundLabel === "string" ? { label: boundLabel } : {}),
+        labelHidden,
+        labelText,
+      },
+    });
+    if (resolved === undefined) continue;
+    const boundHighlight = bind.highlight === undefined ? undefined : signals[bind.highlight];
+    const boundOpacity = bind.opacity === undefined ? undefined : numeric(signals[bind.opacity]);
+    const boundProgress = bind.progress === undefined ? undefined : numeric(signals[bind.progress]);
+    const boundFlow = bind.flow === undefined ? undefined : signals[bind.flow];
+    const highlight =
+      boundHighlight === undefined
+        ? 0
+        : (numeric(boundHighlight) ?? (truthy(boundHighlight) ? 1 : 0));
+    const flow =
+      boundFlow === undefined
+        ? resolved.edge.state.flow
+        : (numeric(boundFlow) ?? (truthy(boundFlow) ? 1 : 0));
+    const packets = packetPositions(
+      resolved.edge.samples ?? [],
+      resolved.packetCount,
+      resolved.packetPeriod,
+      0,
+      precision,
+    );
+    edges.push({
+      ...resolved.edge,
+      state: {
+        opacity: unit(boundOpacity, 1),
+        progress: unit(boundProgress, 1),
+        highlight: unit(highlight, 0),
+        flow: unit(flow, 0),
+      },
+      packets,
+      metadata: {
+        ...(resolved.edge.metadata ?? {}),
+        packetCount: resolved.packetCount,
+        packetPeriod: resolved.packetPeriod,
+      },
+    });
+  }
+
+  const nodesRects = emitted.nodes.filter((node) => node.hidden !== true);
+  for (const node of nodesRects) {
+    if (![node.x, node.y, node.width, node.height].every(Number.isFinite))
+      throw new Error(`node ${node.id} resolved to non-finite geometry`);
+  }
+
+  const background =
+    scene.background === "transparent"
+      ? "transparent"
+      : paintColor(scene.background, theme, "fill", theme.colors.canvas);
+
+  return {
+    id: scene.id,
+    width,
+    height,
+    label: scene.title,
+    title: scene.title,
+    ...(scene.description === undefined ? {} : { description: scene.description }),
+    layout: layout === "wide" ? "wide" : "stacked",
+    layoutName: layout,
+    theme: projectTheme(theme),
+    background,
+    nodes: emitted.nodes,
+    edges,
+    ...(scene.timeline === undefined ? {} : { timeline: scene.timeline }),
+    diagnostics,
+    ...(scene.machine === undefined ? {} : { machine: scene.machine }),
+    ...(machineState === undefined ? {} : { machineState }),
+    signals,
+    ...(scene.controls === undefined ? {} : { controls: scene.controls }),
+    root: scene.root.id,
+  };
+}
+
+function checkBindings(
+  scene: SceneDefinition,
+  signals: Readonly<Record<string, VariableValue>>,
+  diagnostics: SceneDiagnostic[],
+): void {
+  const known = new Set(Object.keys(signals));
+  const check = (
+    id: string,
+    bindings: Readonly<Record<string, string | undefined>> | undefined,
+  ): void => {
+    if (bindings === undefined) return;
+    for (const [property, signal] of Object.entries(bindings))
+      if (typeof signal === "string" && !known.has(signal))
+        diagnostics.push({
+          severity: "error",
+          code: "unknown-signal",
+          message: `${id} binds ${property} to unknown signal "${signal}"`,
+          path: id,
+        });
+  };
+  const visit = (node: SceneNode): void => {
+    check(node.id, node.bind as Readonly<Record<string, string | undefined>> | undefined);
+    if (node.type === "group") node.children.forEach(visit);
+  };
+  visit(scene.root);
+  for (const edge of scene.edges ?? []) {
+    check(edge.id, edge.bind as Readonly<Record<string, string | undefined>> | undefined);
+    for (const label of edge.labels ?? []) check(`${edge.id} label`, label.bind);
+  }
+  const errors = diagnostics.filter((entry) => entry.code === "unknown-signal");
+  if (errors.length > 0)
+    throw new Error(
+      `invalid bindings in scene ${scene.id}:\n${errors.map((entry) => `- ${entry.message}`).join("\n")}`,
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Unified entry point
+// ---------------------------------------------------------------------------------------------
+
+export type FigureSource = SceneDefinition | PipelineDefinition;
+
+export interface ResolveFigureOptions {
+  readonly width: number;
+  readonly theme?: ThemeTokens;
+  readonly layout?: LayoutName | "auto" | "stacked";
+  readonly machineState?: MachineState;
+  readonly signals?: Readonly<Record<string, VariableValue>>;
+  readonly precision?: number;
+}
+
+export function isSceneDefinition(source: FigureSource): source is SceneDefinition {
+  return (source as { schemaVersion?: unknown }).schemaVersion === 2;
+}
+
+/** Resolves either the general scene schema or a legacy pipeline definition. */
+export function resolveFigure(source: FigureSource, options: ResolveFigureOptions): ResolvedScene {
+  if (isSceneDefinition(source)) {
+    return resolveScene(source, {
+      width: options.width,
+      layout: options.layout === "stacked" ? "compact" : (options.layout ?? "auto"),
+      ...(options.theme === undefined ? {} : { theme: options.theme }),
+      ...(options.machineState === undefined ? {} : { machineState: options.machineState }),
+      ...(options.signals === undefined ? {} : { signals: options.signals }),
+      ...(options.precision === undefined ? {} : { precision: options.precision }),
+    });
+  }
+  const requested = options.layout ?? "auto";
+  const layout: ResolvePipelineOptions["layout"] =
+    requested === "wide"
+      ? "wide"
+      : requested === "auto"
+        ? options.width >= 820
+          ? "wide"
+          : "stacked"
+        : "stacked";
+  const resolved = resolvePipeline(source, {
+    width: options.width,
+    layout,
+    ...(options.theme === undefined ? {} : { theme: options.theme }),
+    padding: options.width < 520 ? 16 : 24,
+    gap: 24,
+    stackedGap: 20,
+  });
+  const layoutName: LayoutName =
+    resolved.layout === "wide" ? "wide" : options.width < 560 ? "narrow" : "compact";
+  return { ...resolved, layoutName, background: resolved.theme.background };
+}

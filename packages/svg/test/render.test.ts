@@ -98,14 +98,21 @@ describe("renderSvg", () => {
   it("renders edge geometry, arrow markers, opacity, and progress", () => {
     const svg = renderSvg(scene as never, { idPrefix: "diagram" });
 
-    expect(svg).toContain('id="diagram-arrow"');
+    // Marker ids are scoped by root, kind, and colour so several figures can share a page.
+    expect(svg).toContain('id="diagram-m-arrow-64748b"');
     expect(svg).toContain('d="M 50 40 L 330 40"');
-    expect(svg).toContain('marker-end="url(#diagram-arrow)"');
+    // Heads appear once the edge is fully revealed; at 75% the path is still drawing.
+    expect(svg).not.toContain("marker-end=");
     expect(svg).toContain('data-kineglyph-edge="deploy"');
     expect(svg).toContain('stroke-dasharray="0.75 1"');
     expect(svg).toContain('id="diagram-node-prod"');
     expect(svg).toContain('opacity="0.5" data-node-id="prod"');
     expect(svg).toContain('data-progress="0.25"');
+
+    const complete = renderSvg({ ...scene, edges: [{ ...scene.edges[0], progress: 1 }] } as never, {
+      idPrefix: "diagram",
+    });
+    expect(complete).toContain('marker-end="url(#diagram-m-arrow-64748b)"');
   });
 
   it("maps core semantic theme colors, radii, and bounds", () => {

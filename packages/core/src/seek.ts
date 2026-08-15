@@ -1,3 +1,4 @@
+import { packetPositions } from "./edges.js";
 import type {
   AnimationTimeline,
   ResolvedEdge,
@@ -92,10 +93,23 @@ function updateNode(
   const state = { ...node.state };
   for (const track of tracks) {
     const value = evaluateTrack(track, time);
-    if (track.property === "edgeReveal")
-      throw new Error(`edgeReveal track ${track.id} cannot target node ${node.id}`);
-    state[track.property] =
-      track.property === "opacity" || track.property === "progress" ? clamp(value, 0, 1) : value;
+    switch (track.property) {
+      case "opacity":
+      case "progress":
+        state[track.property] = clamp(value, 0, 1);
+        break;
+      case "highlight":
+        state.highlight = clamp(value, 0, 1);
+        break;
+      case "translateX":
+      case "translateY":
+      case "scale":
+        state[track.property] = value;
+        break;
+      case "edgeReveal":
+      case "flow":
+        throw new Error(`${track.property} track ${track.id} cannot target node ${node.id}`);
+    }
   }
   return { ...node, state };
 }
@@ -105,16 +119,28 @@ function updateEdge(
   tracks: readonly TimelineTrack[],
   time: number,
 ): ResolvedEdge {
-  if (tracks.length === 0) return edge;
   const state = { ...edge.state };
   for (const track of tracks) {
     const value = evaluateTrack(track, time);
     if (track.property === "opacity") state.opacity = clamp(value, 0, 1);
     else if (track.property === "progress" || track.property === "edgeReveal")
       state.progress = clamp(value, 0, 1);
+    else if (track.property === "highlight") state.highlight = clamp(value, 0, 1);
+    else if (track.property === "flow") state.flow = clamp(value, 0, 1);
     else throw new Error(`${track.property} track ${track.id} cannot target edge ${edge.id}`);
   }
-  return { ...edge, state };
+  const count = numberValue(edge.metadata?.packetCount);
+  const period = numberValue(edge.metadata?.packetPeriod);
+  const packets =
+    edge.samples !== undefined && count > 0 && period > 0
+      ? packetPositions(edge.samples, count, period, time)
+      : edge.packets;
+  if (tracks.length === 0 && packets === edge.packets) return edge;
+  return { ...edge, state, ...(packets === undefined ? {} : { packets }) };
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /** Pure random-access evaluation of a resolved scene's animation tracks. */

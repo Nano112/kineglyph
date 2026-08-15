@@ -3,15 +3,9 @@ import {
   type PipelineLayoutItem,
   type PipelineLayoutMode,
 } from "./layout.js";
-import type {
-  AnimationTimeline,
-  ResolvedEdge,
-  ResolvedNode,
-  ResolvedScene,
-  ResolvedTheme,
-} from "./resolved.js";
+import type { AnimationTimeline, ResolvedEdge, ResolvedNode, ResolvedScene } from "./resolved.js";
 import type { KineglyphScene } from "./schema.js";
-import { defaultTheme, type ThemeTokens } from "./theme.js";
+import { defaultTheme, projectTheme, type ThemeTokens } from "./theme.js";
 
 export interface PipelineNodeDefinition extends PipelineLayoutItem {
   readonly label: string;
@@ -73,35 +67,6 @@ export function definePipeline(definition: PipelineDefinition): PipelineDefiniti
       throw new Error(`edge ${edge.id} refers to missing target node ${edge.to}`);
   }
   return { ...definition, nodes: [...definition.nodes], edges: [...definition.edges] };
-}
-
-function resolvedTheme(tokens: ThemeTokens): ResolvedTheme {
-  return {
-    background: tokens.colors.canvas,
-    foreground: tokens.colors.text,
-    accent: tokens.colors.accent,
-    fontFamily: tokens.typography.body.family,
-    semantic: {
-      background: tokens.colors.canvas,
-      surface: tokens.colors.surface,
-      foreground: tokens.colors.text,
-      muted: tokens.colors.connector,
-      accent: tokens.colors.accent,
-    },
-    node: {
-      fill: tokens.colors.surface,
-      stroke: tokens.colors.border,
-      strokeWidth: 1,
-      radius: tokens.radii.lg,
-    },
-    edge: { stroke: tokens.colors.connector, strokeWidth: 2 },
-    text: {
-      color: tokens.colors.text,
-      fontFamily: tokens.typography.body.family,
-      fontSize: tokens.typography.body.size,
-    },
-    tokens,
-  };
 }
 
 function toneColor(node: PipelineNodeDefinition, theme: ThemeTokens): string {
@@ -197,7 +162,7 @@ export function resolvePipeline(
     title: definition.title,
     ...(definition.description === undefined ? {} : { description: definition.description }),
     layout: layout.mode,
-    theme: resolvedTheme(theme),
+    theme: projectTheme(theme),
     nodes,
     edges,
     ...(definition.timeline === undefined ? {} : { timeline: definition.timeline }),

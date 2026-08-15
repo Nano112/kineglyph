@@ -19,7 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "pretest": "npm run build --workspace @kineglyph/core && npm run build --workspace @kineglyph/svg",
+    "pretest": "npm run build --workspace @kineglyph/core && npm run build --workspace @kineglyph/svg && npm run build --workspace @kineglyph/anime",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "npm run build --workspace @kineglyph/core && npm run build --workspace @kineglyph/svg && npm run build --workspace @kineglyph/anime && npm run typecheck --workspaces --if-present",

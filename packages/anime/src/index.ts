@@ -3,10 +3,20 @@ import {
   Timeline,
   seekTimeline,
   type EasingName,
+  type ResolvedEdge,
   type ResolvedFrame,
+  type ResolvedNode,
   type ResolvedScene,
   type SegmentSnapshot,
 } from "@kineglyph/core";
+import {
+  edgeDashArray,
+  highlightStroke,
+  markerId,
+  renderMarkerDefinition,
+  type EdgeDashKind,
+  type EdgeMarkerKind,
+} from "@kineglyph/svg";
 
 export type AnimationCue = NodeRevealCue | EdgeRevealCue | NodeEmphasisCue;
 
@@ -269,9 +279,8 @@ export interface KineglyphSceneAnimatorOptions {
 
 /** Anime.js clock compiled directly from a resolved scene's seekable core timeline. */
 export class KineglyphSceneAnimator {
-  readonly duration: number;
   readonly #root: HTMLElement | SVGElement;
-  readonly #scene: ResolvedScene;
+  #scene: ResolvedScene;
   readonly #scope: Scope;
   readonly #onFrame: KineglyphSceneAnimatorOptions["onFrame"];
   readonly #onPlaybackChange: KineglyphSceneAnimatorOptions["onPlaybackChange"];
@@ -279,6 +288,7 @@ export class KineglyphSceneAnimator {
   #reducedMotion: boolean;
   #holdTerminal = false;
   #disposed = false;
+  #duration: number;
 
   constructor(options: KineglyphSceneAnimatorOptions) {
     this.#root = options.root;
@@ -286,64 +296,119 @@ export class KineglyphSceneAnimator {
     this.#reducedMotion = options.reducedMotion ?? false;
     this.#onFrame = options.onFrame;
     this.#onPlaybackChange = options.onPlaybackChange;
-    this.duration = options.scene.timeline?.duration ?? 0;
+    this.#duration = options.scene.timeline?.duration ?? 0;
     this.#scope = createScope({ root: options.root });
     this.#scope.add(() => {
       const timer = createTimer({
         autoplay: false,
-        duration: Math.max(1, this.duration),
+        duration: Math.max(1, this.#duration),
         onUpdate: (currentTimer) => {
           if (this.#disposed) return;
-          this.#apply(this.#holdTerminal ? this.duration : currentTimer.currentTime);
+          this.#apply(this.#holdTerminal ? this.#duration : currentTimer.currentTime);
         },
         onComplete: () => {
           if (this.#disposed) return;
           // Completion is a persistent visual state, not Anime's reset iteration state.
           this.#holdTerminal = true;
-          this.#apply(this.duration);
+          this.#apply(this.#duration);
+          this.#setPaused(true);
           this.#onPlaybackChange?.(false);
         },
         onPause: () => {
-          if (!this.#disposed) this.#onPlaybackChange?.(false);
+          if (this.#disposed) return;
+          this.#setPaused(true);
+          this.#onPlaybackChange?.(false);
         },
       });
       this.#timer = timer;
       return () => timer.cancel();
     });
-    this.#apply(this.#reducedMotion ? this.duration : 0);
+    this.#setPaused(true);
+    this.#apply(this.#reducedMotion ? this.#duration : 0);
+  }
+
+  get duration(): number {
+    return this.#duration;
+  }
+
+  get scene(): ResolvedScene {
+    return this.#scene;
   }
 
   get time(): number {
-    return this.#reducedMotion ? this.duration : (this.#timer?.currentTime ?? 0);
+    return this.#reducedMotion ? this.#duration : (this.#timer?.currentTime ?? 0);
   }
 
   get playing(): boolean {
     return this.#timer !== undefined && !this.#timer.paused && !this.#timer.completed;
   }
 
+  /** Re-targets a re-resolved scene (for example after a state-machine transition) at the same time. */
+  setScene(scene: ResolvedScene, options: { readonly time?: number } = {}): void {
+    this.#assertLive();
+    const wasPlaying = this.#playingNow();
+    this.#scene = scene;
+    const nextDuration = scene.timeline?.duration ?? 0;
+    const target = clamp(options.time ?? this.time, 0, nextDuration);
+    if (nextDuration !== this.#duration) {
+      this.#duration = nextDuration;
+      this.#timer?.cancel();
+      this.#scope.add(() => {
+        const timer = createTimer({
+          autoplay: false,
+          duration: Math.max(1, nextDuration),
+          onUpdate: (currentTimer) => {
+            if (this.#disposed) return;
+            this.#apply(this.#holdTerminal ? this.#duration : currentTimer.currentTime);
+          },
+          onComplete: () => {
+            if (this.#disposed) return;
+            this.#holdTerminal = true;
+            this.#apply(this.#duration);
+            this.#setPaused(true);
+            this.#onPlaybackChange?.(false);
+          },
+          onPause: () => {
+            if (this.#disposed) return;
+            this.#setPaused(true);
+            this.#onPlaybackChange?.(false);
+          },
+        });
+        this.#timer = timer;
+        return () => timer.cancel();
+      });
+    }
+    this.#holdTerminal = target >= this.#duration;
+    this.#timer?.seek(target, true);
+    this.#apply(this.#reducedMotion ? this.#duration : target);
+    if (wasPlaying && !this.#holdTerminal && !this.#reducedMotion) this.play();
+  }
+
   play(): void {
     this.#assertLive();
-    if (this.#reducedMotion || this.duration === 0) {
-      this.#apply(this.duration);
+    if (this.#reducedMotion || this.#duration === 0) {
+      this.#apply(this.#duration);
       return;
     }
     if (this.#timer?.completed || this.#holdTerminal) {
       this.#holdTerminal = false;
       this.#timer?.restart();
     } else this.#timer?.play();
+    this.#setPaused(false);
     this.#onPlaybackChange?.(true);
   }
 
   pause(): void {
     this.#assertLive();
     this.#timer?.pause();
+    this.#setPaused(true);
     this.#onPlaybackChange?.(false);
   }
 
   restart(autoplay = true): void {
     this.#assertLive();
     if (this.#reducedMotion) {
-      this.#apply(this.duration);
+      this.#apply(this.#duration);
       return;
     }
     this.#holdTerminal = false;
@@ -354,8 +419,8 @@ export class KineglyphSceneAnimator {
 
   seek(time: number): void {
     this.#assertLive();
-    const next = this.#reducedMotion ? this.duration : clamp(time, 0, this.duration);
-    this.#holdTerminal = next >= this.duration;
+    const next = this.#reducedMotion ? this.#duration : clamp(time, 0, this.#duration);
+    this.#holdTerminal = next >= this.#duration;
     if (this.#holdTerminal) this.#timer?.pause();
     this.#timer?.seek(next, true);
     this.#apply(next);
@@ -367,11 +432,19 @@ export class KineglyphSceneAnimator {
     if (reduced) {
       this.#holdTerminal = true;
       this.#timer?.pause();
+      this.#root.setAttribute("data-reduced-motion", "true");
       this.#onPlaybackChange?.(false);
     } else {
       this.#holdTerminal = false;
+      this.#root.removeAttribute("data-reduced-motion");
     }
-    this.#apply(reduced ? this.duration : this.time);
+    this.#apply(reduced ? this.#duration : this.time);
+  }
+
+  /** Applies an explicit frame time to the DOM without touching the clock. */
+  applyFrame(time: number): ResolvedFrame {
+    this.#assertLive();
+    return this.#apply(clamp(time, 0, this.#duration));
   }
 
   dispose(): void {
@@ -383,31 +456,126 @@ export class KineglyphSceneAnimator {
     this.#timer = undefined;
   }
 
-  #apply(time: number): void {
-    if (this.#disposed) return;
+  #playingNow(): boolean {
+    return this.playing;
+  }
+
+  #setPaused(paused: boolean): void {
+    const svg = this.#root instanceof SVGSVGElement ? this.#root : this.#root.querySelector("svg");
+    if (svg === null) return;
+    if (paused) svg.setAttribute("data-paused", "true");
+    else svg.removeAttribute("data-paused");
+  }
+
+  #apply(time: number): ResolvedFrame {
     const frame = seekTimeline(this.#scene, time);
-    for (const node of frame.nodes) {
-      for (const element of this.#find(`[data-node-id="${cssEscape(node.id)}"]`)) {
-        if (!(element instanceof SVGElement)) continue;
-        element.style.opacity = String(node.state.opacity);
-        element.style.transformBox = "fill-box";
-        element.style.transformOrigin = "center";
-        element.style.transform = `translate(${round(node.state.translateX)}px, ${round(node.state.translateY)}px) scale(${round(node.state.scale)})`;
-        element.style.setProperty("--kg-progress", String(node.state.progress));
-      }
-    }
-    for (const edge of frame.edges) {
-      for (const element of this.#find(`[data-edge-id="${cssEscape(edge.id)}"]`)) {
-        if (!(element instanceof SVGPathElement)) continue;
-        element.setAttribute("pathLength", "1");
-        element.style.opacity = String(edge.state.opacity);
-        element.style.strokeDasharray = "1";
-        element.style.strokeDashoffset = String(1 - edge.state.progress);
-      }
-    }
+    if (this.#disposed) return frame;
+    const accent = this.#scene.theme.accent;
+    for (const node of frame.nodes) this.#applyNode(node, accent);
+    for (const edge of frame.edges) this.#applyEdge(edge, accent);
     this.#root.style.setProperty("--kg-time", String(frame.time));
     this.#root.style.setProperty("--kg-timeline-progress", String(frame.progress));
     this.#onFrame?.(frame);
+    return frame;
+  }
+
+  #applyNode(node: ResolvedNode, accent: string): void {
+    for (const element of this.#find(`[data-node-id="${cssEscape(node.id)}"]`)) {
+      if (!(element instanceof SVGElement)) continue;
+      element.style.opacity = String(node.state.opacity);
+      element.style.transformBox = "fill-box";
+      element.style.transformOrigin = "center";
+      element.style.transform = `translate(${round(node.state.translateX)}px, ${round(node.state.translateY)}px) scale(${round(node.state.scale)})`;
+      element.style.setProperty("--kg-progress", String(node.state.progress));
+      const highlight = node.state.highlight ?? 0;
+      element.style.setProperty("--kg-highlight", String(highlight));
+      if (highlight > 0) element.setAttribute("data-highlight", String(round(highlight)));
+      else element.removeAttribute("data-highlight");
+      const shape = element.querySelector(":scope > .kg-node-shape");
+      if (shape instanceof SVGElement && node.appearance.stroke !== undefined) {
+        const base = node.appearance.stroke === "none" ? accent : node.appearance.stroke;
+        const width = node.appearance.stroke === "none" ? 0 : node.appearance.strokeWidth;
+        if (node.appearance.stroke !== "none" || highlight > 0) {
+          const outline = highlightStroke(base, accent, highlight, width);
+          shape.setAttribute("stroke", outline.stroke);
+          if (outline.strokeWidth > 0)
+            shape.setAttribute("stroke-width", String(round(outline.strokeWidth)));
+        }
+      }
+    }
+  }
+
+  #applyEdge(edge: ResolvedEdge, accent: string): void {
+    const paths = this.#find(`[data-edge-id="${cssEscape(edge.id)}"]`);
+    for (const element of paths) {
+      if (!(element instanceof SVGPathElement)) continue;
+      element.style.opacity = String(edge.state.opacity);
+      const highlight = edge.state.highlight ?? 0;
+      const outline = highlightStroke(
+        edge.appearance.stroke,
+        accent,
+        highlight,
+        edge.appearance.strokeWidth,
+      );
+      element.setAttribute("stroke", outline.stroke);
+      element.setAttribute("stroke-width", String(round(outline.strokeWidth)));
+      const dashKind = (element.getAttribute("data-dash") ?? edge.dash ?? "solid") as EdgeDashKind;
+      const length = Number(element.getAttribute("data-length")) || edge.length || 0;
+      const dash = edgeDashArray(dashKind, outline.strokeWidth, length, edge.state.progress);
+      if (dash.pathLength === undefined) element.removeAttribute("pathLength");
+      else element.setAttribute("pathLength", dash.pathLength);
+      if (dash.dasharray === undefined) element.removeAttribute("stroke-dasharray");
+      else element.setAttribute("stroke-dasharray", dash.dasharray);
+      element.style.strokeDasharray = "";
+      element.style.strokeDashoffset = "";
+      const head = (element.getAttribute("data-head") ?? edge.head ?? "none") as EdgeMarkerKind;
+      const tail = (element.getAttribute("data-tail") ?? edge.tail ?? "none") as EdgeMarkerKind;
+      this.#syncMarker(element, "marker-end", head, outline.stroke, edge.state.progress >= 1);
+      this.#syncMarker(element, "marker-start", tail, outline.stroke, edge.state.progress > 0);
+      if (highlight > 0) element.setAttribute("data-highlight", String(round(highlight)));
+      else element.removeAttribute("data-highlight");
+    }
+    const flow = edge.state.flow ?? 0;
+    const packets = edge.packets ?? [];
+    for (const element of this.#find(`[data-edge-packet="${cssEscape(edge.id)}"]`)) {
+      if (!(element instanceof SVGCircleElement)) continue;
+      const index = Number(element.getAttribute("data-packet-index") ?? "0");
+      const packet = packets[index];
+      if (packet !== undefined) {
+        element.setAttribute("cx", String(round(packet.x)));
+        element.setAttribute("cy", String(round(packet.y)));
+      }
+      element.setAttribute("opacity", String(round(flow * edge.state.opacity)));
+    }
+    for (const element of this.#find(`[data-edge-group="${cssEscape(edge.id)}"] .kg-edge-label`)) {
+      if (element instanceof SVGElement) element.style.opacity = String(edge.state.opacity);
+    }
+  }
+
+  #syncMarker(
+    element: SVGPathElement,
+    attribute: "marker-end" | "marker-start",
+    kind: EdgeMarkerKind,
+    color: string,
+    visible: boolean,
+  ): void {
+    if (kind === "none" || !visible) {
+      element.removeAttribute(attribute);
+      return;
+    }
+    const svg = element.ownerSVGElement;
+    if (svg === null) return;
+    const rootId = svg.id;
+    const id = markerId(rootId, kind, color);
+    if (svg.querySelector(`#${cssEscape(id)}`) === null) {
+      let defs = svg.querySelector(":scope > defs");
+      if (defs === null) {
+        defs = svg.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+        svg.insertBefore(defs, svg.firstChild);
+      }
+      defs.insertAdjacentHTML("beforeend", renderMarkerDefinition(rootId, kind, color));
+    }
+    element.setAttribute(attribute, `url(#${id})`);
   }
 
   #find(selector: string): readonly Element[] {

@@ -1,16 +1,29 @@
 import type { Point, Rect } from "./schema.js";
 import type { ThemeTokens } from "./theme.js";
+import type { TextLine } from "./text.js";
+import type {
+  LayoutName,
+  SceneControl,
+  SceneDiagnostic,
+  EdgeRoute,
+  MarkerKind,
+  StrokeStyle,
+} from "./scene.js";
+import type { MachineState, StateMachineDefinition, VariableValue } from "./machine.js";
 
 export interface ResolvedNodeAppearance {
   readonly fill: string;
   readonly stroke: string;
   readonly strokeWidth: number;
   readonly radius: number;
+  readonly opacity?: number;
+  readonly dash?: "solid" | "dashed" | "dotted";
 }
 
 export interface ResolvedEdgeAppearance {
   readonly stroke: string;
   readonly strokeWidth: number;
+  readonly opacity?: number;
 }
 
 export interface ResolvedNodeState {
@@ -19,16 +32,56 @@ export interface ResolvedNodeState {
   readonly translateY: number;
   readonly scale: number;
   readonly progress: number;
+  /** Emphasis 0..1 driven by timelines, state machines, or inspection. */
+  readonly highlight?: number;
 }
 
 export interface ResolvedEdgeState {
   readonly opacity: number;
   readonly progress: number;
+  readonly highlight?: number;
+  /** Packet visibility 0..1. */
+  readonly flow?: number;
+}
+
+export type ResolvedNodeKind =
+  | "rect"
+  | "circle"
+  | "ellipse"
+  | "group"
+  | "text"
+  | "icon"
+  | "path"
+  | "image"
+  | "badge"
+  | "legend"
+  | "callout";
+
+export interface ResolvedText {
+  readonly lines: readonly TextLine[];
+  readonly fontFamily: string;
+  readonly fontSize: number;
+  readonly fontWeight: number;
+  readonly lineHeight: number;
+  readonly letterSpacing: number;
+  readonly color: string;
+  readonly align: "start" | "center" | "end";
+  readonly transform: "none" | "uppercase";
+  /** Text box relative to the scene, where lines are laid out from the top. */
+  readonly box: Rect;
+}
+
+export interface ResolvedLegendItem {
+  readonly id: string;
+  readonly label: string;
+  readonly swatch: string;
+  readonly shape: "square" | "circle" | "line" | "dashed";
+  readonly box: Rect;
 }
 
 export interface ResolvedNode extends Rect {
   readonly id: string;
-  readonly kind: "rect" | "circle" | "ellipse";
+  readonly kind: ResolvedNodeKind;
   readonly label: string;
   readonly description?: string;
   readonly appearance: ResolvedNodeAppearance;
@@ -36,6 +89,55 @@ export interface ResolvedNode extends Rect {
   readonly interactive: boolean;
   readonly focusable: boolean;
   readonly metadata: Readonly<Record<string, string | number | boolean | null>>;
+  /** Parent node id inside the resolved hierarchy; absent for the root and legacy pipelines. */
+  readonly parent?: string;
+  /** Sibling paint order; lower values paint first. */
+  readonly z?: number;
+  readonly hidden?: boolean;
+  readonly clip?: boolean;
+  /** Machine event to send when activated. */
+  readonly onActivate?: string;
+  readonly text?: ResolvedText;
+  readonly icon?: {
+    readonly name: string;
+    readonly size: number;
+    readonly color: string;
+    readonly background: string;
+  };
+  readonly path?: {
+    readonly d: string;
+    readonly viewBox: { readonly width: number; readonly height: number };
+  };
+  readonly image?: {
+    readonly href: string;
+    readonly alt: string;
+    readonly fit: "contain" | "cover" | "fill";
+    readonly live: boolean;
+  };
+  readonly legend?: {
+    readonly items: readonly ResolvedLegendItem[];
+    readonly text: Omit<ResolvedText, "lines" | "box">;
+  };
+  readonly callout?: {
+    readonly pointer: "none" | "up" | "down" | "left" | "right";
+    readonly tip: Point;
+    readonly body: Rect;
+  };
+}
+
+export interface ResolvedEdgeLabel {
+  readonly id: string;
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly anchor: "start" | "middle" | "end";
+  readonly fontFamily: string;
+  readonly fontSize: number;
+  readonly fontWeight: number;
+  readonly color: string;
+  readonly hidden?: boolean;
 }
 
 export interface ResolvedEdge {
@@ -49,6 +151,21 @@ export interface ResolvedEdge {
   readonly label?: string;
   readonly appearance: ResolvedEdgeAppearance;
   readonly state: ResolvedEdgeState;
+  readonly route?: EdgeRoute;
+  readonly head?: MarkerKind;
+  readonly tail?: MarkerKind;
+  readonly dash?: StrokeStyle;
+  readonly length?: number;
+  /** Evenly spaced arc-length samples used to place packets and hit targets without a DOM. */
+  readonly samples?: readonly Point[];
+  readonly labels?: readonly ResolvedEdgeLabel[];
+  readonly packets?: readonly Point[];
+  readonly packetSize?: number;
+  readonly packetColor?: string;
+  readonly description?: string;
+  readonly z?: number;
+  readonly hidden?: boolean;
+  readonly metadata?: Readonly<Record<string, string | number | boolean | null>>;
 }
 
 /** Concrete renderer-facing projection of semantic theme tokens. */
@@ -87,10 +204,27 @@ export interface ResolvedScene {
   readonly nodes: readonly ResolvedNode[];
   readonly edges: readonly ResolvedEdge[];
   readonly timeline?: AnimationTimeline;
+  /** Named layout that produced this resolution; legacy pipelines report wide or compact. */
+  readonly layoutName?: LayoutName;
+  readonly background?: string;
+  readonly diagnostics?: readonly SceneDiagnostic[];
+  readonly machine?: StateMachineDefinition;
+  readonly machineState?: MachineState;
+  readonly signals?: Readonly<Record<string, VariableValue>>;
+  readonly controls?: readonly SceneControl[];
+  /** Root node id when the scene was resolved from the general schema. */
+  readonly root?: string;
 }
 
 export type TimelineProperty =
-  "opacity" | "translateX" | "translateY" | "scale" | "progress" | "edgeReveal";
+  | "opacity"
+  | "translateX"
+  | "translateY"
+  | "scale"
+  | "progress"
+  | "edgeReveal"
+  | "highlight"
+  | "flow";
 
 export interface TimelineKeyframe {
   readonly time: number;

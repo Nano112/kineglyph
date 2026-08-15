@@ -1,4 +1,7 @@
-import type { ResolvedScene } from "@kineglyph/core";
+import { mixColor, type ResolvedScene } from "@kineglyph/core";
+import { motifShapes, type MotifShape } from "./motifs.js";
+
+export { MOTIFS, MOTIF_NAMES, motifShapes, type MotifShape } from "./motifs.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -17,7 +20,14 @@ export interface SvgRenderOptions {
   includeXmlns?: boolean;
   /** Decimal places retained for numeric attributes. Defaults to 3. */
   precision?: number;
+  /** Paint the scene background as a rect. Defaults to `auto` (only when the scene declares one). */
+  background?: "auto" | "none";
+  /** Emit browser-only CSS motion for flow strokes. Defaults to true. */
+  animateFlow?: boolean;
 }
+
+export type EdgeMarkerKind = "none" | "arrow" | "triangle" | "dot" | "diamond" | "bar";
+export type EdgeDashKind = "solid" | "dashed" | "dotted" | "flow";
 
 /** Render a resolved Kineglyph scene without DOM or browser dependencies. */
 export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}): string {
@@ -28,8 +38,10 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
   const nodes = records(source.nodes);
   const edges = records(source.edges);
   const theme = record(source.theme);
+  const accent = firstString(theme.accent, record(record(theme.tokens).colors).accent) ?? "#2563eb";
   const sceneId = string(source.id) ?? "scene";
   const rootId = domId(options.idPrefix ?? `kineglyph-${sceneId}`);
+  const structured = string(source.root) !== undefined;
   const title =
     options.title ?? firstString(source.label, source.title, record(source.accessibility).label);
   const description =
@@ -39,6 +51,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
   const labelledBy = [title && `${rootId}-title`, description && `${rootId}-description`]
     .filter(Boolean)
     .join(" ");
+  const background = string(source.background);
   const rootAttrs: Attrs = [
     ["xmlns", options.includeXmlns === false ? undefined : "http://www.w3.org/2000/svg"],
     ["id", rootId],
@@ -51,30 +64,66 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     ["aria-labelledby", labelledBy || undefined],
     ["aria-label", labelledBy ? undefined : "Kineglyph scene"],
     ["data-kineglyph-scene", sceneId],
+    ["data-layout", firstString(source.layoutName, source.layout)],
     ["style", themeVariables(theme)],
   ];
 
-  const nodeById = new Map(nodes.map((node, index) => [nodeId(node, index), node]));
+  const context: RenderContext = {
+    rootId,
+    precision,
+    accent,
+    background: background ?? firstString(theme.background) ?? "transparent",
+    markers: new Map(),
+    animateFlow: options.animateFlow !== false,
+    structured,
+    nodesById: new Map(nodes.map((node, index) => [nodeId(node, index), node])),
+  };
+
+  const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) <= 0);
+  const aboveEdges = edges.filter((edge) => finiteNumber(edge.z, 0) > 0);
+  const edgeLayer = (list: UnknownRecord[], className: string): string =>
+    list.length === 0
+      ? ""
+      : element(
+          "g",
+          [["class", className]],
+          list.map((edge, index) => renderEdge(edge, index, context)).join(""),
+        );
+  const nodeLayer = structured
+    ? element("g", [["class", "kg-nodes"]], renderStructuredNodes(nodes, context))
+    : element(
+        "g",
+        [["class", "kg-nodes"]],
+        nodes.map((node, index) => renderLegacyNode(node, index, rootId, precision)).join(""),
+      );
+  const below = edgeLayer(belowEdges, "kg-edges");
+  const above = edgeLayer(aboveEdges, "kg-edges kg-edges--above");
+  const canvas =
+    options.background === "none" || background === undefined || background === "transparent"
+      ? ""
+      : element(
+          "rect",
+          [
+            ["class", "kg-canvas"],
+            ["x", "0"],
+            ["y", "0"],
+            ["width", number(width, precision)],
+            ["height", number(height, precision)],
+            ["fill", background],
+            ["aria-hidden", "true"],
+          ],
+          "",
+        );
+
   const body = [
     title && element("title", [["id", `${rootId}-title`]], escapeXml(title)),
     description && element("desc", [["id", `${rootId}-description`]], escapeXml(description)),
-    renderDefinitions(rootId, edges),
+    renderDefinitions(context, edges),
     element("style", [], BASE_STYLES),
-    edges.length > 0
-      ? element(
-          "g",
-          [
-            ["class", "kg-edges"],
-            ["aria-hidden", "true"],
-          ],
-          edges.map((edge, index) => renderEdge(edge, index, nodeById, rootId, precision)).join(""),
-        )
-      : "",
-    element(
-      "g",
-      [["class", "kg-nodes"]],
-      nodes.map((node, index) => renderNode(node, index, rootId, precision)).join(""),
-    ),
+    canvas,
+    below,
+    nodeLayer,
+    above,
   ]
     .filter(Boolean)
     .join("");
@@ -85,87 +134,1097 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
 /** Alias matching server-renderer naming conventions. */
 export const renderToSvg = renderSvg;
 
-function renderDefinitions(rootId: string, edges: UnknownRecord[]): string {
-  if (edges.length === 0) return "";
-  const marker = element(
-    "marker",
-    [
-      ["id", `${rootId}-arrow`],
-      ["class", "kg-marker"],
-      ["viewBox", "0 0 10 10"],
-      ["refX", "9"],
-      ["refY", "5"],
-      ["markerWidth", "7"],
-      ["markerHeight", "7"],
-      ["orient", "auto-start-reverse"],
-      ["markerUnits", "strokeWidth"],
-    ],
-    element("path", [["d", "M 0 0 L 10 5 L 0 10 z"]], ""),
-  );
-  return element("defs", [], marker);
+interface RenderContext {
+  readonly rootId: string;
+  readonly precision: number;
+  readonly accent: string;
+  readonly background: string;
+  readonly markers: Map<string, string>;
+  readonly animateFlow: boolean;
+  readonly structured: boolean;
+  readonly nodesById: Map<string, UnknownRecord>;
 }
 
-function renderEdge(
-  edge: UnknownRecord,
-  index: number,
-  nodes: Map<string, UnknownRecord>,
+// ---------------------------------------------------------------------------------------------
+// Markers and definitions
+// ---------------------------------------------------------------------------------------------
+
+/** Deterministic marker id for a root, marker kind, and colour. */
+export function markerId(rootId: string, kind: EdgeMarkerKind, color: string): string {
+  return `${rootId}-m-${kind}-${colorKey(color)}`;
+}
+
+function colorKey(color: string): string {
+  const key = color
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return key || "default";
+}
+
+/** Marker definition markup; the same function serves the renderer and the live runtime. */
+export function renderMarkerDefinition(
   rootId: string,
-  precision: number,
+  kind: EdgeMarkerKind,
+  color: string,
 ): string {
+  if (kind === "none") return "";
+  const id = markerId(rootId, kind, color);
+  const common: Attrs = [
+    ["id", id],
+    ["class", `kg-marker kg-marker--${kind}`],
+    ["viewBox", "0 0 10 10"],
+    ["orient", "auto-start-reverse"],
+    ["markerUnits", "strokeWidth"],
+    ["data-marker-kind", kind],
+  ];
+  switch (kind) {
+    case "arrow":
+      return element(
+        "marker",
+        [...common, ["refX", "8.5"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        element(
+          "path",
+          [
+            ["d", "M 1.5 1.5 L 8.5 5 L 1.5 8.5"],
+            ["fill", "none"],
+            ["stroke", color],
+            ["stroke-width", "1.7"],
+            ["stroke-linecap", "round"],
+            ["stroke-linejoin", "round"],
+          ],
+          "",
+        ),
+      );
+    case "triangle":
+      return element(
+        "marker",
+        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "6"], ["markerHeight", "6"]],
+        element(
+          "path",
+          [
+            ["d", "M 0.5 0.5 L 9.5 5 L 0.5 9.5 z"],
+            ["fill", color],
+            ["stroke", "none"],
+          ],
+          "",
+        ),
+      );
+    case "dot":
+      return element(
+        "marker",
+        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        element(
+          "circle",
+          [
+            ["cx", "5"],
+            ["cy", "5"],
+            ["r", "3.4"],
+            ["fill", color],
+            ["stroke", "none"],
+          ],
+          "",
+        ),
+      );
+    case "diamond":
+      return element(
+        "marker",
+        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        element(
+          "path",
+          [
+            ["d", "M 5 0.8 L 9.2 5 L 5 9.2 L 0.8 5 z"],
+            ["fill", color],
+            ["stroke", "none"],
+          ],
+          "",
+        ),
+      );
+    case "bar":
+      return element(
+        "marker",
+        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        element(
+          "path",
+          [
+            ["d", "M 5 0.5 L 5 9.5"],
+            ["fill", "none"],
+            ["stroke", color],
+            ["stroke-width", "1.8"],
+            ["stroke-linecap", "butt"],
+          ],
+          "",
+        ),
+      );
+  }
+}
+
+function renderDefinitions(context: RenderContext, edges: UnknownRecord[]): string {
+  const parts: string[] = [];
+  for (const edge of edges) {
+    const paint = edgePaint(edge, context.accent);
+    const head = markerKind(
+      edge.head,
+      edge.directed !== false && edge.markerEnd !== false && edge.arrow !== false
+        ? "arrow"
+        : "none",
+    );
+    const tail = markerKind(edge.tail, "none");
+    for (const kind of [head, tail]) {
+      if (kind === "none") continue;
+      const id = markerId(context.rootId, kind, paint.stroke);
+      if (!context.markers.has(id))
+        context.markers.set(id, renderMarkerDefinition(context.rootId, kind, paint.stroke));
+    }
+  }
+  parts.push(
+    ...[...context.markers.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, markup]) => markup),
+  );
+  return parts.length === 0 ? "" : element("defs", [], parts.join(""));
+}
+
+function markerKind(value: unknown, fallback: EdgeMarkerKind): EdgeMarkerKind {
+  return value === "none" ||
+    value === "arrow" ||
+    value === "triangle" ||
+    value === "dot" ||
+    value === "diamond" ||
+    value === "bar"
+    ? value
+    : fallback;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Edges
+// ---------------------------------------------------------------------------------------------
+
+interface EdgePaint {
+  readonly stroke: string;
+  readonly strokeWidth: number;
+  readonly highlight: number;
+}
+
+/** Highlighted stroke colour and width for an edge or node outline. */
+export function highlightStroke(
+  base: string,
+  accent: string,
+  highlight: number,
+  width: number,
+): { stroke: string; strokeWidth: number } {
+  const amount = Math.max(0, Math.min(1, highlight));
+  if (amount <= 0) return { stroke: base, strokeWidth: width };
+  return { stroke: mixColor(base, accent, amount * 0.85), strokeWidth: width + amount * 1.5 };
+}
+
+function edgePaint(edge: UnknownRecord, accent: string): EdgePaint {
+  const appearance = mergeRecords(record(edge.style), record(edge.appearance));
+  const state = record(edge.state);
+  const baseStroke = firstString(appearance.stroke, edge.color) ?? "#64748b";
+  const baseWidth = finiteNumber(appearance.strokeWidth, 2);
+  const highlight = unit(firstNumber(state.highlight), 0);
+  const highlighted = highlightStroke(baseStroke, accent, highlight, baseWidth);
+  return { stroke: highlighted.stroke, strokeWidth: highlighted.strokeWidth, highlight };
+}
+
+export interface EdgeDashResult {
+  readonly dasharray: string | undefined;
+  readonly pathLength: string | undefined;
+  readonly linecap: "round" | "butt" | undefined;
+}
+
+/**
+ * Deterministic dash pattern for a stroke style, width, path length, and reveal progress.
+ * Non-solid styles keep their pattern while revealing by normalising to `pathLength="1"`.
+ */
+export function edgeDashArray(
+  dash: EdgeDashKind,
+  width: number,
+  length: number,
+  progress: number,
+  precision = 3,
+): EdgeDashResult {
+  const p = Math.max(0, Math.min(1, progress));
+  const w = Math.max(0.5, width);
+  if (dash === "solid") {
+    return p < 1
+      ? { dasharray: `${number(p, precision)} 1`, pathLength: "1", linecap: undefined }
+      : { dasharray: undefined, pathLength: undefined, linecap: undefined };
+  }
+  const dashLength = dash === "dotted" ? 0.01 : Math.max(5, w * 3);
+  const gapLength = dash === "dotted" ? Math.max(4, w * 2.4) : Math.max(4, w * 2.2);
+  const linecap = dash === "dotted" ? "round" : undefined;
+  if (p >= 1)
+    return {
+      dasharray: `${number(dashLength, precision)} ${number(gapLength, precision)}`,
+      pathLength: undefined,
+      linecap,
+    };
+  const total = Math.max(1, length);
+  const d = dashLength / total;
+  const g = gapLength / total;
+  const pattern: number[] = [];
+  let covered = 0;
+  let guard = 0;
+  while (covered < p && guard < 400) {
+    guard += 1;
+    const dashPart = Math.min(d, p - covered);
+    pattern.push(dashPart);
+    covered += dashPart;
+    if (covered >= p) break;
+    const gapPart = Math.min(g, p - covered);
+    pattern.push(gapPart);
+    covered += gapPart;
+  }
+  if (pattern.length % 2 === 1) pattern.push(1);
+  else pattern.push(0, 1);
+  return {
+    dasharray: pattern.map((value) => number(value, precision)).join(" "),
+    pathLength: "1",
+    linecap,
+  };
+}
+
+function renderEdge(edge: UnknownRecord, index: number, context: RenderContext): string {
+  const { rootId, precision } = context;
   const id = string(edge.id) ?? `edge-${index + 1}`;
   const from = string(edge.from) ?? string(record(edge.source).id);
   const to = string(edge.to) ?? string(record(edge.target).id);
-  const start = edgePoint(edge, "start", from === undefined ? undefined : nodes.get(from));
-  const end = edgePoint(edge, "end", to === undefined ? undefined : nodes.get(to));
+  const start = edgePoint(
+    edge,
+    "start",
+    from === undefined ? undefined : context.nodesById.get(from),
+  );
+  const end = edgePoint(edge, "end", to === undefined ? undefined : context.nodesById.get(to));
   const d =
     firstString(edge.path, record(edge.path).d, edge.d) ??
     `M ${number(start.x, precision)} ${number(start.y, precision)} L ${number(end.x, precision)} ${number(end.y, precision)}`;
   const appearance = mergeRecords(record(edge.style), record(edge.appearance));
-  const progress = unit(firstNumber(edge.progress, record(edge.state).progress), 1);
-  const opacity = unit(
-    firstNumber(edge.opacity, record(edge.state).opacity, appearance.opacity),
-    1,
+  const state = record(edge.state);
+  const progress = unit(firstNumber(edge.progress, state.progress), 1);
+  const opacity = unit(firstNumber(edge.opacity, state.opacity, appearance.opacity), 1);
+  const hidden = edge.hidden === true;
+  const paint = edgePaint(edge, context.accent);
+  const head = markerKind(
+    edge.head,
+    edge.directed !== false && edge.markerEnd !== false && edge.arrow !== false ? "arrow" : "none",
   );
-  const directed = edge.directed !== false && edge.markerEnd !== false && edge.arrow !== false;
+  const tail = markerKind(edge.tail, "none");
+  const dashKind: EdgeDashKind =
+    edge.dash === "dashed" || edge.dash === "dotted" || edge.dash === "flow" ? edge.dash : "solid";
+  const length = finiteNumber(edge.length, Math.hypot(end.x - start.x, end.y - start.y));
+  const dash = edgeDashArray(dashKind, paint.strokeWidth, length, progress, precision);
+  const description = string(edge.description);
   const label = firstString(edge.label, edge.title);
-  const attrs: Attrs = [
+  const labels = records(edge.labels);
+  const packets = records(edge.packets);
+  const flow = unit(firstNumber(state.flow), packets.length > 0 ? 1 : 0);
+  const pathAttrs: Attrs = [
     ["id", `${rootId}-${domId(id)}`],
-    ["class", classes("kg-edge", string(edge.className))],
+    ["class", classes("kg-edge", `kg-edge--${dashKind}`, string(edge.className))],
     ["d", d],
     ["fill", "none"],
-    ["stroke", firstString(appearance.stroke, edge.color)],
-    ["stroke-width", numeric(appearance.strokeWidth, precision)],
-    ["stroke-linecap", firstString(appearance.strokeLinecap, appearance.linecap)],
+    ["stroke", paint.stroke],
+    ["stroke-width", number(paint.strokeWidth, precision)],
+    [
+      "stroke-linecap",
+      dash.linecap ?? firstString(appearance.strokeLinecap, appearance.linecap) ?? "round",
+    ],
+    ["stroke-linejoin", "round"],
     ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
-    ["pathLength", progress < 1 ? "1" : undefined],
-    ["stroke-dasharray", progress < 1 ? `${number(progress, precision)} 1` : undefined],
-    ["marker-end", directed ? `url(#${rootId}-arrow)` : undefined],
+    ["pathLength", dash.pathLength],
+    ["stroke-dasharray", dash.dasharray],
+    [
+      "marker-end",
+      head !== "none" && progress >= 1
+        ? `url(#${markerId(rootId, head, paint.stroke)})`
+        : undefined,
+    ],
+    [
+      "marker-start",
+      tail !== "none" && progress > 0 ? `url(#${markerId(rootId, tail, paint.stroke)})` : undefined,
+    ],
     ["data-edge-id", id],
     ["data-kineglyph-edge", id],
     ["data-from", from],
     ["data-to", to],
     ["data-progress", number(progress, precision)],
+    ["data-length", number(length, precision)],
+    ["data-dash", dashKind],
+    ["data-head", head],
+    ["data-tail", tail],
+    ["data-base-stroke", firstString(appearance.stroke, edge.color)],
+    ["data-base-width", numeric(appearance.strokeWidth, precision)],
+    ["data-highlight", paint.highlight > 0 ? number(paint.highlight, precision) : undefined],
   ];
-  const path = element("path", attrs, "");
-  if (!label) return path;
-  const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  return (
-    path +
-    element(
-      "text",
-      [
-        ["class", "kg-edge-label"],
-        ["x", number(midpoint.x, precision)],
-        ["y", number(midpoint.y, precision)],
-        ["text-anchor", "middle"],
-        ["dominant-baseline", "central"],
-      ],
-      escapeXml(label),
-    )
+  const path = element("path", pathAttrs, "");
+  const parts: string[] = [];
+  if (description !== undefined || label !== undefined || labels.length > 0) {
+    parts.push(
+      element(
+        "path",
+        [
+          ["class", "kg-edge-hit"],
+          ["d", d],
+          ["fill", "none"],
+          ["stroke", "transparent"],
+          ["stroke-width", number(Math.max(14, paint.strokeWidth + 10), precision)],
+          ["pointer-events", "stroke"],
+          ["data-edge-hit", id],
+        ],
+        "",
+      ),
+    );
+  }
+  parts.push(path);
+  if (labels.length > 0) {
+    for (const item of labels) {
+      if (item.hidden === true) continue;
+      const text = string(item.text) ?? "";
+      const x = finiteNumber(item.x, (start.x + end.x) / 2);
+      const y = finiteNumber(item.y, (start.y + end.y) / 2);
+      const w = finiteNumber(item.width, 0);
+      const h = finiteNumber(item.height, 0);
+      const fontSize = finiteNumber(item.fontSize, 12);
+      parts.push(
+        element(
+          "g",
+          [
+            ["class", "kg-edge-label"],
+            ["data-edge-label", string(item.id)],
+            ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
+          ],
+          element(
+            "rect",
+            [
+              ["class", "kg-edge-label-halo"],
+              ["x", number(x - w / 2, precision)],
+              ["y", number(y - h / 2, precision)],
+              ["width", number(w, precision)],
+              ["height", number(h, precision)],
+              ["rx", number(Math.min(6, h / 2), precision)],
+              ["fill", context.background === "transparent" ? "none" : context.background],
+              ["fill-opacity", "0.9"],
+            ],
+            "",
+          ) +
+            element(
+              "text",
+              [
+                ["class", "kg-edge-label-text"],
+                ["x", number(x, precision)],
+                ["y", number(y + fontSize * 0.35, precision)],
+                ["text-anchor", "middle"],
+                ["font-family", string(item.fontFamily)],
+                ["font-size", number(fontSize, precision)],
+                ["font-weight", numeric(item.fontWeight, precision)],
+                ["fill", string(item.color)],
+                ["textLength", number(Math.max(0.1, w - 10), precision)],
+                ["lengthAdjust", "spacingAndGlyphs"],
+              ],
+              escapeXml(text),
+            ),
+        ),
+      );
+    }
+  } else if (label !== undefined) {
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    parts.push(
+      element(
+        "text",
+        [
+          ["class", "kg-edge-label"],
+          ["x", number(midpoint.x, precision)],
+          ["y", number(midpoint.y, precision)],
+          ["text-anchor", "middle"],
+          ["dominant-baseline", "central"],
+        ],
+        escapeXml(label),
+      ),
+    );
+  }
+  if (packets.length > 0) {
+    const size = finiteNumber(edge.packetSize, Math.max(3, paint.strokeWidth * 1.6));
+    const color = string(edge.packetColor) ?? paint.stroke;
+    packets.forEach((packet, packetIndex) => {
+      parts.push(
+        element(
+          "circle",
+          [
+            ["class", "kg-edge-packet"],
+            ["cx", number(finiteNumber(packet.x, start.x), precision)],
+            ["cy", number(finiteNumber(packet.y, start.y), precision)],
+            ["r", number(size, precision)],
+            ["fill", color],
+            ["stroke", context.background === "transparent" ? undefined : context.background],
+            ["stroke-width", context.background === "transparent" ? undefined : "1"],
+            ["opacity", number(flow * opacity, precision)],
+            ["data-edge-packet", id],
+            ["data-packet-index", String(packetIndex)],
+          ],
+          "",
+        ),
+      );
+    });
+  }
+  const groupAttrs: Attrs = [
+    ["class", classes("kg-edge-group", paint.highlight > 0 && "kg-edge-group--highlight")],
+    ["data-edge-group", id],
+    ["role", description !== undefined ? "img" : undefined],
+    ["aria-label", description],
+    ["aria-hidden", description === undefined ? "true" : undefined],
+    ["display", hidden ? "none" : undefined],
+    ["data-hidden", hidden ? "true" : undefined],
+  ];
+  return element("g", groupAttrs, parts.join(""));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Structured nodes (general scene schema)
+// ---------------------------------------------------------------------------------------------
+
+function renderStructuredNodes(nodes: UnknownRecord[], context: RenderContext): string {
+  const children = new Map<string | undefined, Array<{ node: UnknownRecord; index: number }>>();
+  nodes.forEach((node, index) => {
+    const parent = string(node.parent);
+    const list = children.get(parent) ?? [];
+    list.push({ node, index });
+    children.set(parent, list);
+  });
+  const ordered = (parent: string | undefined): UnknownRecord[] =>
+    (children.get(parent) ?? [])
+      .slice()
+      .sort((a, b) => finiteNumber(a.node.z, 0) - finiteNumber(b.node.z, 0) || a.index - b.index)
+      .map((entry) => entry.node);
+  const known = new Set(nodes.map((node, index) => nodeId(node, index)));
+  const roots = nodes.filter((node) => {
+    const parent = string(node.parent);
+    return parent === undefined || !known.has(parent);
+  });
+  const rootIds = new Set(roots.map((node, index) => nodeId(node, index)));
+  const render = (node: UnknownRecord): string =>
+    renderStructuredNode(node, ordered(nodeId(node, 0)).map(render).join(""), context);
+  return ordered(undefined)
+    .filter((node) => rootIds.has(nodeId(node, 0)))
+    .map(render)
+    .join("");
+}
+
+function renderStructuredNode(
+  node: UnknownRecord,
+  childrenMarkup: string,
+  context: RenderContext,
+): string {
+  const { rootId, precision } = context;
+  const id = nodeId(node, 0);
+  const groupId = `${rootId}-node-${domId(id)}`;
+  const kind = nodeKind(node);
+  const label = firstString(node.label);
+  const description = firstString(node.description);
+  const interactive = isInteractive(node);
+  const focusable = boolean(node.focusable) ?? interactive;
+  const state = record(node.state);
+  const appearance = record(node.appearance);
+  const opacity = unit(firstNumber(state.opacity), 1);
+  const progress = unit(firstNumber(state.progress), 1);
+  const highlight = unit(firstNumber(state.highlight), 0);
+  const translateX = finiteNumber(state.translateX, 0);
+  const translateY = finiteNumber(state.translateY, 0);
+  const scale = Math.max(0, finiteNumber(state.scale, 1));
+  const geometry = nodeGeometry(node);
+  const hidden = node.hidden === true;
+  const transforms = [
+    translateX !== 0 || translateY !== 0
+      ? `translate(${number(translateX, precision)} ${number(translateY, precision)})`
+      : "",
+    scale !== 1 ? `scale(${number(scale, precision)})` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const meaningful =
+    interactive ||
+    (label !== undefined &&
+      label.length > 0 &&
+      kind !== "text" &&
+      kind !== "badge" &&
+      kind !== "callout");
+  const labelledBy = meaningful
+    ? [label && `${groupId}-title`, description && `${groupId}-description`]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  const metadata = record(node.metadata);
+  const clipId = `${groupId}-clip`;
+  const attrs: Attrs = [
+    ["id", groupId],
+    [
+      "class",
+      classes(
+        "kg-node",
+        `kg-node--${domId(kind)}`,
+        interactive && "kg-node--interactive",
+        highlight > 0 && "kg-node--highlight",
+      ),
+    ],
+    [
+      "role",
+      interactive
+        ? "button"
+        : meaningful && labelledBy
+          ? kind === "image"
+            ? "img"
+            : "group"
+          : undefined,
+    ],
+    ["tabindex", focusable ? "0" : undefined],
+    ["focusable", focusable ? "true" : undefined],
+    ["aria-labelledby", labelledBy || undefined],
+    ["transform", transforms || undefined],
+    ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
+    ["display", hidden ? "none" : undefined],
+    ["data-node-id", id],
+    ["data-kineglyph-node", id],
+    ["data-kind", kind],
+    ["data-interactive", interactive ? "true" : undefined],
+    ["data-activate", string(node.onActivate)],
+    ["data-hidden", hidden ? "true" : undefined],
+    ["data-progress", number(progress, precision)],
+    ["data-highlight", highlight > 0 ? number(highlight, precision) : undefined],
+    [
+      "style",
+      `--kg-progress:${number(progress, precision)};--kg-highlight:${number(highlight, precision)}`,
+    ],
+    ...metadataAttrs(metadata),
+  ];
+  const accessible = meaningful
+    ? [
+        label && element("title", [["id", `${groupId}-title`]], escapeXml(label)),
+        description && element("desc", [["id", `${groupId}-description`]], escapeXml(description)),
+      ]
+        .filter(Boolean)
+        .join("")
+    : "";
+  const clip = node.clip === true;
+  const clipMarkup = clip
+    ? element(
+        "clipPath",
+        [["id", clipId]],
+        element(
+          "rect",
+          [
+            ["x", number(geometry.x, precision)],
+            ["y", number(geometry.y, precision)],
+            ["width", number(geometry.width, precision)],
+            ["height", number(geometry.height, precision)],
+            ["rx", numeric(appearance.radius, precision)],
+          ],
+          "",
+        ),
+      )
+    : "";
+  const shape = renderStructuredShape(
+    node,
+    kind,
+    geometry,
+    appearance,
+    highlight,
+    progress,
+    context,
+  );
+  const content = clip
+    ? element("g", [["clip-path", `url(#${clipId})`]], childrenMarkup)
+    : childrenMarkup;
+  return element("g", attrs, accessible + clipMarkup + shape + content);
+}
+
+function renderStructuredShape(
+  node: UnknownRecord,
+  kind: string,
+  geometry: { x: number; y: number; width: number; height: number },
+  appearance: UnknownRecord,
+  highlight: number,
+  progress: number,
+  context: RenderContext,
+): string {
+  const { precision, accent } = context;
+  const { x, y, width, height } = geometry;
+  const baseFill = string(appearance.fill) ?? "none";
+  const baseStroke = string(appearance.stroke) ?? "none";
+  const baseWidth = finiteNumber(appearance.strokeWidth, 1);
+  const outline = highlightStroke(
+    baseStroke === "none" ? accent : baseStroke,
+    accent,
+    highlight,
+    baseStroke === "none" ? 0 : baseWidth,
+  );
+  const stroke = baseStroke === "none" && highlight <= 0 ? "none" : outline.stroke;
+  const strokeWidth = baseStroke === "none" && highlight <= 0 ? 0 : outline.strokeWidth;
+  const fill =
+    highlight > 0 && baseFill !== "none" ? mixColor(baseFill, accent, highlight * 0.12) : baseFill;
+  const dash = string(appearance.dash);
+  const dashAttr =
+    dash === "dashed"
+      ? `${number(Math.max(4, strokeWidth * 3), precision)} ${number(Math.max(3, strokeWidth * 2), precision)}`
+      : dash === "dotted"
+        ? `0.01 ${number(Math.max(3, strokeWidth * 2.4), precision)}`
+        : undefined;
+  const paint: Attrs = [
+    ["class", "kg-node-shape"],
+    ["fill", fill],
+    ["stroke", stroke],
+    ["stroke-width", strokeWidth > 0 ? number(strokeWidth, precision) : undefined],
+    ["stroke-dasharray", dashAttr],
+    ["stroke-linecap", dash === "dotted" ? "round" : undefined],
+    ["fill-opacity", numeric(appearance.opacity, precision)],
+    ["stroke-opacity", numeric(appearance.opacity, precision)],
+  ];
+  switch (kind) {
+    case "group":
+    case "rect": {
+      if (fill === "none" && stroke === "none") return "";
+      return element(
+        "rect",
+        [
+          ...paint,
+          ["x", number(x, precision)],
+          ["y", number(y, precision)],
+          ["width", number(width, precision)],
+          ["height", number(height, precision)],
+          [
+            "rx",
+            numeric(Math.min(finiteNumber(appearance.radius, 0), width / 2, height / 2), precision),
+          ],
+        ],
+        "",
+      );
+    }
+    case "circle": {
+      const cx = x + width / 2;
+      const cy = y + height / 2;
+      if (Math.abs(width - height) < 1e-6)
+        return element(
+          "circle",
+          [
+            ...paint,
+            ["cx", number(cx, precision)],
+            ["cy", number(cy, precision)],
+            ["r", number(width / 2, precision)],
+          ],
+          "",
+        );
+      return element(
+        "ellipse",
+        [
+          ...paint,
+          ["cx", number(cx, precision)],
+          ["cy", number(cy, precision)],
+          ["rx", number(width / 2, precision)],
+          ["ry", number(height / 2, precision)],
+        ],
+        "",
+      );
+    }
+    case "text":
+      return renderTextBlock(record(node.text), "kg-text", precision, progress);
+    case "badge":
+      return (
+        element(
+          "rect",
+          [
+            ...paint,
+            ["x", number(x, precision)],
+            ["y", number(y, precision)],
+            ["width", number(width, precision)],
+            ["height", number(height, precision)],
+            [
+              "rx",
+              number(Math.min(height / 2, finiteNumber(appearance.radius, height / 2)), precision),
+            ],
+          ],
+          "",
+        ) + renderTextBlock(record(node.text), "kg-text kg-badge-text", precision, 1)
+      );
+    case "icon": {
+      const icon = record(node.icon);
+      const name = string(icon.name) ?? "diamond";
+      const size = finiteNumber(icon.size, Math.min(width, height));
+      const color =
+        highlight > 0
+          ? mixColor(string(icon.color) ?? accent, accent, highlight * 0.6)
+          : (string(icon.color) ?? accent);
+      const background = string(icon.background) ?? "none";
+      return renderMotifAt(
+        name,
+        x + width / 2,
+        y + height / 2,
+        size,
+        color,
+        background,
+        context.background,
+        precision,
+      );
+    }
+    case "path": {
+      const path = record(node.path);
+      const viewBox = record(path.viewBox);
+      const vw = positiveNumber(viewBox.width, 24);
+      const vh = positiveNumber(viewBox.height, 24);
+      const scale = Math.max(1e-6, Math.min(width / vw, height / vh));
+      const offsetX = x + (width - vw * scale) / 2;
+      const offsetY = y + (height - vh * scale) / 2;
+      const scaledStroke = strokeWidth > 0 ? strokeWidth / scale : 0;
+      return element(
+        "path",
+        [
+          ["class", "kg-node-shape kg-path"],
+          ["d", string(path.d) ?? ""],
+          ["fill", fill],
+          ["stroke", stroke],
+          ["stroke-width", scaledStroke > 0 ? number(scaledStroke, precision) : undefined],
+          ["stroke-linecap", "round"],
+          ["stroke-linejoin", "round"],
+          ["stroke-dasharray", dashAttr === undefined ? undefined : dashAttr],
+          ["pathLength", progress < 1 ? "1" : undefined],
+          ["stroke-dasharray", progress < 1 ? `${number(progress, precision)} 1` : dashAttr],
+          [
+            "transform",
+            `translate(${number(offsetX, precision)} ${number(offsetY, precision)}) scale(${number(scale, precision)})`,
+          ],
+        ],
+        "",
+      );
+    }
+    case "image": {
+      const image = record(node.image);
+      const fit = string(image.fit) ?? "contain";
+      const par = fit === "cover" ? "xMidYMid slice" : fit === "fill" ? "none" : "xMidYMid meet";
+      const radius = finiteNumber(appearance.radius, 0);
+      const clipId = `${context.rootId}-node-${domId(nodeId(node, 0))}-image-clip`;
+      const img = element(
+        "image",
+        [
+          ["class", "kg-image"],
+          ["href", string(image.href)],
+          ["x", number(x, precision)],
+          ["y", number(y, precision)],
+          ["width", number(width, precision)],
+          ["height", number(height, precision)],
+          ["preserveAspectRatio", par],
+          ["clip-path", radius > 0 ? `url(#${clipId})` : undefined],
+          ["data-live", image.live === true ? "true" : undefined],
+        ],
+        "",
+      );
+      const clip =
+        radius > 0
+          ? element(
+              "clipPath",
+              [["id", clipId]],
+              element(
+                "rect",
+                [
+                  ["x", number(x, precision)],
+                  ["y", number(y, precision)],
+                  ["width", number(width, precision)],
+                  ["height", number(height, precision)],
+                  ["rx", number(radius, precision)],
+                ],
+                "",
+              ),
+            )
+          : "";
+      const alt = string(image.alt);
+      return (
+        clip +
+        (alt === undefined
+          ? img
+          : element(
+              "g",
+              [
+                ["role", "img"],
+                ["aria-label", alt],
+              ],
+              img,
+            ))
+      );
+    }
+    case "legend": {
+      const legend = record(node.legend);
+      const items = records(legend.items);
+      const font = record(legend.text);
+      return items
+        .map((item) => {
+          const box = record(item.box);
+          const bx = finiteNumber(box.x, x);
+          const by = finiteNumber(box.y, y);
+          const bh = finiteNumber(box.height, 16);
+          const shape = string(item.shape) ?? "square";
+          const swatch = string(item.swatch) ?? accent;
+          const cy = by + bh / 2;
+          const swatchMarkup =
+            shape === "circle"
+              ? element(
+                  "circle",
+                  [
+                    ["cx", number(bx + 6, precision)],
+                    ["cy", number(cy, precision)],
+                    ["r", "5"],
+                    ["fill", swatch],
+                  ],
+                  "",
+                )
+              : shape === "line" || shape === "dashed"
+                ? element(
+                    "path",
+                    [
+                      [
+                        "d",
+                        `M ${number(bx, precision)} ${number(cy, precision)} L ${number(bx + 12, precision)} ${number(cy, precision)}`,
+                      ],
+                      ["stroke", swatch],
+                      ["stroke-width", "2"],
+                      ["stroke-linecap", "round"],
+                      ["stroke-dasharray", shape === "dashed" ? "3 3" : undefined],
+                      ["fill", "none"],
+                    ],
+                    "",
+                  )
+                : element(
+                    "rect",
+                    [
+                      ["x", number(bx, precision)],
+                      ["y", number(cy - 5, precision)],
+                      ["width", "10"],
+                      ["height", "10"],
+                      ["rx", "2"],
+                      ["fill", swatch],
+                    ],
+                    "",
+                  );
+          const fontSize = finiteNumber(font.fontSize, 12);
+          const text = element(
+            "text",
+            [
+              ["class", "kg-text kg-legend-text"],
+              ["x", number(bx + 19, precision)],
+              ["y", number(cy + fontSize * 0.35, precision)],
+              ["font-family", string(font.fontFamily)],
+              ["font-size", number(fontSize, precision)],
+              ["font-weight", numeric(font.fontWeight, precision)],
+              ["fill", string(font.color)],
+            ],
+            escapeXml(string(item.label) ?? ""),
+          );
+          return element(
+            "g",
+            [
+              ["class", "kg-legend-item"],
+              ["data-legend-item", string(item.id)],
+            ],
+            swatchMarkup + text,
+          );
+        })
+        .join("");
+    }
+    case "callout": {
+      const callout = record(node.callout);
+      const body = record(callout.body);
+      const tip = record(callout.tip);
+      const pointer = string(callout.pointer) ?? "none";
+      const bx = finiteNumber(body.x, x);
+      const by = finiteNumber(body.y, y);
+      const bw = finiteNumber(body.width, width);
+      const bh = finiteNumber(body.height, height);
+      const radius = Math.min(finiteNumber(appearance.radius, 8), bw / 2, bh / 2);
+      const tx = finiteNumber(tip.x, bx);
+      const ty = finiteNumber(tip.y, by);
+      const d = calloutPath(bx, by, bw, bh, radius, pointer, tx, ty, precision);
+      return (
+        element("path", [["class", "kg-node-shape kg-callout"], ...paint, ["d", d]], "") +
+        renderTextBlock(record(node.text), "kg-text kg-callout-text", precision, 1)
+      );
+    }
+    default:
+      return "";
+  }
+}
+
+function calloutPath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  pointer: string,
+  tx: number,
+  ty: number,
+  precision: number,
+): string {
+  const n = (value: number): string => number(value, precision);
+  const size = 8;
+  const half = 7;
+  const parts: string[] = [];
+  parts.push(`M ${n(x + r)} ${n(y)}`);
+  if (pointer === "up") {
+    const px = Math.min(Math.max(tx, x + r + half), x + w - r - half);
+    parts.push(`L ${n(px - half)} ${n(y)} L ${n(px)} ${n(y - size)} L ${n(px + half)} ${n(y)}`);
+  }
+  parts.push(`L ${n(x + w - r)} ${n(y)} Q ${n(x + w)} ${n(y)} ${n(x + w)} ${n(y + r)}`);
+  if (pointer === "right") {
+    const py = Math.min(Math.max(ty, y + r + half), y + h - r - half);
+    parts.push(
+      `L ${n(x + w)} ${n(py - half)} L ${n(x + w + size)} ${n(py)} L ${n(x + w)} ${n(py + half)}`,
+    );
+  }
+  parts.push(`L ${n(x + w)} ${n(y + h - r)} Q ${n(x + w)} ${n(y + h)} ${n(x + w - r)} ${n(y + h)}`);
+  if (pointer === "down") {
+    const px = Math.min(Math.max(tx, x + r + half), x + w - r - half);
+    parts.push(
+      `L ${n(px + half)} ${n(y + h)} L ${n(px)} ${n(y + h + size)} L ${n(px - half)} ${n(y + h)}`,
+    );
+  }
+  parts.push(`L ${n(x + r)} ${n(y + h)} Q ${n(x)} ${n(y + h)} ${n(x)} ${n(y + h - r)}`);
+  if (pointer === "left") {
+    const py = Math.min(Math.max(ty, y + r + half), y + h - r - half);
+    parts.push(`L ${n(x)} ${n(py + half)} L ${n(x - size)} ${n(py)} L ${n(x)} ${n(py - half)}`);
+  }
+  parts.push(`L ${n(x)} ${n(y + r)} Q ${n(x)} ${n(y)} ${n(x + r)} ${n(y)} Z`);
+  return parts.join(" ");
+}
+
+function renderTextBlock(
+  text: UnknownRecord,
+  className: string,
+  precision: number,
+  progress: number,
+): string {
+  const lines = records(text.lines);
+  const box = record(text.box);
+  if (lines.length === 0) return "";
+  const x = finiteNumber(box.x, 0);
+  const y = finiteNumber(box.y, 0);
+  const width = finiteNumber(box.width, 0);
+  const fontSize = finiteNumber(text.fontSize, 14);
+  const lineHeight = finiteNumber(text.lineHeight, fontSize * 1.4);
+  const align = string(text.align) ?? "start";
+  const anchorX = align === "center" ? x + width / 2 : align === "end" ? x + width : x;
+  const letterSpacing = finiteNumber(text.letterSpacing, 0);
+  const visibleLines =
+    progress >= 1 ? lines.length : Math.max(0, Math.round(lines.length * progress));
+  return element(
+    "text",
+    [
+      ["class", className],
+      ["font-family", string(text.fontFamily)],
+      ["font-size", number(fontSize, precision)],
+      ["font-weight", numeric(text.fontWeight, precision)],
+      ["letter-spacing", letterSpacing !== 0 ? number(letterSpacing, precision) : undefined],
+      ["fill", string(text.color)],
+      ["text-anchor", align === "center" ? "middle" : align === "end" ? "end" : undefined],
+      ["data-wrap-lines", String(lines.length)],
+      ["data-max-width", number(width, precision)],
+    ],
+    lines
+      .map((line, index) => {
+        const lineWidth = finiteNumber(line.width, 0);
+        const baseline = y + index * lineHeight + lineHeight / 2 + fontSize * 0.35;
+        return element(
+          "tspan",
+          [
+            ["x", number(anchorX, precision)],
+            ["y", number(baseline, precision)],
+            ["textLength", lineWidth > 0.5 ? number(lineWidth, precision) : undefined],
+            ["lengthAdjust", lineWidth > 0.5 ? "spacingAndGlyphs" : undefined],
+            ["data-line-width", number(lineWidth, precision)],
+            ["opacity", index < visibleLines ? undefined : "0"],
+          ],
+          escapeXml(string(line.text) ?? ""),
+        );
+      })
+      .join(""),
   );
 }
 
-function renderNode(node: UnknownRecord, index: number, rootId: string, precision: number): string {
+function renderMotifAt(
+  name: string,
+  cx: number,
+  cy: number,
+  size: number,
+  color: string,
+  background: string,
+  canvas: string,
+  precision: number,
+): string {
+  const scale = size / 24;
+  const shapes = motifShapes(name);
+  const fillFor = (shape: MotifShape): string => {
+    switch (shape.fill) {
+      case "stroke":
+        return color;
+      case "background":
+        return background !== "none" ? background : canvas === "transparent" ? "none" : canvas;
+      default:
+        return "none";
+    }
+  };
+  const content = shapes
+    .map((shape) =>
+      element(
+        shape.tag,
+        [
+          ...Object.entries(shape.attrs),
+          ["fill", fillFor(shape)],
+          ["stroke", color],
+          ["stroke-width", number(1.6 / Math.max(0.35, Math.min(scale, 1.4)), precision)],
+          ["stroke-linecap", "round"],
+          ["stroke-linejoin", "round"],
+        ],
+        "",
+      ),
+    )
+    .join("");
+  const backdrop =
+    background !== "none"
+      ? element(
+          "circle",
+          [
+            ["cx", "0"],
+            ["cy", "0"],
+            ["r", number(15, precision)],
+            ["fill", background],
+            ["stroke", "none"],
+          ],
+          "",
+        )
+      : "";
+  return element(
+    "g",
+    [
+      ["class", `kg-icon kg-icon--${domId(name)}`],
+      [
+        "transform",
+        `translate(${number(cx, precision)} ${number(cy, precision)}) scale(${number(scale, precision)})`,
+      ],
+      ["aria-hidden", "true"],
+      ["data-icon", name],
+    ],
+    backdrop + content,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Legacy nodes (pipeline resolver and loosely-typed input)
+// ---------------------------------------------------------------------------------------------
+
+function renderLegacyNode(
+  node: UnknownRecord,
+  index: number,
+  rootId: string,
+  precision: number,
+): string {
   const id = nodeId(node, index);
   const groupId = `${rootId}-node-${domId(id)}`;
   const label = firstString(node.label, node.title, node.name, record(node.accessibility).label);
@@ -181,6 +1240,7 @@ function renderNode(node: UnknownRecord, index: number, rootId: string, precisio
   const state = record(node.state);
   const opacity = unit(firstNumber(node.opacity, state.opacity, appearance.opacity), 1);
   const progress = unit(firstNumber(node.progress, state.progress), 1);
+  const highlight = unit(firstNumber(state.highlight), 0);
   const translateX = finiteNumber(state.translateX, 0);
   const translateY = finiteNumber(state.translateY, 0);
   const scale = Math.max(0, finiteNumber(state.scale, 1));
@@ -207,6 +1267,7 @@ function renderNode(node: UnknownRecord, index: number, rootId: string, precisio
         `kg-node--${domId(nodeKind(node))}`,
         string(node.className),
         interactive && "kg-node--interactive",
+        highlight > 0 && "kg-node--highlight",
       ),
     ],
     [
@@ -228,6 +1289,7 @@ function renderNode(node: UnknownRecord, index: number, rootId: string, precisio
     ["data-kineglyph-node", id],
     ["data-interactive", interactive ? "true" : undefined],
     ["data-progress", number(progress, precision)],
+    ["data-highlight", highlight > 0 ? number(highlight, precision) : undefined],
     ["style", `--kg-progress:${number(progress, precision)}`],
     ...metadataAttrs(metadata),
   ];
@@ -256,12 +1318,12 @@ function renderNode(node: UnknownRecord, index: number, rootId: string, precisio
     attrs,
     accessible +
       contentClip +
-      renderShape(node, appearance, progress, rootId, precision) +
-      renderNodeContent(node, label, contentClipId, precision),
+      renderLegacyShape(node, appearance, progress, rootId, precision) +
+      renderLegacyContent(node, label, contentClipId, precision),
   );
 }
 
-function renderShape(
+function renderLegacyShape(
   node: UnknownRecord,
   appearance: UnknownRecord,
   progress: number,
@@ -281,7 +1343,6 @@ function renderShape(
     ["pathLength", progress < 1 ? "1" : undefined],
     ["stroke-dasharray", progress < 1 ? `${number(progress, precision)} 1` : undefined],
   ];
-
   if (kind === "circle") {
     return element(
       "circle",
@@ -320,12 +1381,10 @@ function renderShape(
       "",
     );
   }
-  if (kind === "path") {
+  if (kind === "path")
     return element("path", [...paint, ["d", firstString(node.d, record(node.path).d) ?? ""]], "");
-  }
-  if (kind === "polygon" || kind === "polyline") {
+  if (kind === "polygon" || kind === "polyline")
     return element(kind, [...paint, ["points", points(node.points, precision)]], "");
-  }
   if (kind === "text") {
     const text = firstString(node.text, node.value, node.label) ?? "";
     return element(
@@ -344,7 +1403,7 @@ function renderShape(
   }
   if (kind === "group") {
     return records(node.children)
-      .map((child, childIndex) => renderNode(child, childIndex, `${rootId}-group`, precision))
+      .map((child, childIndex) => renderLegacyNode(child, childIndex, `${rootId}-group`, precision))
       .join("");
   }
   return element(
@@ -362,7 +1421,7 @@ function renderShape(
   );
 }
 
-function renderNodeContent(
+function renderLegacyContent(
   node: UnknownRecord,
   label: string | undefined,
   clipId: string,
@@ -392,7 +1451,7 @@ function renderNodeContent(
   const textTop = Math.max(y + padding, y + (height - textHeight) / 2);
   const content: string[] = [];
   if (motif) {
-    content.push(renderMotif(motif, x + padding + 9, y + height / 2, precision));
+    content.push(renderLegacyMotif(motif, x + padding + 9, y + height / 2, precision));
   } else if (icon) {
     const cx = x + padding + 7;
     const cy = y + height / 2;
@@ -425,7 +1484,7 @@ function renderNodeContent(
       ),
     );
   }
-  if (labelLines.length > 0) {
+  if (labelLines.length > 0)
     content.push(
       renderTextLines(
         "kg-node-label",
@@ -437,8 +1496,7 @@ function renderNodeContent(
         precision,
       ),
     );
-  }
-  if (bodyLines.length > 0) {
+  if (bodyLines.length > 0)
     content.push(
       renderTextLines(
         "kg-node-body",
@@ -450,7 +1508,6 @@ function renderNodeContent(
         precision,
       ),
     );
-  }
   return element(
     "g",
     [
@@ -493,9 +1550,8 @@ export function wrapSvgText(
 
   for (const word of words) {
     const chunks: string[] = [];
-    for (let offset = 0; offset < word.length; offset += capacity) {
+    for (let offset = 0; offset < word.length; offset += capacity)
       chunks.push(word.slice(offset, offset + capacity));
-    }
     for (const chunk of chunks) {
       const candidate = current.length === 0 ? chunk : `${current} ${chunk}`;
       if (candidate.length <= capacity) current = candidate;
@@ -563,118 +1619,41 @@ function renderTextLines(
   );
 }
 
-function renderMotif(motif: string, cx: number, cy: number, precision: number): string {
-  const motifAttrs: Attrs = [
-    ["class", `kg-node-motif kg-node-motif--${domId(motif)}`],
-    ["aria-hidden", "true"],
-    ["data-motif", motif],
-  ];
-  const x = (offset: number): string => number(cx + offset, precision);
-  const y = (offset: number): string => number(cy + offset, precision);
-  let content: string;
-  switch (motif) {
-    case "field":
-      content =
-        element(
-          "circle",
-          [
-            ["cx", x(0)],
-            ["cy", y(0)],
-            ["r", "9"],
-          ],
-          "",
-        ) +
-        element(
-          "circle",
-          [
-            ["cx", x(0)],
-            ["cy", y(0)],
-            ["r", "5"],
-          ],
-          "",
-        ) +
-        element(
-          "circle",
-          [
-            ["cx", x(0)],
-            ["cy", y(0)],
-            ["r", "1.5"],
-          ],
-          "",
-        );
-      break;
-    case "graph":
-      content =
-        element(
-          "path",
-          [["d", `M ${x(-7)} ${y(6)} L ${x(0)} ${y(-7)} L ${x(7)} ${y(5)} L ${x(-7)} ${y(6)}`]],
-          "",
-        ) +
+function renderLegacyMotif(motif: string, cx: number, cy: number, precision: number): string {
+  const shapes = motifShapes(motif);
+  const scale = 20 / 24;
+  const content = shapes
+    .map((shape) =>
+      element(
+        shape.tag,
         [
-          [-7, 6],
-          [0, -7],
-          [7, 5],
-        ]
-          .map(([dx, dy]) =>
-            element(
-              "circle",
-              [
-                ["cx", x(dx ?? 0)],
-                ["cy", y(dy ?? 0)],
-                ["r", "2.5"],
-              ],
-              "",
-            ),
-          )
-          .join("");
-      break;
-    case "boundary":
-      content =
-        element(
-          "circle",
+          ...Object.entries(shape.attrs),
           [
-            ["cx", x(0)],
-            ["cy", y(0)],
-            ["r", "9"],
+            "class",
+            shape.fill === "background"
+              ? "kg-motif-backed"
+              : shape.fill === "stroke"
+                ? "kg-motif-solid"
+                : undefined,
           ],
-          "",
-        ) +
-        element(
-          "path",
-          [["d", `M ${x(-9)} ${y(0)} C ${x(-4)} ${y(-5)} ${x(4)} ${y(5)} ${x(9)} ${y(0)}`]],
-          "",
-        );
-      break;
-    case "blocks":
-      content = [
-        [-7, -7],
-        [1, -7],
-        [-7, 1],
-        [1, 1],
-      ]
-        .map(([dx, dy]) =>
-          element(
-            "rect",
-            [
-              ["x", x(dx ?? 0)],
-              ["y", y(dy ?? 0)],
-              ["width", "6"],
-              ["height", "6"],
-              ["rx", "1"],
-            ],
-            "",
-          ),
-        )
-        .join("");
-      break;
-    default:
-      content = element(
-        "path",
-        [["d", `M ${x(0)} ${y(-9)} L ${x(9)} ${y(0)} L ${x(0)} ${y(9)} L ${x(-9)} ${y(0)} z`]],
+        ],
         "",
-      );
-  }
-  return element("g", motifAttrs, content);
+      ),
+    )
+    .join("");
+  return element(
+    "g",
+    [
+      ["class", `kg-node-motif kg-node-motif--${domId(motif)}`],
+      [
+        "transform",
+        `translate(${number(cx, precision)} ${number(cy, precision)}) scale(${number(scale, precision)})`,
+      ],
+      ["aria-hidden", "true"],
+      ["data-motif", motif],
+    ],
+    content,
+  );
 }
 
 function edgePoint(
@@ -684,12 +1663,10 @@ function edgePoint(
 ): { x: number; y: number } {
   const point = record(edge[side]);
   const endpoint = record(edge[side === "start" ? "source" : "target"]);
-  if (point.x !== undefined || point.y !== undefined) {
+  if (point.x !== undefined || point.y !== undefined)
     return { x: finiteNumber(point.x, 0), y: finiteNumber(point.y, 0) };
-  }
-  if (endpoint.x !== undefined || endpoint.y !== undefined) {
+  if (endpoint.x !== undefined || endpoint.y !== undefined)
     return { x: finiteNumber(endpoint.x, 0), y: finiteNumber(endpoint.y, 0) };
-  }
   if (node) {
     const geometry = nodeGeometry(node, 0, 0);
     return { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
@@ -744,35 +1721,47 @@ function themeVariables(theme: UnknownRecord): string {
   }
   for (const key of Object.keys(radii).sort()) {
     const value = radii[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value))
       vars.push([`--kg-radius-${cssName(key)}`, `${value}px`]);
-    }
   }
   return vars.map(([name, value]) => `${name}:${value}`).join(";");
 }
 
 const BASE_STYLES = escapeXml(
-  ".kg-scene{background:var(--kg-background);color:var(--kg-text)}" +
-    ".kg-node-shape{fill:var(--kg-node-fill);stroke:var(--kg-node-stroke);vector-effect:non-scaling-stroke}" +
-    ".kg-node text{fill:var(--kg-text);stroke:none;font-family:var(--kg-font-family)}" +
-    ".kg-node-label{font-size:13px;font-weight:600}" +
+  ".kg-scene{color:var(--kg-text)}" +
+    ".kg-node-shape{vector-effect:non-scaling-stroke}" +
+    ".kg-nodes>.kg-node .kg-node-shape:not([fill]){fill:var(--kg-node-fill)}" +
+    ".kg-node text{stroke:none}" +
+    ".kg-node-label,.kg-node-body,.kg-node-icon,.kg-edge-label{font-family:var(--kg-font-family)}" +
+    ".kg-node-label{fill:var(--kg-text);font-size:13px;font-weight:600}" +
     ".kg-node-body{fill:var(--kg-text-muted);font-size:11px;font-weight:400}" +
     ".kg-node-icon-bg{fill:var(--kg-accent);stroke:none}" +
     ".kg-node-icon{fill:white;font-size:10px;font-weight:700}" +
     ".kg-node-motif{fill:none;stroke:var(--kg-accent);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}" +
-    ".kg-node-motif circle,.kg-node-motif rect{fill:var(--kg-background)}" +
-    ".kg-edge{stroke:var(--kg-edge-stroke);vector-effect:non-scaling-stroke}" +
-    ".kg-edge-label{fill:var(--kg-text);font-family:var(--kg-font-family)}" +
-    ".kg-marker{fill:var(--kg-edge-stroke)}" +
+    ".kg-node-motif .kg-motif-backed{fill:var(--kg-background)}" +
+    ".kg-node-motif .kg-motif-solid{fill:var(--kg-accent)}" +
+    ".kg-edge{vector-effect:non-scaling-stroke}" +
+    ".kg-edge-label{fill:var(--kg-text)}" +
     ".kg-node--interactive{cursor:pointer;outline:none}" +
-    ".kg-node--interactive:focus .kg-node-shape{stroke:var(--kg-accent)}",
+    ".kg-node--interactive:focus-visible>.kg-node-shape,.kg-node--interactive[data-inspected=true]>.kg-node-shape{stroke:var(--kg-accent);stroke-width:2}" +
+    ".kg-node--interactive:hover>.kg-node-shape{filter:brightness(1.06)}" +
+    "@keyframes kg-flow{to{stroke-dashoffset:-1000}}" +
+    ".kg-edge--flow{animation:kg-flow 40s linear infinite}" +
+    ".kg-scene[data-paused] .kg-edge--flow,.kg-scene[data-reduced-motion] .kg-edge--flow{animation-play-state:paused}" +
+    "@media(prefers-reduced-motion:reduce){.kg-edge--flow{animation:none}}",
 );
 
 type Attrs = Array<[string, string | undefined | false]>;
 
 function element(name: string, attrs: Attrs, content: string): string {
+  const seen = new Set<string>();
   const rendered = attrs
     .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .filter(([key]) => {
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map(([key, value]) => ` ${key}="${escapeAttribute(value)}"`)
     .join("");
   return content ? `<${name}${rendered}>${content}</${name}>` : `<${name}${rendered}/>`;
@@ -851,9 +1840,7 @@ function isRecord(value: unknown): value is UnknownRecord {
 
 function mergeRecords(...values: UnknownRecord[]): UnknownRecord {
   const merged: UnknownRecord = {};
-  for (const value of values) {
-    for (const [key, item] of Object.entries(value)) merged[key] = item;
-  }
+  for (const value of values) for (const [key, item] of Object.entries(value)) merged[key] = item;
   return merged;
 }
 
@@ -902,23 +1889,26 @@ function numeric(value: unknown, precision: number): string | undefined {
   return typeof value === "number" && Number.isFinite(value) ? number(value, precision) : undefined;
 }
 
+const SEMANTIC_COLORS = new Set([
+  "canvas",
+  "surface",
+  "surfaceRaised",
+  "surfaceMuted",
+  "text",
+  "textMuted",
+  "accent",
+  "accentContrast",
+  "info",
+  "success",
+  "warning",
+  "danger",
+  "connector",
+  "border",
+]);
+
 function colorValue(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const semanticColors = new Set([
-    "canvas",
-    "surface",
-    "surfaceRaised",
-    "text",
-    "textMuted",
-    "accent",
-    "accentContrast",
-    "success",
-    "warning",
-    "danger",
-    "connector",
-    "border",
-  ]);
-  return semanticColors.has(value) ? `var(--kg-color-${cssName(value)})` : value;
+  return SEMANTIC_COLORS.has(value) ? `var(--kg-color-${cssName(value)})` : value;
 }
 
 function lengthValue(value: unknown, precision: number, token: string): string | undefined {
@@ -940,16 +1930,14 @@ function points(value: unknown, precision: number): string {
   if (!Array.isArray(value)) return "";
   return value
     .flatMap((point) => {
-      if (Array.isArray(point) && point.length >= 2) {
+      if (Array.isArray(point) && point.length >= 2)
         return [
           `${number(finiteNumber(point[0], 0), precision)},${number(finiteNumber(point[1], 0), precision)}`,
         ];
-      }
-      if (isRecord(point)) {
+      if (isRecord(point))
         return [
           `${number(finiteNumber(point.x, 0), precision)},${number(finiteNumber(point.y, 0), precision)}`,
         ];
-      }
       return [];
     })
     .join(" ");
@@ -961,7 +1949,7 @@ function classes(...values: Array<string | undefined | false>): string {
     .join(" ");
 }
 
-function domId(value: string): string {
+export function domId(value: string): string {
   const safe = value
     .trim()
     .replace(/[^A-Za-z0-9_.:-]+/g, "-")

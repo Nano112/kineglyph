@@ -24,10 +24,12 @@ export type SemanticColorToken =
   | "canvas"
   | "surface"
   | "surfaceRaised"
+  | "surfaceMuted"
   | "text"
   | "textMuted"
   | "accent"
   | "accentContrast"
+  | "info"
   | "success"
   | "warning"
   | "danger"
@@ -36,7 +38,8 @@ export type SemanticColorToken =
 
 export type SemanticSpacingToken = "none" | "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
 export type SemanticRadiusToken = "none" | "sm" | "md" | "lg" | "pill";
-export type SemanticTextStyle = "label" | "body" | "bodyStrong" | "title" | "display" | "code";
+export type SemanticTextStyle =
+  "label" | "caption" | "body" | "bodyStrong" | "title" | "display" | "code";
 
 export interface NodeStyle {
   readonly fill?: SemanticColorToken;
