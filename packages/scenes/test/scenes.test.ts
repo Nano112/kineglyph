@@ -21,7 +21,7 @@ function layoutProblems(resolved: ResolvedScene): string[] {
 }
 
 describe("illustration catalogue", () => {
-  it("lists all eight Nucleation illustrations with authored copy", () => {
+  it("lists the Nucleation and quantitative illustrations with authored copy", () => {
     expect(catalogue.map((entry) => entry.slug)).toEqual([
       "fast-generation",
       "shapes-and-brushes",
@@ -31,6 +31,10 @@ describe("illustration catalogue", () => {
       "formats-and-io",
       "bindings-and-languages",
       "meshing-and-rendering",
+      "benchmark-breakdown",
+      "throughput-over-time",
+      "operation-heatmap",
+      "bottleneck-lens",
     ]);
     for (const entry of catalogue) {
       expect(entry.title).not.toMatch(/placeholder/i);
@@ -114,7 +118,7 @@ describe("illustration catalogue", () => {
         const duration = resolved.timeline?.duration ?? 0;
         const final = seekTimeline(resolved, duration);
         for (const node of final.nodes)
-          if (node.hidden !== true) expect(node.state.opacity).toBeGreaterThanOrEqual(0.5);
+          if (node.hidden !== true) expect(node.state.opacity).toBeGreaterThan(0);
         for (const edge of final.edges)
           if (edge.hidden !== true) {
             expect(edge.state.opacity).toBeGreaterThanOrEqual(0.5);

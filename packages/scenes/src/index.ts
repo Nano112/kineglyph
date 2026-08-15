@@ -1,11 +1,15 @@
 export * from "./catalogue.js";
 export * from "./recipes.js";
 export * from "./themes.js";
+export { benchmarkBreakdownScene } from "./scenes/benchmark-breakdown.js";
 export { bindingsAndLanguagesScene } from "./scenes/bindings-and-languages.js";
+export { bottleneckLensScene } from "./scenes/bottleneck-lens.js";
 export { fastGenerationScene } from "./scenes/fast-generation.js";
 export { formatsAndIoScene } from "./scenes/formats-and-io.js";
 export { meshingAndRenderingScene } from "./scenes/meshing-and-rendering.js";
+export { operationHeatmapScene } from "./scenes/operation-heatmap.js";
 export { palettesAndColorScene } from "./scenes/palettes-and-color.js";
 export { sdfAndFieldsScene } from "./scenes/sdf-and-fields.js";
 export { shapesAndBrushesScene } from "./scenes/shapes-and-brushes.js";
 export { smartSimulationScene } from "./scenes/smart-simulation.js";
+export { throughputOverTimeScene } from "./scenes/throughput-over-time.js";

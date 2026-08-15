@@ -1,12 +1,16 @@
 import type { SceneDefinition } from "@kineglyph/core";
+import { benchmarkBreakdownEntry } from "./scenes/benchmark-breakdown.js";
 import { bindingsAndLanguagesEntry } from "./scenes/bindings-and-languages.js";
+import { bottleneckLensEntry } from "./scenes/bottleneck-lens.js";
 import { fastGenerationEntry } from "./scenes/fast-generation.js";
 import { formatsAndIoEntry } from "./scenes/formats-and-io.js";
 import { meshingAndRenderingEntry } from "./scenes/meshing-and-rendering.js";
+import { operationHeatmapEntry } from "./scenes/operation-heatmap.js";
 import { palettesAndColorEntry } from "./scenes/palettes-and-color.js";
 import { sdfAndFieldsEntry } from "./scenes/sdf-and-fields.js";
 import { shapesAndBrushesEntry } from "./scenes/shapes-and-brushes.js";
 import { smartSimulationEntry } from "./scenes/smart-simulation.js";
+import { throughputOverTimeEntry } from "./scenes/throughput-over-time.js";
 
 export interface CatalogueEntry {
   /** Stable slug used in routes and file names. */
@@ -26,7 +30,7 @@ export interface CatalogueEntry {
   readonly scene: SceneDefinition;
 }
 
-/** All eight Nucleation illustrations, in reading order. */
+/** Nucleation illustrations and quantitative examples, in reading order. */
 export const catalogue: readonly CatalogueEntry[] = [
   fastGenerationEntry,
   shapesAndBrushesEntry,
@@ -36,6 +40,10 @@ export const catalogue: readonly CatalogueEntry[] = [
   formatsAndIoEntry,
   bindingsAndLanguagesEntry,
   meshingAndRenderingEntry,
+  benchmarkBreakdownEntry,
+  throughputOverTimeEntry,
+  operationHeatmapEntry,
+  bottleneckLensEntry,
 ].sort((a, b) => a.order - b.order);
 
 export function findCatalogueEntry(slug: string): CatalogueEntry | undefined {
