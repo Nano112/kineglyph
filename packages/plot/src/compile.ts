@@ -11,7 +11,9 @@ import {
   pick,
   type Anchor,
   type CalloutMark,
+  type Easing,
   type GroupNode,
+  type FillPaint,
   type InspectInfo,
   type Insets,
   type LayoutName,
@@ -183,13 +185,19 @@ function stagger(count: number, window: number, max: number): number {
   return Math.min(max, window / (count - 1));
 }
 
-function keyframes(start: number, end: number, from: number, to: number): TimelineKeyframe[] {
+function keyframes(
+  start: number,
+  end: number,
+  from: number,
+  to: number,
+  easing: Easing = "easeOut",
+): TimelineKeyframe[] {
   const frames: TimelineKeyframe[] = [];
   const begin = Math.round(start * 1000) / 1000;
   const finish = Math.round(Math.max(end, start + 1) * 1000) / 1000;
   if (begin > 0) frames.push({ time: 0, value: from });
   frames.push({ time: begin, value: from });
-  frames.push({ time: finish, value: to, easing: "easeOut" });
+  frames.push({ time: finish, value: to, easing });
   return frames;
 }
 
@@ -276,6 +284,8 @@ interface Layer {
   readonly spec: SeriesSpec;
   readonly mark: "bar" | "line" | "area" | "point";
   readonly tone: Paint;
+  readonly fill: FillPaint | undefined;
+  readonly fillOpacity: number | undefined;
   readonly points: readonly Point[];
   readonly pointRadius: number;
 }
@@ -306,6 +316,7 @@ interface Context {
   readonly heights: ByLayout<number>;
   readonly duration: number;
   readonly motion: MotionPreset;
+  readonly easing: Easing;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -331,6 +342,7 @@ export function compilePlot(spec: PlotSpec, options: CompileOptions = {}): PlotR
     heights,
     duration: Math.max(1, options.duration ?? DEFAULT_DURATION),
     motion: options.motion ?? "auto",
+    easing: options.easing ?? "easeOut",
   };
   return spec.heatmap !== undefined
     ? compileHeatmap(context, spec.heatmap)
@@ -386,6 +398,8 @@ function prepareSeries(context: Context): Series[] {
         spec,
         mark,
         tone: spec.tone ?? tone,
+        fill: spec.fill,
+        fillOpacity: spec.fillOpacity,
         points: normaliseSeriesData(spec.data, spec.id, context.diagnostics),
         pointRadius: Math.max(0, spec.pointRadius ?? (context.minimal ? 0 : DEFAULT_POINT_RADIUS)),
       });
@@ -952,9 +966,10 @@ function compileCartesian(context: Context): PlotResult {
             position: { x: frac(rect.x), y: frac(rect.y), anchor: "top-left" },
             width: pct(rect.w),
             height: pct(rect.h),
-            fill: point.tone ?? layer.tone,
+            fill: point.tone ?? layer.fill ?? layer.tone,
             stroke: "none",
             radius: 2,
+            ...(layer.fillOpacity === undefined ? {} : { opacity: layer.fillOpacity }),
             revealAnchor: horizontal ? (negative ? "right" : "left") : negative ? "top" : "bottom",
             ...(visualBind === undefined ? {} : { bind: visualBind }),
             ...interactiveProps(point, valueText, "Bar", marksInteractive),
@@ -985,9 +1000,10 @@ function compileCartesian(context: Context): PlotResult {
             position: { x: frac(rect.x), y: frac(rect.y), anchor: "top-left" },
             width: pct(rect.w),
             height: pct(rect.h),
-            fill: point.tone ?? layer.tone,
+            fill: point.tone ?? layer.fill ?? layer.tone,
             stroke: "none",
             radius: 2,
+            ...(layer.fillOpacity === undefined ? {} : { opacity: layer.fillOpacity }),
             revealAnchor: horizontal ? (negative ? "right" : "left") : negative ? "top" : "bottom",
             ...(visualBind === undefined ? {} : { bind: visualBind }),
             ...interactiveProps(point, valueText, "Bar", marksInteractive),
@@ -1055,9 +1071,9 @@ function compileCartesian(context: Context): PlotResult {
               ),
               ...(closedPolygon ? { closed: true } : { baseline: frac(1 - (run[0]?.v0 ?? 0)) }),
               curve,
-              fill: layer.tone,
+              fill: layer.fill ?? layer.tone,
               stroke: "none",
-              opacity: 0.25,
+              opacity: layer.fillOpacity ?? (layer.fill === undefined ? 0.25 : 1),
               revealAnchor: horizontal ? "bottom" : "left",
               ...(visualBind === undefined ? {} : { bind: visualBind }),
             });
@@ -1830,29 +1846,39 @@ function cartesianMotion(
     if (handle === undefined) continue;
     if (handle.bars.length > 0) {
       if (handle.bars.length > MOTION_MARK_CAP)
-        tracks.push(track(handle.group, reveal, keyframes(0, duration * 0.8, 0, 1)));
+        tracks.push(
+          track(handle.group, reveal, keyframes(0, duration * 0.8, 0, 1, context.easing)),
+        );
       else {
         const step = stagger(handle.bars.length, duration * 0.4, 40);
         const each = (duration - step * (handle.bars.length - 1)) * 0.85;
         handle.bars.forEach((id, index) => {
           const start = step * index;
-          tracks.push(track(id, reveal, keyframes(start, start + each, 0, 1)));
+          tracks.push(track(id, reveal, keyframes(start, start + each, 0, 1, context.easing)));
         });
       }
     }
     const drawEnd = duration * 0.75;
     for (const id of handle.lines ?? [])
-      tracks.push(track(id, "progress", keyframes(0, drawEnd, 0, 1)));
+      tracks.push(track(id, "progress", keyframes(0, drawEnd, 0, 1, context.easing)));
     for (const id of handle.areas ?? [])
       tracks.push(
-        track(id, context.horizontal ? "revealY" : "revealX", keyframes(0, drawEnd, 0, 1)),
+        track(
+          id,
+          context.horizontal ? "revealY" : "revealX",
+          keyframes(0, drawEnd, 0, 1, context.easing),
+        ),
       );
     const dots = handle.dots;
     if (dots.length > 0) {
       const hasLine = (handle.lines?.length ?? 0) > 0 || (handle.areas?.length ?? 0) > 0;
       if (dots.length > MOTION_MARK_CAP)
         tracks.push(
-          track(handle.group, "opacity", keyframes(0, duration * 0.8, hasLine ? 0.4 : 0, 1)),
+          track(
+            handle.group,
+            "opacity",
+            keyframes(0, duration * 0.8, hasLine ? 0.4 : 0, 1, context.easing),
+          ),
         );
       else if (hasLine) {
         // Points appear after the line has drawn.
@@ -1860,7 +1886,11 @@ function cartesianMotion(
         dots.forEach((id, index) => {
           const start = duration * 0.6 + step * index;
           tracks.push(
-            track(id, "opacity", keyframes(start, Math.min(duration, start + 160), 0, 1)),
+            track(
+              id,
+              "opacity",
+              keyframes(start, Math.min(duration, start + 160), 0, 1, context.easing),
+            ),
           );
         });
       } else {
@@ -1869,14 +1899,14 @@ function cartesianMotion(
         dots.forEach((id, index) => {
           const start = step * index;
           const end = Math.min(duration, start + each);
-          tracks.push(track(id, "opacity", keyframes(start, end, 0, 1)));
-          tracks.push(track(id, "scale", keyframes(start, end, 0.6, 1)));
+          tracks.push(track(id, "opacity", keyframes(start, end, 0, 1, context.easing)));
+          tracks.push(track(id, "scale", keyframes(start, end, 0.6, 1, context.easing)));
         });
       }
     }
   }
   for (const id of valueLabelIds)
-    tracks.push(track(id, "opacity", keyframes(duration * 0.7, duration, 0, 1)));
+    tracks.push(track(id, "opacity", keyframes(duration * 0.7, duration, 0, 1, context.easing)));
   return tracks;
 }
 
@@ -2263,18 +2293,20 @@ function compileHeatmap(context: Context, heat: HeatmapSpec): PlotResult {
   if (context.motion !== "none" && cellCount > 0) {
     const duration = context.duration;
     if (cellCount > MOTION_MARK_CAP)
-      tracks.push(track(seriesGroup.id, "opacity", keyframes(0, duration * 0.8, 0, 1)));
+      tracks.push(
+        track(seriesGroup.id, "opacity", keyframes(0, duration * 0.8, 0, 1, context.easing)),
+      );
     else {
       const rowStep = stagger(rows.length, duration * 0.5, 120);
       const each = (duration - rowStep * Math.max(0, rows.length - 1)) * 0.7;
       cellIds.forEach((ids, r) => {
         const start = rowStep * r;
         for (const id of ids)
-          tracks.push(track(id, "opacity", keyframes(start, start + each, 0, 1)));
+          tracks.push(track(id, "opacity", keyframes(start, start + each, 0, 1, context.easing)));
       });
     }
     for (const id of labelIds)
-      tracks.push(track(id, "opacity", keyframes(duration * 0.7, duration, 0, 1)));
+      tracks.push(track(id, "opacity", keyframes(duration * 0.7, duration, 0, 1, context.easing)));
   }
 
   const handle: SeriesHandle = {

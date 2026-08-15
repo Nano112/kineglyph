@@ -1,4 +1,11 @@
-import { figure, resolveScene, type GroupNode, type SceneNode } from "@kineglyph/core";
+import {
+  alphaGradient,
+  cubicBezier,
+  figure,
+  resolveScene,
+  type GroupNode,
+  type SceneNode,
+} from "@kineglyph/core";
 import { exportSvg } from "@kineglyph/export";
 import { describe, expect, it } from "vitest";
 import {
@@ -38,6 +45,50 @@ function allNodes(root: SceneNode): SceneNode[] {
 }
 
 describe("plot compiler", () => {
+  it("applies a serializable easing to every generated plot track", () => {
+    const easing = cubicBezier(0.16, 1, 0.3, 1);
+    const result = plot(
+      [
+        { x: 0, y: 2 },
+        { x: 1, y: 7 },
+      ],
+      { id: "eased", x: "x", y: "y", marks: line(), easing },
+    );
+    expect(result.fragment.tracks?.length).toBeGreaterThan(0);
+    for (const authoredTrack of result.fragment.tracks ?? [])
+      expect(authoredTrack.keyframes.at(-1)?.easing).toEqual(easing);
+  });
+
+  it("passes authored gradient and opacity through area layers", () => {
+    const fill = alphaGradient("chart1", { from: 0.55, angle: 90 });
+    const result = plot(
+      [
+        { x: 0, y: 2 },
+        { x: 1, y: 7 },
+        { x: 2, y: 5 },
+      ],
+      {
+        id: "gradient-area",
+        x: "x",
+        y: "y",
+        marks: area({ fill, fillOpacity: 0.9, curve: "monotone" }),
+      },
+    );
+    const mark = findNode(result.fragment.nodes, "gradient-area:area:y");
+    expect(mark.type).toBe("polyline");
+    if (mark.type !== "polyline") throw new Error("expected area polyline");
+    expect(mark.fill).toEqual(fill);
+    expect(mark.opacity).toBe(0.9);
+
+    const scene = figure("gradient-area-figure", { title: "Gradient area" }, (f) => {
+      f.add(result);
+    });
+    expect(
+      resolveScene(scene, { width: 640 }).nodes.find((node) => node.id === "gradient-area:area:y")
+        ?.appearance.fill,
+    ).toMatchObject({ type: "linear-gradient", angle: 90 });
+  });
+
   it("compiles typed wide rows to stable handles, scales, ticks, and deterministic fragments", () => {
     const rows = [
       { call: "fill", dense: 4, sparse: 9 },

@@ -23,6 +23,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "render:readme-cover": "npm run bootstrap && node packages/scenes/scripts/readme-cover.mjs",
+    "render:readme-throughput": "npm run bootstrap && node packages/scenes/scripts/readme-throughput.mjs",
     "pretest": "npm run bootstrap",
     "test": "vitest run",
     "test:watch": "vitest",

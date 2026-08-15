@@ -7,7 +7,14 @@
  * for any width and every downstream stage (SVG, runtime, PNG/GIF) treats it like authored
  * primitives. No DOM, no chart framework, deterministic for equal input.
  */
-import type { LayoutName, Paint, Responsive, SceneFragment } from "@kineglyph/core";
+import type {
+  Easing,
+  FillPaint,
+  LayoutName,
+  Paint,
+  Responsive,
+  SceneFragment,
+} from "@kineglyph/core";
 
 // ---------------------------------------------------------------------------------------------
 // Data
@@ -99,6 +106,10 @@ export interface SeriesSpec {
   readonly data: SeriesData;
   /** Defaults to the chart palette (chart1…chart6) by series index. */
   readonly tone?: Paint;
+  /** Fill for bars and areas. Defaults to `tone`; gradients remain ordinary serializable paint. */
+  readonly fill?: FillPaint;
+  /** Opacity applied to bar/area fill. Areas default to 0.25 for solid fills and 1 for gradients. */
+  readonly fillOpacity?: number;
   /** Line/area interpolation (default "linear"). */
   readonly curve?: "linear" | "monotone" | "step";
   readonly dash?: "solid" | "dashed" | "dotted";
@@ -239,6 +250,8 @@ export interface CompileOptions {
   readonly motion?: MotionPreset;
   /** Duration of the motion preset in milliseconds (default 900). */
   readonly duration?: number;
+  /** Serializable curve used by generated tracks (default "easeOut"). */
+  readonly easing?: Easing;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -294,6 +307,8 @@ export type MarkKind =
 /** Style knobs accepted by the cartesian mark helpers. */
 export interface MarkStyle {
   readonly tone?: Paint;
+  readonly fill?: FillPaint;
+  readonly fillOpacity?: number;
   readonly curve?: "linear" | "monotone" | "step";
   readonly dash?: "solid" | "dashed" | "dotted";
   readonly pointRadius?: number;

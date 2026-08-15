@@ -71,10 +71,12 @@ each breakpoint.
 
 ## Plot typed data
 
-`plot<Row>()` checks channel names against the row type. It returns a normal scene fragment plus
-stable handles, domains, ticks, descriptions, and diagnostics.
+`plot<Row>()` checks channel names against the row type. It returns a normal scene fragment, so a
+plot can sit inside a card or alongside other scene nodes. Gradient stops use theme colors and may
+carry their own alpha.
 
 ```ts
+import { alphaGradient, cubicBezier, figure, linearGradient } from "@kineglyph/core";
 import { area, dot, line, plot, range, rule } from "@kineglyph/plot";
 
 const activeChunks = [
@@ -94,18 +96,43 @@ const trend = plot(activeChunks, {
   id: "stream-trend",
   x: "second",
   y: "active",
-  marks: [area({ curve: "monotone" }), line({ curve: "monotone" }), dot()],
-  annotations: [range({ y: [75, 92], label: "steady operating band" }), rule({ y: 80 })],
+  marks: [
+    area({
+      fill: alphaGradient("chart1", { from: 0.5, to: 0.015, angle: 90 }),
+      fillOpacity: 1,
+      curve: "monotone",
+    }),
+    line({ curve: "monotone" }),
+    dot({ pointRadius: 3 }),
+  ],
+  annotations: [range({ y: [75, 92], label: "steady band" }), rule({ y: 80 })],
   axes: { x: { label: "Elapsed time (s)" }, y: { label: "Active chunks" } },
   motion: "auto",
+  easing: cubicBezier(0.16, 1, 0.3, 1),
 });
 
-trend.fragment;
-trend.handles.series.active.line;
+export const streamCard = figure("stream-card", { title: "Active chunks" }, (f) => {
+  const chart = f.add(trend);
+  const card = f.card({
+    eyebrow: "STREAM SAMPLE",
+    title: "Active chunks",
+    badge: "87 active",
+    extras: [chart],
+    frame: {
+      fill: linearGradient([
+        { at: 0, color: "surfaceRaised" },
+        { at: 1, color: "surfaceMuted" },
+      ]),
+      stroke: "border",
+    },
+  });
+  f.root(card);
+  f.sequence([f.reveal(card), f.reveal(chart)]);
+});
 ```
 
 <p align="center">
-  <img src="./docs/assets/readme/throughput-over-time.svg" alt="A layered time series rendered by Kineglyph" width="960">
+  <img src="./docs/assets/readme/throughput-over-time.svg" alt="A gradient area plot composed with live values and measurements inside a card" width="960">
 </p>
 
 Bars, stacked bars, lines, areas, dots, heatmaps, and sparklines share the same theme, interaction,
@@ -142,22 +169,22 @@ matrix.handles.cells?.[1]?.[1];
 
 ## Animate the same scene
 
-Timelines are serializable keyframe tracks. The browser runtime applies their resolved frames with
-Anime.js. The exporter samples those tracks at fixed times, so the live and recorded versions use
-the same geometry.
+Timelines are serializable keyframe tracks. Curves can be named presets, cubic Bézier data, or a
+damped spring. The browser runtime and exporter evaluate the same curve at arbitrary timestamps,
+so seeking, live playback, and recorded frames agree.
 
 <p align="center">
-  <img src="./docs/assets/readme/throughput-over-time@2x.gif" alt="A high-resolution Kineglyph animation drawing a time series" width="800">
+  <img src="./docs/assets/readme/throughput-over-time@2x.gif" alt="A Kineglyph card animating its header, gradient plot, and measurements in sequence" width="800">
 </p>
 
-The GIF above is 1600 pixels wide and displayed at half size.
+The GIF above is rendered at 2× and displayed smaller to keep edges and type crisp.
 
 ```sh
 kineglyph-export gif \
   --scene './packages/scenes/dist/index.js#throughputOverTimeScene' \
-  --theme './packages/scenes/dist/index.js#themes.nucleation' \
+  --theme './packages/scenes/dist/index.js#throughputPaperTheme' \
   --width-container 960 \
-  --width 1600 \
+  --width 1920 \
   --fps 12 \
   --out throughput.gif
 ```
@@ -165,6 +192,23 @@ kineglyph-export gif \
 State machines can drive the same timeline. Events, guards, variables, actions, and derived
 signals can bind to copy, visibility, tone, opacity, progress, and geometry. Random-access state
 resolution keeps tests and exports deterministic.
+
+```ts
+import { cubicBezier, figure, spring } from "@kineglyph/core";
+
+const draw = cubicBezier(0.16, 1, 0.3, 1);
+const settle = spring({ frequency: 9.5, damping: 7.5 });
+
+export const entrance = figure("entrance", { title: "Entrance" }, (f) => {
+  const heading = f.title("A measured entrance");
+  const stats = [f.card({ title: "71.5" }), f.card({ title: "88" })];
+  f.root(f.stack([heading, f.row(stats)]));
+  f.sequence([
+    f.reveal(heading, { offset: 8, easing: draw }),
+    f.reveal(stats, { scale: 0.97, stagger: 90, easing: settle }),
+  ]);
+});
+```
 
 ## Embed it
 

@@ -22,6 +22,71 @@ export interface ResponsiveMap<T> {
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info" | "muted";
 export type Paint = Tone | SemanticColorToken | "none";
+
+export interface GradientStop {
+  /** Position along the gradient, clamped to 0..1 when resolved. */
+  readonly at: number;
+  readonly color: Paint;
+  /** Stop alpha, clamped to 0..1. Defaults to 1. */
+  readonly opacity?: number;
+}
+
+export interface LinearGradientPaint {
+  readonly type: "linear-gradient";
+  readonly stops: readonly GradientStop[];
+  /** Degrees clockwise: 0 goes left to right, 90 top to bottom. */
+  readonly angle?: number;
+  readonly spread?: "pad" | "reflect" | "repeat";
+}
+
+export interface RadialGradientPaint {
+  readonly type: "radial-gradient";
+  readonly stops: readonly GradientStop[];
+  /** Fractions of the painted box. */
+  readonly center?: readonly [x: number, y: number];
+  readonly focalPoint?: readonly [x: number, y: number];
+  readonly radius?: number;
+  readonly spread?: "pad" | "reflect" | "repeat";
+}
+
+/** A solid semantic paint or a serializable gradient. */
+export type FillPaint = Paint | LinearGradientPaint | RadialGradientPaint;
+
+export function linearGradient(
+  stops: readonly GradientStop[],
+  options: Omit<LinearGradientPaint, "type" | "stops"> = {},
+): LinearGradientPaint {
+  return { type: "linear-gradient", stops, ...options };
+}
+
+export function radialGradient(
+  stops: readonly GradientStop[],
+  options: Omit<RadialGradientPaint, "type" | "stops"> = {},
+): RadialGradientPaint {
+  return { type: "radial-gradient", stops, ...options };
+}
+
+/** A two-stop gradient from one alpha to another. */
+export function alphaGradient(
+  color: Paint,
+  options: {
+    readonly from?: number;
+    readonly to?: number;
+    readonly angle?: number;
+    readonly spread?: LinearGradientPaint["spread"];
+  } = {},
+): LinearGradientPaint {
+  return linearGradient(
+    [
+      { at: 0, color, opacity: options.from ?? 1 },
+      { at: 1, color, opacity: options.to ?? 0 },
+    ],
+    {
+      angle: options.angle ?? 90,
+      ...(options.spread === undefined ? {} : { spread: options.spread }),
+    },
+  );
+}
 /** Pixels, share of surplus, content size, or a percentage of the parent content box. */
 export type Length = number | "fill" | "hug" | `${number}%`;
 export type Insets =
@@ -84,7 +149,7 @@ export interface EdgeBindings {
 }
 
 export interface FrameStyle {
-  readonly fill?: Paint;
+  readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly radius?: number;
@@ -155,7 +220,7 @@ export interface GroupNode extends BaseNode {
 
 export interface RectMark extends BaseNode {
   readonly type: "rect";
-  readonly fill?: Paint;
+  readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly radius?: number;
@@ -165,7 +230,7 @@ export interface RectMark extends BaseNode {
 export interface CircleMark extends BaseNode {
   readonly type: "circle";
   readonly radius?: Responsive<number>;
-  readonly fill?: Paint;
+  readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly dash?: "solid" | "dashed" | "dotted";
@@ -196,7 +261,7 @@ export interface PathMark extends BaseNode {
   /** Path data authored in a local box of `viewBox` size and scaled uniformly to fit. */
   readonly d: string;
   readonly viewBox: { readonly width: number; readonly height: number };
-  readonly fill?: Paint;
+  readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly dash?: "solid" | "dashed" | "dotted";
@@ -212,7 +277,7 @@ export interface PolylineMark extends BaseNode {
   readonly closed?: boolean;
   /** Close down/up to a horizontal baseline (fraction or px, matching `space`) to make an area. */
   readonly baseline?: number;
-  readonly fill?: Paint;
+  readonly fill?: FillPaint;
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly dash?: "solid" | "dashed" | "dotted";

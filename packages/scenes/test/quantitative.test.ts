@@ -115,6 +115,32 @@ describe("quantitative examples", () => {
     ).toHaveLength(16);
   });
 
+  it("composes the throughput plot inside a gradient card", () => {
+    const resolved = resolveScene(throughputOverTimeScene, {
+      width: 960,
+      theme: themes.nucleation,
+    });
+    expect(resolved.nodes.find((node) => node.id === "stream-card")?.appearance.fill).toMatchObject(
+      {
+        type: "linear-gradient",
+        angle: 118,
+      },
+    );
+    expect(
+      resolved.nodes.find((node) => node.id === "stream-trend:area:active")?.appearance.fill,
+    ).toMatchObject({
+      type: "linear-gradient",
+      angle: 90,
+      stops: [
+        { color: themes.nucleation.colors.chart1, opacity: 0.5 },
+        { color: themes.nucleation.colors.chart1, opacity: 0.015 },
+      ],
+    });
+    expect(resolved.nodes.find((node) => node.id === "stream-trend")?.parent).toBe("stream-card");
+    for (const id of ["average", "peak", "settled", "target"])
+      expect(resolved.nodes.find((node) => node.id === id)?.parent).toBe("sample-stats");
+  });
+
   it("uses machine state to change both chart emphasis and interpretation", () => {
     const machine = bottleneckLensScene.machine;
     expect(machine).toBeDefined();

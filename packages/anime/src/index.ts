@@ -2,7 +2,7 @@ import { createScope, createTimer, type Scope, type Timer } from "animejs";
 import {
   Timeline,
   seekTimeline,
-  type EasingName,
+  type Easing,
   type ResolvedEdge,
   type ResolvedFrame,
   type ResolvedNode,
@@ -45,7 +45,7 @@ export interface AnimationStep {
   readonly id: string;
   readonly start: number;
   readonly duration: number;
-  readonly easing?: EasingName;
+  readonly easing?: Easing;
   readonly cue: AnimationCue;
 }
 

@@ -39,16 +39,31 @@ Use `bar()`, `groupedBar()`, `stackedBar()`, `line()`, `area()`, `dot()`, or `sp
 Cartesian marks can be layered in paint order while sharing scales and one handle namespace:
 
 ```ts
+import { alphaGradient, cubicBezier } from "@kineglyph/core";
+
 const trend = plot(rows, {
   x: "call",
   y: "dense",
-  marks: [area({ tone: "chart1" }), line(), dot()],
+  marks: [
+    area({
+      fill: alphaGradient("chart1", { from: 0.5, to: 0, angle: 90 }),
+      fillOpacity: 1,
+    }),
+    line(),
+    dot(),
+  ],
+  easing: cubicBezier(0.16, 1, 0.3, 1),
 });
 
 trend.handles.series.dense.area;
 trend.handles.series.dense.line;
 trend.handles.series.dense.dots;
 ```
+
+`fill` accepts a solid theme paint or a linear/radial gradient. `fillOpacity` controls the whole
+bar or area independently of each gradient stop's opacity. `easing` accepts a named curve, cubic
+Bézier data, or a damped spring and is copied to every generated motion track. Because the result
+is a normal scene fragment, `f.add(trend)` can place it inside a card, grid, or custom composition.
 
 Bars are grouped by default. `stackedBar()` (or `stack: true`) makes a diverging stack: positive
 and negative values accumulate independently around zero. Missing values remain gaps. Scale
@@ -108,8 +123,8 @@ last value wins) and produce a diagnostic. A `negativeTone` enables a zero-centr
 ## Annotations, motion, and accessibility
 
 `rule()`, `range()`, `pointLabel()`, and `calloutAt()` return serialisable annotation data. Motion
-is `auto` (mark-appropriate rise, draw, pop, or sweep tracks) or `none`; tracks are relative
-fragment tracks that `figure().add()` can schedule.
+is `auto` (mark-appropriate rise, draw, pop, or sweep tracks) or `none`; `duration` and `easing`
+shape the preset. Tracks are relative fragment tracks that `figure().add()` can schedule.
 
 Every data mark carries structured inspection fields. Series are roving focus groups, so dense
 charts remain one tab stop per series. Above the interactive mark cap, the compiler emits a

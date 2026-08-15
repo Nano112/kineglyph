@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { createTheme, resolveScene, seekTimeline, type SceneDefinition } from "@kineglyph/core";
+import {
+  alphaGradient,
+  createTheme,
+  linearGradient,
+  radialGradient,
+  resolveScene,
+  seekTimeline,
+  type SceneDefinition,
+} from "@kineglyph/core";
 import {
   edgeDashArray,
   markerId,
@@ -10,6 +18,47 @@ import {
 } from "../src/index.js";
 
 const theme = createTheme();
+
+const gradientScene: SceneDefinition = {
+  schemaVersion: 2,
+  id: "gradients",
+  title: "Gradient fills",
+  root: {
+    id: "root",
+    type: "group",
+    layout: "row",
+    children: [
+      {
+        id: "area",
+        type: "rect",
+        width: 160,
+        height: 80,
+        fill: alphaGradient("chart1", { from: 0.7, angle: 90 }),
+      },
+      {
+        id: "blend",
+        type: "circle",
+        radius: 40,
+        fill: linearGradient([
+          { at: 0, color: "chart1" },
+          { at: 1, color: "chart2" },
+        ]),
+      },
+      {
+        id: "glow",
+        type: "circle",
+        radius: 40,
+        fill: radialGradient(
+          [
+            { at: 0, color: "accent", opacity: 0.4 },
+            { at: 1, color: "accent", opacity: 0 },
+          ],
+          { center: [0.35, 0.4], radius: 0.8 },
+        ),
+      },
+    ],
+  },
+};
 
 const markerScene: SceneDefinition = {
   schemaVersion: 2,
@@ -121,6 +170,20 @@ const kindsScene: SceneDefinition = {
     ],
   },
 };
+
+describe("gradient fills", () => {
+  it("emits deterministic SVG definitions for semantic and alpha stops", () => {
+    const svg = renderSvg(resolveScene(gradientScene, { width: 420, theme }));
+    expect(svg).toContain('<linearGradient id="kineglyph-gradients-paint-area-fill"');
+    expect(svg).toContain('data-gradient-of="area"');
+    expect(svg).toContain('offset="0%" stop-color="#5b5ce2" stop-opacity="0.7"');
+    expect(svg).toContain('offset="100%" stop-color="#5b5ce2" stop-opacity="0"');
+    expect(svg).toContain('fill="url(#kineglyph-gradients-paint-area-fill)"');
+    expect(svg).toContain('fill="url(#kineglyph-gradients-paint-blend-fill)"');
+    expect(svg).toContain('<radialGradient id="kineglyph-gradients-paint-glow-fill"');
+    expect(svg).toContain('fill="url(#kineglyph-gradients-paint-glow-fill)"');
+  });
+});
 
 describe("structured scene rendering", () => {
   it("emits every marker style with root-scoped ids and derived dash patterns", () => {

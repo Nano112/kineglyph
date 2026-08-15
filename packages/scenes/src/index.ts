@@ -13,4 +13,4 @@ export { readmeCoverScene, readmeCoverTheme } from "./scenes/readme-cover.js";
 export { sdfAndFieldsScene } from "./scenes/sdf-and-fields.js";
 export { shapesAndBrushesScene } from "./scenes/shapes-and-brushes.js";
 export { smartSimulationScene } from "./scenes/smart-simulation.js";
-export { throughputOverTimeScene } from "./scenes/throughput-over-time.js";
+export { throughputOverTimeScene, throughputPaperTheme } from "./scenes/throughput-over-time.js";

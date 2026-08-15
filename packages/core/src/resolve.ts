@@ -35,6 +35,7 @@ import {
   type Align,
   type Anchor,
   type GroupLayout,
+  type FillPaint,
   type Insets,
   type Justify,
   type LayoutName,
@@ -46,7 +47,14 @@ import {
   type SceneNodeType,
 } from "./scene.js";
 import { measureText, wrapText, type TextFont, type TextLine } from "./text.js";
-import { defaultTheme, paintColor, projectTheme, withAlpha, type ThemeTokens } from "./theme.js";
+import {
+  defaultTheme,
+  paintColor,
+  projectTheme,
+  resolveFillPaint,
+  withAlpha,
+  type ThemeTokens,
+} from "./theme.js";
 
 export interface ResolveSceneOptions {
   readonly width: number;
@@ -1257,8 +1265,8 @@ function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance
   const node = view.node;
   const stroke = (paint: Paint | undefined, fallback: string): string =>
     paintColor(paint, theme, "stroke", fallback);
-  const fill = (paint: Paint | undefined, fallback: string): string =>
-    paintColor(paint, theme, "fill", fallback);
+  const fill = (paint: FillPaint | undefined, fallback: string) =>
+    resolveFillPaint(paint, theme, fallback);
   switch (node.type) {
     case "group": {
       const frame = node.frame;
@@ -1534,7 +1542,7 @@ function emit(
             name: node.icon,
             size: view.iconSize,
             color: iconColor ?? theme.colors.accent,
-            background: appearance.fill,
+            background: paintColor(node.background, theme, "fill", "none"),
           },
         }
       : {}),

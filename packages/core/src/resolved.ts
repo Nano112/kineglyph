@@ -1,3 +1,4 @@
+import type { Easing } from "./easing.js";
 import type { Point, Rect } from "./schema.js";
 import type { ThemeTokens } from "./theme.js";
 import type { TextLine } from "./text.js";
@@ -12,8 +13,32 @@ import type {
 } from "./scene.js";
 import type { MachineState, StateMachineDefinition, VariableValue } from "./machine.js";
 
+export interface ResolvedGradientStop {
+  readonly at: number;
+  readonly color: string;
+  readonly opacity: number;
+}
+
+export interface ResolvedLinearGradientPaint {
+  readonly type: "linear-gradient";
+  readonly stops: readonly ResolvedGradientStop[];
+  readonly angle: number;
+  readonly spread: "pad" | "reflect" | "repeat";
+}
+
+export interface ResolvedRadialGradientPaint {
+  readonly type: "radial-gradient";
+  readonly stops: readonly ResolvedGradientStop[];
+  readonly center: readonly [x: number, y: number];
+  readonly focalPoint: readonly [x: number, y: number];
+  readonly radius: number;
+  readonly spread: "pad" | "reflect" | "repeat";
+}
+
+export type ResolvedFillPaint = string | ResolvedLinearGradientPaint | ResolvedRadialGradientPaint;
+
 export interface ResolvedNodeAppearance {
-  readonly fill: string;
+  readonly fill: ResolvedFillPaint;
   readonly stroke: string;
   readonly strokeWidth: number;
   readonly radius: number;
@@ -244,7 +269,7 @@ export type TimelineProperty =
 export interface TimelineKeyframe {
   readonly time: number;
   readonly value: number;
-  readonly easing?: "linear" | "easeIn" | "easeOut" | "easeInOut";
+  readonly easing?: Easing;
 }
 
 export interface TimelineTrack {

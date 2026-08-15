@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cubicBezier, spring } from "./easing.js";
 import { figure, type FigureBuilder } from "./figure.js";
 import type { SceneFragment } from "./fragment.js";
 import { resolveScene } from "./resolve.js";
@@ -319,6 +320,21 @@ describe("figure(): motion", () => {
     expect(scene.timeline?.duration).toBe(2910);
     for (const width of WIDTHS)
       expect(() => seekTimeline(resolveScene(scene, { width, theme }), 1500)).not.toThrow();
+  });
+
+  it("applies custom easing to motion presets as serializable data", () => {
+    const entrance = cubicBezier(0.16, 1, 0.3, 1);
+    const settle = spring({ frequency: 9.5, damping: 7.5 });
+    const scene = figure("curves", { title: "Curves" }, (f) => {
+      const card = f.card({ title: "Sample" });
+      f.root(card);
+      f.sequence([
+        f.reveal(card, { offset: 8, easing: entrance }),
+        f.reveal(card, { scale: 0.96, easing: settle }),
+      ]);
+    });
+    expect(track(scene, "card-sample:opacity").keyframes.at(-1)?.easing).toEqual(entrance);
+    expect(track(scene, "card-sample:scale").keyframes.at(-1)?.easing).toEqual(settle);
   });
 
   it("keeps keyframes strictly increasing when steps start at zero", () => {

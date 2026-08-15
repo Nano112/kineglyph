@@ -22,6 +22,7 @@ import {
   track,
 } from "./authoring.js";
 import { scopeFragment, shiftTracks, tracksDuration, type SceneFragment } from "./fragment.js";
+import type { Easing } from "./easing.js";
 import { validateStateMachine, type StateMachineDefinition } from "./machine.js";
 import {
   card,
@@ -150,6 +151,8 @@ export interface MotionOptions {
   readonly duration?: number;
   /** Delay between successive targets when the target is an array (default 0). */
   readonly stagger?: number;
+  /** Named, cubic Bézier, or spring easing applied to the preset's interpolated keyframes. */
+  readonly easing?: Easing;
 }
 export interface RevealOptions extends MotionOptions {
   /** Slide-in offset in pixels along y (starts offset, settles at 0). */
@@ -344,11 +347,22 @@ function ramp(
   end: number,
   from: number,
   to: number,
+  easing: Easing = "easeOut",
 ): TimelineTrack {
   const frames: TimelineKeyframe[] = [];
   if (start > 0) frames.push({ time: 0, value: from });
-  frames.push({ time: start, value: from }, { time: end, value: to, easing: "easeOut" });
+  frames.push({ time: start, value: from }, { time: end, value: to, easing });
   return tidy(track(target, property, frames));
+}
+
+function withEasing(tracks: readonly TimelineTrack[], easing: Easing | undefined): TimelineTrack[] {
+  if (easing === undefined) return [...tracks];
+  return tracks.map((entry) => ({
+    ...entry,
+    keyframes: entry.keyframes.map((frame) =>
+      frame.easing === undefined ? frame : { ...frame, easing },
+    ),
+  }));
 }
 
 function inNamespace(id: string, scope: string): boolean {
@@ -559,11 +573,11 @@ function createBuilder(
     return { kind: "motion", label, duration: tracksDuration(build(0)), tracks: build };
   };
 
-  const fragmentStep = (record: FragmentRecord): MotionStep => ({
+  const fragmentStep = (record: FragmentRecord, easing?: Easing): MotionStep => ({
     kind: "motion",
     label: `reveal(${record.scope})`,
     duration: record.duration,
-    tracks: (start) => shiftTracks(record.tracks, start),
+    tracks: (start) => withEasing(shiftTracks(record.tracks, start), easing),
   });
 
   const validTime = (time: number, helper: string): number => {
@@ -617,11 +631,14 @@ function createBuilder(
         subject,
         options as FigureGroupOptions,
       );
-    const { duration, stagger = 0 } = options as FlowOptions;
+    const { duration, stagger = 0, easing } = options as FlowOptions;
     const targets = resolveEdges(subject, "f.flow");
-    return step(`flow(${targets.join(",")})`, targets, stagger, (id, start) => [
-      flowTracks(id, start, duration === undefined ? undefined : start + duration),
-    ]);
+    return step(`flow(${targets.join(",")})`, targets, stagger, (id, start) =>
+      withEasing(
+        [flowTracks(id, start, duration === undefined ? undefined : start + duration)],
+        easing,
+      ),
+    );
   }
 
   const builder: FigureBuilder = {
@@ -793,7 +810,7 @@ function createBuilder(
     },
 
     reveal(target, options = {}) {
-      const { duration = DEFAULTS.reveal, stagger = 0, offset, scale } = options;
+      const { duration = DEFAULTS.reveal, stagger = 0, offset, scale, easing } = options;
       // Plain fades work on edges too; slide/scale are node-only transforms.
       const resolved = resolveTargets(
         target,
@@ -801,54 +818,57 @@ function createBuilder(
         offset === undefined && scale === undefined,
       );
       if (resolved.fragment !== undefined && resolved.fragment.tracks.length > 0)
-        return fragmentStep(resolved.fragment);
+        return fragmentStep(resolved.fragment, easing);
       return step(`reveal(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) =>
-        revealTracks(id, start, start + duration, {
-          ...(scale === undefined ? {} : { scale }),
-          ...(offset === undefined ? {} : { offset }),
-        }),
+        withEasing(
+          revealTracks(id, start, start + duration, {
+            ...(scale === undefined ? {} : { scale }),
+            ...(offset === undefined ? {} : { offset }),
+          }),
+          easing,
+        ),
       );
     },
     draw(edge, options = {}) {
-      const { duration = DEFAULTS.draw, stagger = 0 } = options;
+      const { duration = DEFAULTS.draw, stagger = 0, easing } = options;
       const targets = resolveEdges(edge, "f.draw");
       return step(`draw(${targets.join(",")})`, targets, stagger, (id, start) =>
-        drawEdge(id, start, start + duration),
+        withEasing(drawEdge(id, start, start + duration), easing),
       );
     },
     pulse(target, options = {}) {
-      const { duration = DEFAULTS.pulse, stagger = 0 } = options;
+      const { duration = DEFAULTS.pulse, stagger = 0, easing } = options;
       const resolved = resolveTargets(target, "f.pulse", true);
-      return step(`pulse(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
-        pulseTracks(id, start, duration),
-      ]);
+      return step(`pulse(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) =>
+        withEasing([pulseTracks(id, start, duration)], easing),
+      );
     },
     highlight(target, options = {}) {
-      const { duration = DEFAULTS.highlight, stagger = 0, peak = 1, rest = peak } = options;
+      const { duration = DEFAULTS.highlight, stagger = 0, peak = 1, rest = peak, easing } = options;
       const resolved = resolveTargets(target, "f.highlight", true);
-      return step(`highlight(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
-        highlightTracks(id, start, start + duration, peak, rest),
-      ]);
+      return step(`highlight(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) =>
+        withEasing([highlightTracks(id, start, start + duration, peak, rest)], easing),
+      );
     },
     progress(target, options = {}) {
-      const { duration = DEFAULTS.progress, stagger = 0, from = 0, to = 1 } = options;
+      const { duration = DEFAULTS.progress, stagger = 0, from = 0, to = 1, easing } = options;
       const resolved = resolveTargets(target, "f.progress", true);
-      return step(`progress(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
-        progressTo(id, start, start + duration, from, to),
-      ]);
+      return step(`progress(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) =>
+        withEasing([progressTo(id, start, start + duration, from, to)], easing),
+      );
     },
     rise(target, options = {}) {
-      const { duration = DEFAULTS.rise, stagger = 0 } = options;
+      const { duration = DEFAULTS.rise, stagger = 0, easing } = options;
       const resolved = resolveTargets(target, "f.rise");
       return step(`rise(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
-        ramp(id, "revealY", start, start + duration, 0, 1),
+        ramp(id, "revealY", start, start + duration, 0, 1, easing),
       ]);
     },
     wipe(target, options = {}) {
-      const { duration = DEFAULTS.wipe, stagger = 0 } = options;
+      const { duration = DEFAULTS.wipe, stagger = 0, easing } = options;
       const resolved = resolveTargets(target, "f.wipe");
       return step(`wipe(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
-        ramp(id, "revealX", start, start + duration, 0, 1),
+        ramp(id, "revealX", start, start + duration, 0, 1, easing),
       ]);
     },
 

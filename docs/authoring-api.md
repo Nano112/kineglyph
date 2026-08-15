@@ -77,7 +77,7 @@ the builder path in the message.
 | `f.add(fragment, opts)`                                                                                                                                                                                                    | `SceneNode` (the fragment root) | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
 | `f.raw(node)`                                                                                                                                                                                                              | the node                        | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `f.connect(from, to, opts)`                                                                                                                                                                                                | `EdgeDefinition`                | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
-| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger` for arrays; `pulse`/`highlight`/`progress` and plain `reveal` also accept edges, `rise`/`wipe`/slide/scale are node-only and throw otherwise; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                        |
+| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `pulse`/`highlight`/`progress` and plain `reveal` also accept edges, `rise`/`wipe`/slide/scale are node-only and throw otherwise; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                |
 | `f.sequence(steps, opts)`                                                                                                                                                                                                  | `void`                          | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
 | `f.at(time, ...steps)`                                                                                                                                                                                                     | `void`                          | absolute scheduling                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `f.machine(definition)`, `f.controls(list)`                                                                                                                                                                                | `void`                          | machine `id` defaults to `${figureId}-machine`; control ids default to a slug of the label                                                                                                                                                                                                                                                                                                                                                              |
@@ -91,6 +91,60 @@ builder also rejects created nodes that ended up outside the root, controls with
 invalid machines (`validateStateMachine` against the created node ids), and bindings that name a
 signal or variable the machine does not declare — the same problems `resolveScene` would surface
 later, but with the node and property named.
+
+### Fill paint
+
+`FrameStyle.fill` and the fill on rectangles, circles, paths, and polylines accept theme-aware
+linear or radial gradients. Stops are serializable data; alpha belongs to each stop.
+
+```ts
+import { alphaGradient, linearGradient, radialGradient } from "@kineglyph/core";
+
+const area = alphaGradient("chart1", { from: 0.5, to: 0, angle: 90 });
+const card = linearGradient(
+  [
+    { at: 0, color: "surfaceRaised" },
+    { at: 1, color: "surfaceMuted" },
+  ],
+  { angle: 118 },
+);
+const glow = radialGradient(
+  [
+    { at: 0, color: "accent", opacity: 0.35 },
+    { at: 1, color: "accent", opacity: 0 },
+  ],
+  { center: [0.35, 0.25], radius: 0.8 },
+);
+```
+
+Angles run clockwise: `0` is left-to-right and `90` is top-to-bottom. Stop positions, center,
+focal point, radius, and spread mode are explicit. The resolver substitutes theme tokens before
+SVG or raster export, so one gradient definition works under every theme.
+
+### Easing
+
+Easing stays serializable. Use a named curve for a familiar default, `cubicBezier()` for exact
+control, or `spring()` for a damped overshoot. The same evaluator drives timeline seeking, browser
+playback, and frame export; no function callbacks or renderer-only curve names enter the scene.
+
+```ts
+import { cubicBezier, spring, track } from "@kineglyph/core";
+
+const draw = cubicBezier(0.16, 1, 0.3, 1);
+const settle = spring({ frequency: 9.5, damping: 7.5 });
+
+f.reveal(chart, { duration: 900, easing: draw });
+f.reveal(stats, { stagger: 90, scale: 0.97, easing: settle });
+
+const custom = track("path", "progress", [
+  { time: 0, value: 0 },
+  { time: 700, value: 1, easing: "easeOutExpo" },
+]);
+```
+
+Named curves are `linear`, `easeIn`, `easeOut`, `easeInOut`, their cubic variants,
+`easeOutBack`, and `easeOutExpo`. Cubic Bézier x handles must remain between 0 and 1; y handles and
+springs may overshoot. Exact endpoints make loops and deterministic snapshots safe.
 
 Implementation notes (`packages/core/src/figure.ts`; the cookbook is `cookbook.md`):
 
@@ -134,7 +188,8 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
   tick arrays) and `band` (frozen category order = first appearance, `padding`).
 - Series marks: `bar` (grouped by default, stacked via `stackedBar`/`stack: true`, negatives
   diverge below the baseline), `line`, `area`, `scatter`/`dot`; `heatmap` (sequential or
-  diverging ramp); `sparkline` (minimal mode).
+  diverging ramp); `sparkline` (minimal mode). Bar and area helpers accept `fill` and
+  `fillOpacity`; line and point color remains `tone`.
 - Axes, gridlines, derived legends, value labels (`auto` uses layout-aware rules), annotations:
   reference lines/bands, point labels, datum callouts.
 - Output: a root group `${id}` containing an optional title/legend and `${id}:area` — a
@@ -144,8 +199,9 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
   carries `inspect` (role, title, fields such as Series, Category, Value) and `revealAnchor` where
   relevant.
 - Motion is `auto` or `none`. `auto` emits mark-appropriate relative tracks: bars rise, lines and
-  areas draw before their points appear, and heatmap cells sweep row by row. `figure()` schedules
-  those tracks with `f.sequence`; `none` emits no plot motion.
+  areas draw before their points appear, and heatmap cells sweep row by row. `duration` and
+  `easing` control the generated tracks. `figure()` schedules those tracks with `f.sequence`;
+  `none` emits no plot motion.
 - Determinism: equal input → byte-identical fragment; category order and domains are frozen and
   reported in `domains`/`ticks`.
 

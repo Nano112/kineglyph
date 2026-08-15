@@ -1,4 +1,5 @@
-export type EasingName = "linear" | "easeIn" | "easeOut" | "easeInOut";
+import { applyEasing, type Easing } from "./easing.js";
+
 export type TimelinePhase = "before" | "active" | "after";
 export type SeekDirection = "forward" | "backward" | "none";
 
@@ -6,7 +7,7 @@ export interface TimelineSegment<T = unknown> {
   readonly id: string;
   readonly start: number;
   readonly duration: number;
-  readonly easing?: EasingName;
+  readonly easing?: Easing;
   readonly data?: T;
 }
 
@@ -54,19 +55,6 @@ function assertTime(value: number, label: string): void {
 
 function clamp(value: number, lower: number, upper: number): number {
   return Math.min(upper, Math.max(lower, value));
-}
-
-function ease(name: EasingName, progress: number): number {
-  switch (name) {
-    case "easeIn":
-      return progress * progress;
-    case "easeOut":
-      return 1 - (1 - progress) ** 2;
-    case "easeInOut":
-      return progress < 0.5 ? 2 * progress * progress : 1 - (-2 * progress + 2) ** 2 / 2;
-    case "linear":
-      return progress;
-  }
 }
 
 export class Timeline<TSegment = unknown, TMarker = unknown> {
@@ -143,7 +131,7 @@ export class Timeline<TSegment = unknown, TMarker = unknown> {
         phase,
         localTime: clamp(currentTime - segment.start, 0, segment.duration),
         progress,
-        easedProgress: ease(segment.easing ?? "linear", progress),
+        easedProgress: applyEasing(segment.easing, progress),
         data: segment.data,
       };
     });

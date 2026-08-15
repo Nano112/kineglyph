@@ -1,4 +1,5 @@
 export * from "./authoring.js";
+export * from "./easing.js";
 export * from "./edges.js";
 export * from "./figure.js";
 export * from "./fragment.js";

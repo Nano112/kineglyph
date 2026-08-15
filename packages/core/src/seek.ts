@@ -1,11 +1,11 @@
 import { packetPositions } from "./edges.js";
+import { applyEasing } from "./easing.js";
 import type {
   AnimationTimeline,
   ResolvedEdge,
   ResolvedFrame,
   ResolvedNode,
   ResolvedScene,
-  TimelineKeyframe,
   TimelineTrack,
 } from "./resolved.js";
 
@@ -30,19 +30,6 @@ const NODE_PROPERTIES: ReadonlySet<string> = new Set([
   "revealX",
   "revealY",
 ]);
-
-function easing(name: TimelineKeyframe["easing"], t: number): number {
-  switch (name ?? "linear") {
-    case "easeIn":
-      return t * t;
-    case "easeOut":
-      return 1 - (1 - t) ** 2;
-    case "easeInOut":
-      return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-    case "linear":
-      return t;
-  }
-}
 
 function validateTimeline(timeline: AnimationTimeline, scene: ResolvedScene): void {
   if (!Number.isFinite(timeline.duration) || timeline.duration < 0) {
@@ -103,7 +90,7 @@ function evaluateTrack(track: TimelineTrack, time: number): number {
     const left = track.keyframes[index - 1];
     if (left !== undefined && right !== undefined && time <= right.time) {
       const progress = (time - left.time) / (right.time - left.time);
-      return left.value + (right.value - left.value) * easing(right.easing, progress);
+      return left.value + (right.value - left.value) * applyEasing(right.easing, progress);
     }
   }
   return last.value;

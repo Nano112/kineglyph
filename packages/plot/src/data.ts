@@ -393,6 +393,8 @@ export function inferSpec(rows: readonly object[], options: PlotOptions): Inferr
   for (const layer of effectiveLayers) {
     const styleFields: Partial<SeriesSpec> = {
       ...(layer.tone === undefined ? {} : { tone: layer.tone }),
+      ...(layer.fill === undefined ? {} : { fill: layer.fill }),
+      ...(layer.fillOpacity === undefined ? {} : { fillOpacity: layer.fillOpacity }),
       ...(layer.curve === undefined ? {} : { curve: layer.curve }),
       ...(layer.dash === undefined ? {} : { dash: layer.dash }),
       ...(layer.pointRadius === undefined ? {} : { pointRadius: layer.pointRadius }),

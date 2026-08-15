@@ -4,8 +4,9 @@ import type {
   SemanticSpacingToken,
   SemanticTextStyle,
 } from "./schema.js";
-import type { ResolvedTheme } from "./resolved.js";
-import type { Paint, Tone } from "./scene.js";
+import type { Easing } from "./easing.js";
+import type { ResolvedFillPaint, ResolvedGradientStop, ResolvedTheme } from "./resolved.js";
+import type { FillPaint, Paint, Tone } from "./scene.js";
 
 export interface FontToken {
   readonly family: string;
@@ -26,7 +27,7 @@ export interface MotionTokens {
   readonly fast: number;
   readonly normal: number;
   readonly slow: number;
-  readonly easing?: "linear" | "easeIn" | "easeOut" | "easeInOut";
+  readonly easing?: Easing;
 }
 
 export interface OrnamentTokens {
@@ -198,6 +199,53 @@ export function paintColor(
   if (isTone(paint)) return toneColor(paint, theme, purpose);
   const token = theme.colors[paint as SemanticColorToken];
   return typeof token === "string" ? token : fallback;
+}
+
+function gradientStops(
+  stops: readonly { readonly at: number; readonly color: Paint; readonly opacity?: number }[],
+  theme: ThemeTokens,
+  fallback: string,
+): readonly ResolvedGradientStop[] {
+  const resolved = stops
+    .map((stop) => ({
+      at: Math.min(1, Math.max(0, Number.isFinite(stop.at) ? stop.at : 0)),
+      color: paintColor(stop.color, theme, "fill", fallback),
+      opacity: Math.min(1, Math.max(0, Number.isFinite(stop.opacity) ? (stop.opacity ?? 1) : 1)),
+    }))
+    .sort((a, b) => a.at - b.at);
+  return resolved.length > 0
+    ? resolved
+    : [
+        { at: 0, color: fallback, opacity: 1 },
+        { at: 1, color: fallback, opacity: 1 },
+      ];
+}
+
+/** Resolves semantic colours inside a fill while preserving its gradient geometry. */
+export function resolveFillPaint(
+  paint: FillPaint | undefined,
+  theme: ThemeTokens,
+  fallback: string,
+): ResolvedFillPaint {
+  if (paint === undefined || typeof paint === "string")
+    return paintColor(paint, theme, "fill", fallback);
+  if (paint.type === "linear-gradient")
+    return {
+      type: paint.type,
+      stops: gradientStops(paint.stops, theme, fallback),
+      angle: Number.isFinite(paint.angle) ? (paint.angle ?? 0) : 0,
+      spread: paint.spread ?? "pad",
+    };
+  const center = paint.center ?? [0.5, 0.5];
+  const focalPoint = paint.focalPoint ?? center;
+  return {
+    type: paint.type,
+    stops: gradientStops(paint.stops, theme, fallback),
+    center: [Math.min(1, Math.max(0, center[0])), Math.min(1, Math.max(0, center[1]))],
+    focalPoint: [Math.min(1, Math.max(0, focalPoint[0])), Math.min(1, Math.max(0, focalPoint[1]))],
+    radius: Math.max(0, Number.isFinite(paint.radius) ? (paint.radius ?? 0.5) : 0.5),
+    spread: paint.spread ?? "pad",
+  };
 }
 
 /** Deterministic hex colour mixing; non-hex inputs fall back to whichever side dominates. */

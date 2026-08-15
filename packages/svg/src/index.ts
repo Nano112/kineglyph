@@ -284,7 +284,86 @@ function renderDefinitions(context: RenderContext, edges: UnknownRecord[]): stri
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([, markup]) => markup),
   );
+  const gradients = [...context.nodesById.entries()]
+    .map(([id, node]) => renderGradientDefinition(id, record(node.appearance).fill, context))
+    .filter((value) => value.length > 0)
+    .sort();
+  parts.push(...gradients);
   return parts.length === 0 ? "" : element("defs", [], parts.join(""));
+}
+
+function gradientId(rootId: string, nodeId: string): string {
+  return `${rootId}-paint-${domId(nodeId)}-fill`;
+}
+
+function gradientFill(value: unknown, nodeId: string, context: RenderContext): string {
+  if (typeof value === "string") return value;
+  const gradient = record(value);
+  const type = string(gradient.type);
+  return type === "linear-gradient" || type === "radial-gradient"
+    ? `url(#${gradientId(context.rootId, nodeId)})`
+    : "none";
+}
+
+function renderGradientDefinition(nodeId: string, value: unknown, context: RenderContext): string {
+  const gradient = record(value);
+  const type = string(gradient.type);
+  if (type !== "linear-gradient" && type !== "radial-gradient") return "";
+  const stops = records(gradient.stops)
+    .map((stop) =>
+      element(
+        "stop",
+        [
+          ["offset", `${number(unit(firstNumber(stop.at), 0) * 100, context.precision)}%`],
+          ["stop-color", string(stop.color) ?? context.accent],
+          [
+            "stop-opacity",
+            unit(firstNumber(stop.opacity), 1) === 1
+              ? undefined
+              : number(unit(firstNumber(stop.opacity), 1), context.precision),
+          ],
+        ],
+        "",
+      ),
+    )
+    .join("");
+  const common: Attrs = [
+    ["id", gradientId(context.rootId, nodeId)],
+    ["gradientUnits", "objectBoundingBox"],
+    ["spreadMethod", string(gradient.spread) ?? "pad"],
+    ["data-gradient-of", nodeId],
+  ];
+  if (type === "radial-gradient") {
+    const center = Array.isArray(gradient.center) ? gradient.center : [];
+    const focal = Array.isArray(gradient.focalPoint) ? gradient.focalPoint : [];
+    return element(
+      "radialGradient",
+      [
+        ...common,
+        ["cx", number(unit(firstNumber(center[0]), 0.5), context.precision)],
+        ["cy", number(unit(firstNumber(center[1]), 0.5), context.precision)],
+        ["fx", number(unit(firstNumber(focal[0]), 0.5), context.precision)],
+        ["fy", number(unit(firstNumber(focal[1]), 0.5), context.precision)],
+        ["r", number(Math.max(0, finiteNumber(gradient.radius, 0.5)), context.precision)],
+      ],
+      stops,
+    );
+  }
+  const radians = (finiteNumber(gradient.angle, 0) * Math.PI) / 180;
+  const dx = Math.cos(radians);
+  const dy = Math.sin(radians);
+  const reach = 0.5 / Math.max(Math.abs(dx), Math.abs(dy), 1e-9);
+  return element(
+    "linearGradient",
+    [
+      ...common,
+      ["x1", number(0.5 - dx * reach, context.precision)],
+      ["y1", number(0.5 - dy * reach, context.precision)],
+      ["x2", number(0.5 + dx * reach, context.precision)],
+      ["y2", number(0.5 + dy * reach, context.precision)],
+    ],
+    stops,
+  );
 }
 
 function markerKind(value: unknown, fallback: EdgeMarkerKind): EdgeMarkerKind {
@@ -866,7 +945,8 @@ function renderStructuredShape(
 ): string {
   const { precision, accent } = context;
   const { x, y, width, height } = geometry;
-  const baseFill = string(appearance.fill) ?? "none";
+  const ownerId = nodeId(node, 0);
+  const baseFill = gradientFill(appearance.fill, ownerId, context);
   const baseStroke = string(appearance.stroke) ?? "none";
   const baseWidth = finiteNumber(appearance.strokeWidth, 1);
   const outline = highlightStroke(
@@ -878,7 +958,9 @@ function renderStructuredShape(
   const stroke = baseStroke === "none" && highlight <= 0 ? "none" : outline.stroke;
   const strokeWidth = baseStroke === "none" && highlight <= 0 ? 0 : outline.strokeWidth;
   const fill =
-    highlight > 0 && baseFill !== "none" ? mixColor(baseFill, accent, highlight * 0.12) : baseFill;
+    highlight > 0 && baseFill !== "none" && !baseFill.startsWith("url(")
+      ? mixColor(baseFill, accent, highlight * 0.12)
+      : baseFill;
   const dash = string(appearance.dash);
   const dashAttr =
     dash === "dashed"
@@ -886,7 +968,6 @@ function renderStructuredShape(
       : dash === "dotted"
         ? `0.01 ${number(Math.max(3, strokeWidth * 2.4), precision)}`
         : undefined;
-  const ownerId = nodeId(node, 0);
   const paint: Attrs = [
     ["class", "kg-node-shape"],
     ["data-shape-of", ownerId],
