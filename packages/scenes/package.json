@@ -24,6 +24,7 @@
     "@kineglyph/core": "*"
   },
   "devDependencies": {
+    "@kineglyph/export": "*",
     "@kineglyph/svg": "*"
   }
 }
