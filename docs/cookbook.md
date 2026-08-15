@@ -30,7 +30,8 @@ knows whether a scene came from `figure()` or from raw IR.
 ## 2. Your first figure
 
 A three-stage build explainer: three interactive cards joined by connectors, a callout whose text
-follows the machine, a reveal sequence, and two controls. 78 lines, no chart package required.
+follows the machine, a reveal sequence, and two controls. The figure itself stays under 80 lines
+(plus the import), and needs no chart package.
 
 ```ts
 import { figure, type MachineTransition, type Paint } from "@kineglyph/core";

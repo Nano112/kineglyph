@@ -11,8 +11,8 @@ primitives, named layouts, timelines, and machines. Two compact authoring surfac
 
 - `figure(id, meta, build)` — a builder that infers stable ids, composes recipes and fragments,
   sequences motion with presets, and flattens everything into one `SceneDefinition`.
-- `plot(spec, options)` (`@kineglyph/plot`) — a pure compiler from a declarative `PlotSpec` to a
-  `SceneFragment` of ordinary primitives in a `coordinates` group.
+- `plot(rows, options)` (`@kineglyph/plot`) — a typed compiler from ordinary row data to a
+  `SceneFragment` of primitives in a `coordinates` group; `plot(spec)` exposes its advanced IR.
 
 Critique we accepted: the edge grammar is an _illustration connector_ system (ports, routes,
 markers, labels) — it must not grow into automatic graph layout; charts are not nodes with edges
@@ -54,14 +54,6 @@ export const buildTimes = figure(
     });
     f.root(f.stack([f.heading("Where the time goes"), f.flow([chart, note], { gap: 24 })]));
     f.sequence([f.reveal(chart), f.reveal(note, { offset: 8 })], { gap: 200 });
-    f.machine({
-      initial: "all",
-      states: { all: { on: { SOLO: "solo" } }, solo: { on: { ALL: "all" } } },
-    });
-    f.controls([
-      { label: "Solo dense", event: "SOLO" },
-      { label: "Show all", event: "ALL" },
-    ]);
   },
 );
 ```
@@ -147,12 +139,13 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
   reference lines/bands, point labels, datum callouts.
 - Output: a root group `${id}` containing an optional title/legend and `${id}:area` — a
   `coordinates` group with percent-sized rects, fractional polylines, circles, tick texts — plus a
-  focus group per series (`${id}:series:${s}`) so a chart is one tab stop per series and marks are
-  reached with the arrow keys. Every mark carries `inspect` (role, title, fields such as Series,
-  Category, Value) and `revealAnchor` where relevant.
-- Motion presets return relative tracks: `rise` (bars via `revealY`, staggered by index), `draw`
-  (lines/areas via `progress`, then points), `sweep` (heatmap cells row by row), `auto` picks per
-  mark. `figure()` schedules them with `f.sequence`.
+  focus group per inspectable series (`${id}:series:${s}`) so it is one tab stop and its marks are
+  reached with the arrow keys; `interactive: "none"` emits no focus group. Every inspectable mark
+  carries `inspect` (role, title, fields such as Series, Category, Value) and `revealAnchor` where
+  relevant.
+- Motion is `auto` or `none`. `auto` emits mark-appropriate relative tracks: bars rise, lines and
+  areas draw before their points appear, and heatmap cells sweep row by row. `figure()` schedules
+  those tracks with `f.sequence`; `none` emits no plot motion.
 - Determinism: equal input → byte-identical fragment; category order and domains are frozen and
   reported in `domains`/`ticks`.
 

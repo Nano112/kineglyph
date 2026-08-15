@@ -28,6 +28,7 @@
     "@kineglyph/svg": "*"
   },
   "devDependencies": {
+    "@kineglyph/plot": "*",
     "@kineglyph/scenes": "*",
     "vite": "^8.2.1"
   }

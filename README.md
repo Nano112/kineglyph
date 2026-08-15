@@ -2,18 +2,22 @@
 
 **Technical illustrations with a pulse.**
 
-Kineglyph is a deterministic TypeScript system for technical illustrations that can be themed,
-animated, inspected, embedded, and exported. A figure is authored once as semantic primitives,
-typed connectors, a seekable timeline, and (when it helps) a deterministic state machine.
-Renderers turn the same resolved scene into accessible interactive SVG, static SVG, PNG, or GIF.
+Kineglyph is a deterministic TypeScript system for technical illustrations and quantitative
+graphics that can be themed, animated, inspected, embedded, and exported. Author diagrams,
+charts, matrices, comparisons, build sequences, and interactive explainers once; render the same
+figure as accessible live SVG, static SVG, PNG, or GIF.
 
-Phase 2 ships the illustration suite: eight Nucleation figures rebuilt as semantic scenes,
-projected through the Nucleation, Pock, and Schematio visual languages, and mountable in React,
-vanilla JavaScript, and Laravel Blade — with the same scene exported to SVG, PNG, and GIF.
+The catalogue includes eight Nucleation figures rebuilt as semantic scenes plus four quantitative
+examples, all projected through the Nucleation, Pock, and Schematio visual languages. They mount
+in React, vanilla JavaScript, and Laravel Blade, with the same scene exported to SVG, PNG, and GIF.
 
 ## What is here
 
-- **General scene primitives** — groups with stack, row, grid, overlay, and absolute layouts;
+- **Compact authoring** — `figure()` infers stable ids, composes layout recipes and compiled
+  fragments, draws typed connectors, schedules motion presets, and attaches deterministic state
+  machines. The serializable scene IR remains available as an escape hatch, not a tax on ordinary
+  figures.
+- **General scene primitives** — groups with stack, row, grid, overlay, coordinates, and absolute layouts;
   rect, circle, text, icon/motif, path, image, badge, legend, and callout marks; reusable
   recipes; caller-owned ids, explicit z-order, semantic tones and tokens, and named
   `wide` / `compact` / `narrow` layouts chosen by container width (never non-uniform scaling).
@@ -21,6 +25,10 @@ vanilla JavaScript, and Laravel Blade — with the same scene exported to SVG, P
   bar heads and tails; solid, dashed, dotted, and animated flow strokes; per-layout ports and
   auto-distributed branching/merging; labels with collision-safe placement; deterministic reveal
   and time-positioned packets; accessible descriptions without redundant controls.
+- **Plots and charts** — typed data channels, linear and band scales, axes, legends, annotations,
+  bars, areas, lines, dots, heatmaps, and sparklines. Layered marks compile to ordinary scene
+  primitives with stable handles, so they animate, inspect, theme, and export like every other
+  figure.
 - **State machines** — serializable states, events, guards, entry/exit actions, and derived
   signals that drive text, visibility, tone, opacity, highlight, progress, and geometry through
   bindings; random-access state resolution for tests and export; optional history in the live
@@ -30,8 +38,9 @@ vanilla JavaScript, and Laravel Blade — with the same scene exported to SVG, P
   identical keyboard, inspection, and reduced-motion behaviour.
 - **Export** — standalone SVG, deterministic PNG via resvg, deterministic GIF via gifenc, a small
   CLI, and clear errors for missing fonts, live-only media, or invalid output settings.
-- **Catalogue** — `@kineglyph/scenes` holds the eight illustrations, the three product themes,
-  and the recipes; the playground gallery shows every scene live at desktop / 820 px / 390 px.
+- **Catalogue** — `@kineglyph/scenes` holds the eight source illustrations, four quantitative
+  examples, and three product themes; the playground gallery shows every scene live at desktop /
+  820 px / 390 px.
 
 ## Quick start
 
@@ -48,78 +57,31 @@ npm run dev     # gallery: #/  ·  scene pages: #/scene/<slug>  ·  vanilla runt
 | `@kineglyph/core`   | Scene schema, themes, layout resolver, edge routing, timelines, state machines |
 | `@kineglyph/svg`    | Deterministic accessible SVG serialization and the motif library               |
 | `@kineglyph/anime`  | Scoped Anime.js v4 browser runtime applying resolved frames to the DOM         |
+| `@kineglyph/plot`   | Typed plots, scales, marks, axes, annotations, and stable animation handles    |
 | `@kineglyph/web`    | Framework-neutral `mountKineglyph` controller and self-contained ESM bundle    |
 | `@kineglyph/react`  | React component and imperative handle over the web runtime                     |
 | `@kineglyph/export` | SVG, PNG (resvg), and GIF (gifenc) export plus the `kineglyph-export` CLI      |
-| `@kineglyph/scenes` | The eight Nucleation illustrations, product themes, recipes, and catalogue     |
+| `@kineglyph/scenes` | Nucleation illustrations, quantitative examples, themes, and catalogue         |
 
-See [the architecture specification](./docs/architecture.md), the
+Start with the [authoring cookbook](./docs/cookbook.md) and
+[authoring API](./docs/authoring-api.md). See also [the architecture specification](./docs/architecture.md), the
 [phase 2 brief](./docs/phase-2-illustration-suite.md), the
 [web runtime guide](./packages/web/README.md), the [export guide](./packages/export/README.md),
 and the [Laravel Blade example](./examples/laravel-blade/README.md).
 
-## A small authored scene
+## A small authored figure
 
 ```ts
-import {
-  defineScene,
-  resolveScene,
-  seekTimeline,
-  timeline,
-  reveal,
-  drawEdge,
-} from "@kineglyph/core";
+import { figure, resolveScene, seekTimeline } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";
 
-const scene = defineScene({
-  schemaVersion: 2,
-  id: "data-to-shape",
-  title: "Data becomes geometry",
-  root: {
-    id: "root",
-    type: "group",
-    layout: { wide: "row", compact: "stack" },
-    gap: 24,
-    children: [
-      {
-        id: "data",
-        type: "group",
-        width: "fill",
-        padding: 14,
-        frame: { fill: "surface", stroke: "border" },
-        interactive: true,
-        label: "Data",
-        description: "Input values",
-        children: [{ id: "data-title", type: "text", text: "Data", textStyle: "bodyStrong" }],
-      },
-      {
-        id: "shape",
-        type: "group",
-        width: "fill",
-        padding: 14,
-        frame: { fill: "surface", stroke: "border" },
-        interactive: true,
-        label: "Shape",
-        description: "Resolved geometry",
-        children: [{ id: "shape-title", type: "text", text: "Shape", textStyle: "bodyStrong" }],
-      },
-    ],
-  },
-  edges: [
-    {
-      id: "data-to-shape",
-      from: "data",
-      to: "shape",
-      route: "curve",
-      head: "arrow",
-      label: "resolve",
-    },
-  ],
-  timeline: timeline([
-    reveal("data", 0, 400),
-    drawEdge("data-to-shape", 400, 900),
-    reveal("shape", 700, 1100),
-  ]),
+const scene = figure("data-to-shape", { title: "Data becomes geometry" }, (f) => {
+  const data = f.card({ title: "Data", body: "Input values", motif: "code" });
+  const shape = f.card({ title: "Shape", body: "Resolved geometry", motif: "box" });
+  const edge = f.connect(data, shape, { route: "curve", head: "arrow", label: "resolve" });
+
+  f.root(f.flow([data, shape], { gap: 24 }));
+  f.sequence([f.reveal(data), f.draw(edge), f.reveal(shape)]);
 });
 
 const resolved = resolveScene(scene, { width: 960, theme: myTheme });

@@ -136,14 +136,15 @@ function Gallery({ theme, preset }: PageProps) {
       <div className="gallery__intro">
         <p className="kicker">Illustration catalogue</p>
         <h1 id="gallery-title">
-          Eight Nucleation figures,
+          Diagrams, charts, and interactive labs,
           <br />
           <em>one semantic system.</em>
         </h1>
         <p className="lede">
-          Every figure below is authored as scene data — primitives, typed connectors, a seekable
-          timeline, and (where it helps) a deterministic state machine — then resolved for the
-          container width you pick above and projected through the selected product theme.
+          Every figure below is authored from semantic primitives or typed data — with reusable
+          layout, a seekable timeline, and (where it helps) a deterministic state machine — then
+          resolved for the container width you pick above and projected through the selected product
+          theme.
         </p>
       </div>
       <ol className="gallery__list">

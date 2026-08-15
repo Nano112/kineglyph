@@ -113,6 +113,16 @@ describe("cookbook example: build explainer", () => {
     const lines = source.slice(start + 1, end);
     expect(lines.length).toBeLessThanOrEqual(80);
     expect(lines.length).toBeGreaterThan(40);
+
+    const cookbook = readFileSync(
+      fileURLToPath(new URL("../../../docs/cookbook.md", import.meta.url)),
+      "utf8",
+    );
+    const documentedStart = cookbook.indexOf("export const buildExplainer = figure(");
+    const documentedEnd = cookbook.indexOf("\n```", documentedStart);
+    expect(documentedStart).toBeGreaterThan(-1);
+    expect(documentedEnd).toBeGreaterThan(documentedStart);
+    expect(cookbook.slice(documentedStart, documentedEnd)).toBe(lines.join("\n"));
   });
 
   it("infers stable ids and wires the connectors, machine, and controls", () => {

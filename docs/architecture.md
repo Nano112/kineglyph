@@ -2,10 +2,11 @@
 
 ## Product boundary
 
-Kineglyph is a deterministic technical-illustration compiler and live runtime. It is not a
+Kineglyph is a deterministic technical-illustration and quantitative-graphics compiler with a
+live runtime. It is not a
 drag-and-drop editor, a general graph-layout engine, a video editor, or a 3D renderer. It targets
-explanatory figures: pipelines, transformations, comparisons, decision laboratories, lifecycles,
-and domain adapters such as Nucleation build sequences.
+explanatory figures: plots, matrices, pipelines, transformations, comparisons, decision
+laboratories, lifecycles, and domain adapters such as Nucleation build sequences.
 
 The semantic scene, its state machine, and its timeline are the source of truth. SVG markup, DOM
 animation state, and raster pixels are outputs of the same resolved scene at exact times.
@@ -74,8 +75,12 @@ re-resolved for it.
   resolved width using explicit glyph-class metrics, so wrapping is identical everywhere.
 - **Bindings**: `bind: { text, hidden, tone, opacity, highlight, progress, width, height }` read
   state-machine signals or variables.
-- **Recipes** (`@kineglyph/scenes`): `card`, `panel`, `pill`, `eyebrow`, `flow`, and friends compose
-  primitives so the catalogue reads as one system.
+- **Authoring and recipes** (`@kineglyph/core`): `figure()` plus `card`, `panel`, `pill`, `flow`,
+  and friends compose primitives with inferred stable ids and compact motion/state helpers. Raw
+  scene nodes remain available through `f.raw` and `defineScene`.
+- **Quantitative marks** (`@kineglyph/plot`): typed row channels or an advanced declarative spec
+  compile bars, areas, lines, dots, heatmaps, axes, legends, and annotations into the same scene
+  primitives. Stable handles make generated marks safe motion and interaction targets.
 
 ## Edge grammar
 
@@ -132,6 +137,8 @@ final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing
 ## Package boundaries
 
 - `core` has no DOM or framework dependency.
+- `plot` is a pure compiler from typed data/specs to core scene fragments; it has no DOM or
+  renderer dependency.
 - `svg` serializes a resolved scene or frame without owning playback.
 - `anime` owns DOM lookup, Anime.js compilation, playback, and cleanup inside one root element.
 - `web` owns the figure shell, responsive observation, interaction, and lifecycle; `react` wraps it.

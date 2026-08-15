@@ -13,7 +13,22 @@ export {
   type CatalogueEntry,
   type ThemeName,
 } from "@kineglyph/scenes";
-export { createTheme, defaultTheme, defineScene, resolveFigure } from "@kineglyph/core";
+export { createTheme, defaultTheme, defineScene, figure, resolveFigure } from "@kineglyph/core";
+export {
+  area,
+  bar,
+  calloutAt,
+  dot,
+  groupedBar,
+  heatmap,
+  line,
+  plot,
+  pointLabel,
+  range,
+  rule,
+  sparkline,
+  stackedBar,
+} from "@kineglyph/plot";
 import { catalogue as sceneCatalogue, themes as productThemes } from "@kineglyph/scenes";
 import { registerScene, registerTheme } from "./index.js";
 
