@@ -6,6 +6,7 @@ const targets = [
   "packages/core",
   "packages/svg",
   "packages/anime",
+  "packages/plot",
   "packages/scenes",
   "packages/web",
   "packages/react",
