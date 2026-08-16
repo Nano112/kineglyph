@@ -145,6 +145,14 @@ final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing
 - `export` owns resvg and GIF encoding; it must not change layout semantics.
 - `scenes` holds authored content and themes only.
 
+Every package declares a `development` export condition ahead of `import`, pointing at its
+TypeScript source (`./src/index.ts`, plus `./src/bundle.ts` for `@kineglyph/web/bundle`). A
+consumer running under Vite/Vitest — which apply that condition by default — therefore compiles
+Kineglyph from source and picks up edits without a rebuild, while plain Node, bundlers, and
+published consumers still resolve `import` and get `dist/`. Because the condition points into
+`src/`, every package publishes `src` alongside `dist` in `files`; `scripts/check-exports.test.mjs`
+enforces both halves of that contract.
+
 ## Deferred work
 
 - Exact embedded-font shaping for byte-identical export across machines (explicit font files

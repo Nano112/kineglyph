@@ -180,3 +180,75 @@ shown, flow strokes stop, and playback controls are disabled.
 It intentionally contains no consumer scenes or themes. Pass registries to `autoMount`, or call
 `registerScene(id, scene)` and `registerTheme(name, theme)` first. See
 `examples/laravel-blade` for a Blade integration.
+
+Because the bundle re-exports both `@kineglyph/core` and `@kineglyph/plot`, and both packages
+export `rule` and `formatNumber`, the bare names are core's (`rule(id, tone)` thin divider,
+`formatNumber(value, precision)`) and plot's are aliased to `plotRule(options)` and
+`formatPlotNumber(value, spec)`. Importing from `@kineglyph/plot` directly is unaffected.
+
+## Embedding (`mountAll`)
+
+`mountAll(options?)` upgrades every embedded figure already in the document — the contract an
+external renderer (docs site, CMS, static-site generator) writes HTML against. It resolves once
+every mount attempt has settled and returns the figures that mounted.
+
+```ts
+import { mountAll } from "@kineglyph/web";
+
+await mountAll(); // default selector: figure.kg, [data-kineglyph]
+```
+
+Each host element is classified by `detectSource`, in priority order:
+
+| Markup                                           | Source        | Loaded by                                      |
+| ------------------------------------------------ | ------------- | ---------------------------------------------- |
+| `<script type="text/kineglyph">…</script>` child | inline        | blob module URL (page import maps still apply) |
+| `data-scene="…"`                                 | module        | `import()` of the URL, relative to `baseURI`   |
+| `data-kineglyph="id"`                            | registered    | `getRegisteredScene(id)`                       |
+| none of the above                                | _static-only_ | left untouched                                 |
+
+```html
+<figure class="kg">
+  <img src="latency.svg" alt="Latency" />
+  <script type="text/kineglyph">
+    import { defineScene, stack, heading } from "kineglyph";
+    export default defineScene({ /* … */ });
+  </script>
+</figure>
+
+<figure class="kg" data-scene="/figures/latency.mjs">
+  <img src="latency.svg" alt="Latency" />
+</figure>
+
+<figure class="kg"><img src="latency.svg" alt="Latency" /></figure>
+```
+
+A static-only figure is a feature, not a failure: its `<img>`/`<picture>` fallback simply stays.
+Mounting hides the fallback and sets `data-kineglyph-mounted="true"`; a failed mount keeps the
+fallback visible and records the message in `data-kineglyph-error`. Destroying a figure's
+controller restores the fallback and clears the mounted flag, so mounting is reversible.
+
+Per-element attributes `data-theme`, `data-autoplay`, `data-controls`, and `data-readout` feed the
+mount; `options.theme`, `options.load`, and `options.mountOptions` accept functions of the element
+when the host needs to override per figure. Elements already carrying
+`data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
+arrives.
+
+### `kineglyph:update`
+
+Dispatch a `kineglyph:update` `CustomEvent` on the document to refresh figures in place — the hook
+a dev server's HMR channel drives:
+
+```js
+document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#latency" } }));
+document.dispatchEvent(
+  new CustomEvent("kineglyph:update", { detail: { url: "/figures/latency.mjs" } }),
+);
+```
+
+`selector` targets matching elements; `url` targets every `[data-scene]` whose URL has the same
+pathname. Already-mounted figures reload their source (module URLs get a cache-busting query so
+`import()` re-fetches) and swap the scene through the live controller, preserving the element.
+An element with no live figure — never mounted, or whose first mount threw — is mounted fresh
+using the options from the most recent `mountAll` call, so a figure that failed once recovers on
+the next update instead of staying dead.

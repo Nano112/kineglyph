@@ -63,6 +63,41 @@ frame period). Every frame is shown for `round(100 / fps) × 10` ms — GIF dela
 resolution — and the last frame for that delay plus `holdLast`. Scenes without a timeline
 produce a single-frame GIF.
 
+### `prerender()`
+
+`prerender(moduleSource, options)` evaluates a scene _module_ under Node and returns one SVG per
+theme — the static fallback an external renderer ships next to a live figure.
+
+```ts
+import { prerender } from "@kineglyph/export";
+import { defaultTheme, createTheme } from "@kineglyph/core";
+
+const results = await prerender(await readFile("figures/latency.mjs", "utf8"), {
+  themes: [
+    { name: "light", tokens: defaultTheme },
+    { name: "dark", tokens: createTheme({ colors: { canvas: "#0b0f17", text: "#f2f5fa" } }) },
+  ],
+  width: 960,
+  baseUrl: pathToFileURL("figures/latency.mjs").href,
+});
+// [{ theme: "light", svg, width, height }, { theme: "dark", ... }]
+```
+
+The module must `export default` a scene definition. Its import specifiers are rewritten before
+evaluation:
+
+- `kineglyph` — the bare specifier authors write — maps to `@kineglyph/web/bundle` (core
+  authoring primitives, plot, and the runtime), resolved to the built JS bundle even when the
+  caller runs under Vitest's `development` condition.
+- extra bare specifiers come from `options.imports`.
+- relative specifiers resolve against `options.baseUrl` (required if the module has any).
+- anything else falls back to `import.meta.resolve`; unresolvable specifiers raise
+  `KineglyphExportError("invalid-scene")`.
+
+Each theme renders the final timeline frame with `idPrefix: "${idPrefix ?? "kg"}-${theme.name}"`,
+so several prerendered figures can coexist in one document without id collisions. Scene
+diagnostics of severity `error` raise `invalid-scene` rather than emitting a broken SVG.
+
 ## CLI
 
 ```
