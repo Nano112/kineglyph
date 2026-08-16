@@ -10,9 +10,13 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
-    "./bundle": "./dist/kineglyph-web.js",
+    "./bundle": {
+      "development": "./src/bundle.ts",
+      "import": "./dist/kineglyph-web.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
