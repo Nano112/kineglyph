@@ -34,6 +34,7 @@ export {
   type TextNode as LegacyTextNode,
 } from "./schema.js";
 export * from "./seek.js";
+export * from "./spec.js";
 export * from "./text.js";
 export * from "./theme.js";
 export * from "./timeline.js";
