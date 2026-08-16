@@ -932,6 +932,16 @@ export function registerTheme(name: string, theme: ThemeTokens): void {
   themeRegistry.set(name, theme);
 }
 
+/** Looks up a scene registered via `registerScene`. */
+export function getRegisteredScene(id: string): FigureSource | undefined {
+  return sceneRegistry.get(id);
+}
+
+/** Looks up a theme registered via `registerTheme`. */
+export function getRegisteredTheme(name: string): ThemeTokens | undefined {
+  return themeRegistry.get(name);
+}
+
 export interface AutoMountOptions {
   readonly root?: ParentNode;
   readonly selector?: string;
@@ -1100,3 +1110,4 @@ function cssEscape(value: string): string {
 
 export { createMachineState };
 export type { FigureSource, MachineState, MachineStep, ResolvedFrame, ResolvedScene, ThemeTokens };
+export * from "./embed.js";
