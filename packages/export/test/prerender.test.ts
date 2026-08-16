@@ -21,6 +21,11 @@ describe("rewriteImports", () => {
     expect(out).toContain(`import("URL(../y.mjs)")`);
     expect(out).toContain(`const s = "kineglyph"`);
   });
+
+  it("rewrites re-export specifiers", () => {
+    const out = rewriteImports(`export { a } from "./z.mjs";`, (s) => `URL(${s})`);
+    expect(out).toContain(`from "URL(./z.mjs)"`);
+  });
 });
 
 describe("prerender", () => {
