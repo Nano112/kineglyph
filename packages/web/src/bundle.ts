@@ -7,6 +7,9 @@ export * from "./index.js";
 export * from "@kineglyph/core";
 export * from "@kineglyph/plot";
 export { renderSvg } from "@kineglyph/svg";
-// `./index.js` and `@kineglyph/core` both export `formatNumber` and `rule`; re-declare them
-// explicitly (last export wins) so the ambiguous re-export doesn't fail typecheck (TS2308).
+// `@kineglyph/core` and `@kineglyph/plot` both export `formatNumber` and `rule`, so the two
+// star re-exports above leave both names ambiguous (TS2308). Disambiguate without losing either:
+// the bare names are core's (`rule(id, tone)`, `formatNumber(value, precision)`), and plot's
+// (`rule(options)` annotation, `formatNumber(value, spec)`) keep aliases.
 export { formatNumber, rule } from "@kineglyph/core";
+export { rule as plotRule, formatNumber as formatPlotNumber } from "@kineglyph/plot";
