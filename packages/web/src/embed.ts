@@ -44,7 +44,10 @@ function isFigure(value: unknown): value is FigureSource {
 }
 
 /** Browser loader: inline → blob module URL (import maps still apply), module → import(url). */
-export async function defaultLoader(source: EmbedSource, element: HTMLElement): Promise<FigureSource> {
+export async function defaultLoader(
+  source: EmbedSource,
+  element: HTMLElement,
+): Promise<FigureSource> {
   if (source.kind === "registered") {
     const scene = getRegisteredScene(source.id);
     if (scene === undefined) throw new Error(`unknown scene "${source.id}"`);
@@ -75,6 +78,12 @@ interface MountRecord {
 }
 const registry = new WeakMap<HTMLElement, MountRecord>();
 let updateListenerInstalled = false;
+/**
+ * Options from the most recent `mountAll` call. The `kineglyph:update` listener uses them to
+ * (re-)mount an element that has no registry record — a figure whose first mount threw would
+ * otherwise stay dead forever.
+ */
+let lastMountAllOptions: MountAllOptions = {};
 
 function stageOf(element: HTMLElement): HTMLElement {
   let stage = element.querySelector<HTMLElement>(":scope > [data-kg-stage]");
@@ -103,6 +112,47 @@ function cacheBust(url: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
 }
 
+/**
+ * Mounts one embedded figure. Returns `undefined` when the element is already mounted, carries no
+ * detectable source (static-only), or the load/mount attempt failed (which records
+ * `data-kineglyph-error` and leaves the static fallback visible).
+ */
+async function mountOne(
+  element: HTMLElement,
+  options: MountAllOptions,
+): Promise<EmbeddedFigure | undefined> {
+  if (element.dataset.kineglyphMounted === "true") return undefined;
+  const source = detectSource(element);
+  if (source === undefined) return undefined; // static-only
+  const load = options.load ?? defaultLoader;
+  try {
+    const scene = await load(source, element);
+    const theme = resolveTheme(options, element);
+    const controller = mountKineglyph(stageOf(element), {
+      scene,
+      ...(theme === undefined ? {} : { theme }),
+      autoplay: element.dataset.autoplay !== "false",
+      controls: element.dataset.controls !== "false",
+      readout: element.dataset.readout !== "false",
+      ...(options.mountOptions?.(element) ?? {}),
+    });
+    element.dataset.kineglyphMounted = "true";
+    delete element.dataset.kineglyphError;
+    setStaticHidden(element, true);
+    registry.set(element, { controller, source, load });
+    controller.on("destroy", () => {
+      delete element.dataset.kineglyphMounted;
+      setStaticHidden(element, false);
+      registry.delete(element);
+    });
+    return { element, controller, source };
+  } catch (error) {
+    element.dataset.kineglyphError = error instanceof Error ? error.message : String(error);
+    setStaticHidden(element, false);
+    return undefined;
+  }
+}
+
 function installUpdateListener(doc: Document): void {
   if (updateListenerInstalled) return;
   updateListenerInstalled = true;
@@ -125,7 +175,12 @@ function installUpdateListener(doc: Document): void {
     }
     for (const el of targets) {
       const rec = registry.get(el);
-      if (rec === undefined) continue;
+      if (rec === undefined) {
+        // Never mounted (or the first attempt failed): try a fresh mount rather than give up —
+        // otherwise a figure that errored once can never recover from an update event.
+        if (detectSource(el) !== undefined) void mountOne(el, lastMountAllOptions);
+        continue;
+      }
       const source: EmbedSource =
         rec.source.kind === "module"
           ? { kind: "module", url: cacheBust(detail.url ?? rec.source.url) }
@@ -154,40 +209,14 @@ export async function mountAll(options: MountAllOptions = {}): Promise<EmbeddedF
     options.root ?? (typeof document === "undefined" ? undefined : document);
   if (root === undefined || typeof root.querySelectorAll !== "function") return [];
   const doc = ownerDocumentOf(root);
+  lastMountAllOptions = options;
   if (doc !== undefined) installUpdateListener(doc);
-  const load = options.load ?? defaultLoader;
   const out: EmbeddedFigure[] = [];
   const hosts = [...root.querySelectorAll<HTMLElement>(options.selector ?? DEFAULT_SELECTOR)];
   await Promise.all(
     hosts.map(async (element) => {
-      if (element.dataset.kineglyphMounted === "true") return;
-      const source = detectSource(element);
-      if (source === undefined) return; // static-only
-      try {
-        const scene = await load(source, element);
-        const theme = resolveTheme(options, element);
-        const controller = mountKineglyph(stageOf(element), {
-          scene,
-          ...(theme === undefined ? {} : { theme }),
-          autoplay: element.dataset.autoplay !== "false",
-          controls: element.dataset.controls !== "false",
-          readout: element.dataset.readout !== "false",
-          ...(options.mountOptions?.(element) ?? {}),
-        });
-        element.dataset.kineglyphMounted = "true";
-        delete element.dataset.kineglyphError;
-        setStaticHidden(element, true);
-        registry.set(element, { controller, source, load });
-        controller.on("destroy", () => {
-          delete element.dataset.kineglyphMounted;
-          setStaticHidden(element, false);
-          registry.delete(element);
-        });
-        out.push({ element, controller, source });
-      } catch (error) {
-        element.dataset.kineglyphError = error instanceof Error ? error.message : String(error);
-        setStaticHidden(element, false);
-      }
+      const figure = await mountOne(element, options);
+      if (figure !== undefined) out.push(figure);
     }),
   );
   return out.sort((a, b) => hosts.indexOf(a.element) - hosts.indexOf(b.element));

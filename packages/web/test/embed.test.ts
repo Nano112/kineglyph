@@ -54,7 +54,11 @@ describe("mountAll", () => {
 
   it("keeps the static image and records an error when loading fails", async () => {
     document.body.innerHTML = `<figure class="kg" id="bad" data-scene="nope.mjs"><img src="s.svg"></figure>`;
-    const figures = await mountAll({ load: async () => { throw new Error("boom"); } });
+    const figures = await mountAll({
+      load: async () => {
+        throw new Error("boom");
+      },
+    });
     expect(figures).toEqual([]);
     const el = document.querySelector<HTMLElement>("#bad")!;
     expect(el.dataset.kineglyphError).toContain("boom");
@@ -94,9 +98,35 @@ describe("mountAll", () => {
   it("re-loads a figure on kineglyph:update keyed by url (matched by data-scene pathname)", async () => {
     document.body.innerHTML = `<figure class="kg" id="a" data-scene="scenes/a.mjs"></figure>`;
     let calls = 0;
-    await mountAll({ load: async () => { calls++; return scene; } });
-    document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { url: "scenes/a.mjs" } }));
+    await mountAll({
+      load: async () => {
+        calls++;
+        return scene;
+      },
+    });
+    document.dispatchEvent(
+      new CustomEvent("kineglyph:update", { detail: { url: "scenes/a.mjs" } }),
+    );
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toBe(2);
+  });
+
+  it("recovers a figure whose first mount failed when kineglyph:update fires", async () => {
+    document.body.innerHTML = `<figure class="kg" id="flaky" data-scene="scenes/flaky.mjs"><img src="s.svg"></figure>`;
+    let ok = false;
+    const figures = await mountAll({
+      load: () => (ok ? Promise.resolve(scene) : Promise.reject(new Error("boom"))),
+    });
+    const el = document.querySelector<HTMLElement>("#flaky")!;
+    expect(figures).toEqual([]);
+    expect(el.dataset.kineglyphError).toContain("boom");
+    expect(el.hasAttribute("data-kineglyph-mounted")).toBe(false);
+
+    ok = true;
+    document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#flaky" } }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.dataset.kineglyphMounted).toBe("true");
+    expect(el.hasAttribute("data-kineglyph-error")).toBe(false);
+    expect(document.querySelector<HTMLImageElement>("#flaky img")!.hidden).toBe(true);
   });
 });
