@@ -39,9 +39,9 @@ describe("mountAll", () => {
       <figure class="kg" id="c"><img src="c.svg"></figure>`;
     const seen: string[] = [];
     const figures = await mountAll({
-      load: async (src) => {
+      load: (src) => {
         seen.push(src.kind);
-        return scene;
+        return Promise.resolve(scene);
       },
     });
     expect(figures.map((f) => f.element.id)).toEqual(["a", "b"]);
@@ -55,9 +55,7 @@ describe("mountAll", () => {
   it("keeps the static image and records an error when loading fails", async () => {
     document.body.innerHTML = `<figure class="kg" id="bad" data-scene="nope.mjs"><img src="s.svg"></figure>`;
     const figures = await mountAll({
-      load: async () => {
-        throw new Error("boom");
-      },
+      load: () => Promise.reject(new Error("boom")),
     });
     expect(figures).toEqual([]);
     const el = document.querySelector<HTMLElement>("#bad")!;
@@ -67,8 +65,8 @@ describe("mountAll", () => {
 
   it("does not mount the same figure twice", async () => {
     document.body.innerHTML = `<figure class="kg" id="a"><script type="text/kineglyph">A</script></figure>`;
-    await mountAll({ load: async () => scene });
-    const again = await mountAll({ load: async () => scene });
+    await mountAll({ load: () => Promise.resolve(scene) });
+    const again = await mountAll({ load: () => Promise.resolve(scene) });
     expect(again).toEqual([]);
   });
 
@@ -77,10 +75,10 @@ describe("mountAll", () => {
     let calls = 0;
     const sources: EmbedSource[] = [];
     const [fig] = await mountAll({
-      load: async (src) => {
+      load: (src) => {
         calls++;
         sources.push(src);
-        return scene;
+        return Promise.resolve(scene);
       },
     });
     document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#a" } }));
@@ -99,9 +97,9 @@ describe("mountAll", () => {
     document.body.innerHTML = `<figure class="kg" id="a" data-scene="scenes/a.mjs"></figure>`;
     let calls = 0;
     await mountAll({
-      load: async () => {
+      load: () => {
         calls++;
-        return scene;
+        return Promise.resolve(scene);
       },
     });
     document.dispatchEvent(

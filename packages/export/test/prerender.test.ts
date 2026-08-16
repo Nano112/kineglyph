@@ -62,12 +62,15 @@ describe("prerender", () => {
 
   it("resolves relative imports against baseUrl", async () => {
     // Write a helper module to a temp dir and import it relatively.
-    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const fsPromises = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
+    const path = await import("node:path");
     const { pathToFileURL } = await import("node:url");
-    const dir = await mkdtemp(join(tmpdir(), "kg-prerender-"));
-    await writeFile(join(dir, "helper.mjs"), `export const TITLE = "From helper";`);
+    const dir = await fsPromises.mkdtemp(path.join(tmpdir(), "kg-prerender-"));
+    await fsPromises.writeFile(
+      path.join(dir, "helper.mjs"),
+      `export const TITLE = "From helper";`,
+    );
     const src = `
       import { defineScene, stack, heading } from "kineglyph";
       import { TITLE } from "./helper.mjs";
@@ -75,7 +78,7 @@ describe("prerender", () => {
         root: stack("r", [heading("h", TITLE)], { padding: 8, width: "fill" }) });`;
     const [r] = await prerender(src, {
       themes: [{ name: "light", tokens: defaultTheme }],
-      baseUrl: pathToFileURL(join(dir, "scene.mjs")).href,
+      baseUrl: pathToFileURL(path.join(dir, "scene.mjs")).href,
     });
     expect(r?.svg).toContain("From helper");
   });
