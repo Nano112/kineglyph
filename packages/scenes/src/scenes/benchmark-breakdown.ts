@@ -76,7 +76,7 @@ export const benchmarkBreakdownScene: SceneDefinition = figure(
       width: "fill",
     });
     const note = f.caption(
-      "Illustrative data—not a published Nucleation benchmark. The paired views show why a headline number needs a cost breakdown.",
+      "Illustrative data. The paired views show why a headline number needs a cost breakdown.",
     );
     f.stack([heading, charts, note], {
       gap: { wide: 18, compact: 16, narrow: 14 },

@@ -233,6 +233,12 @@ describe("mountKineglyph", () => {
     controller.reset();
     expect(controller.state.machineState?.state).toBe("idle");
     expect(engineText()).toBe("Choose");
+    // Nested content is part of the interactive card, not a dead click target.
+    controller.element
+      .querySelector('[data-node-id="a-text"]')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(controller.state.machineState?.state).toBe("a");
+    controller.reset();
     // Inspection updates the readout and reports the target.
     const inspected: string[] = [];
     controller.on("inspect", (target) => inspected.push(target?.id ?? "none"));
@@ -291,7 +297,7 @@ describe("mountKineglyph", () => {
           mounts += 1;
           expect(node.image?.alt).toBe("Minecraft build preview");
           const canvas = document.createElement("canvas");
-          canvas.dataset.renderer = "nucleation";
+          canvas.dataset.renderer = "custom";
           element.append(canvas);
           return () => {
             destroys += 1;
@@ -304,7 +310,7 @@ describe("mountKineglyph", () => {
         "true",
       ),
     );
-    expect(controller.element.querySelector("[data-renderer=nucleation]")).not.toBeNull();
+    expect(controller.element.querySelector("[data-renderer=custom]")).not.toBeNull();
     expect(
       controller.element.querySelector<SVGImageElement>("image[data-live=true]")?.style.opacity,
     ).toBe("0");

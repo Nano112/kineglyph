@@ -6,7 +6,7 @@ Kineglyph is a deterministic technical-illustration and quantitative-graphics co
 live runtime. It is not a
 drag-and-drop editor, a general graph-layout engine, a video editor, or a 3D renderer. It targets
 explanatory figures: plots, matrices, pipelines, transformations, comparisons, decision
-laboratories, lifecycles, and domain adapters such as Nucleation build sequences.
+laboratories, lifecycles, and application-owned domain adapters.
 
 The semantic scene, its state machine, and its timeline are the source of truth. SVG markup, DOM
 animation state, and raster pixels are outputs of the same resolved scene at exact times.
@@ -150,4 +150,4 @@ final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing
 - Exact embedded-font shaping for byte-identical export across machines (explicit font files
   are supported; system-font fallback differs per machine).
 - Collision-aware routing for arbitrary graphs beyond the constrained routes and port rules.
-- A Nucleation operation/frame adapter and rendered-media synchronisation.
+- Application-owned operation/frame adapters and rendered-media synchronisation.

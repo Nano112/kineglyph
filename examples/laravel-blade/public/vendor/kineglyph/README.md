@@ -16,10 +16,10 @@ Then a Blade view can import it directly:
 ```blade
 <script type="module">
   import { autoMount } from "{{ asset('vendor/kineglyph/kineglyph-web.js') }}";
-  autoMount();
+  import { scenes, themes } from "{{ asset('js/figures.js') }}";
+  autoMount({ scenes, themes });
 </script>
 ```
 
-The bundle is a plain ES module (no globals) that includes the runtime, the three product
-themes, and the illustration catalogue, and it registers all of them for `data-kineglyph`
-auto-mounting.
+The bundle is a plain ES module with no globals and no consumer catalogue. The host application
+supplies scenes and themes when it calls `autoMount`.

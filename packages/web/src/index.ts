@@ -28,6 +28,18 @@ import {
 import { renderSvg } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
+
+export {
+  createCodeDrawer,
+  createParameterPanel,
+  type CodeDrawerHandle,
+  type CodeDrawerOptions,
+  type CodeSample,
+  type ParameterChange,
+  type ParameterPanelHandle,
+  type ParameterPanelOptions,
+  type RangeParameter,
+} from "./controls.js";
 import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
@@ -713,7 +725,8 @@ class FigureRuntime implements KineglyphController {
       this.#setInspected(undefined);
     };
     const activate = (event: Event): void => {
-      const target = nodeFrom(event);
+      const target =
+        event.target instanceof Element ? event.target.closest("[data-activate]") : null;
       if (target === null) return;
       const eventName = target.getAttribute("data-activate");
       if (eventName === null) return;

@@ -74,7 +74,7 @@ kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file>
 ```
 
 `--scene` is imported dynamically. The chosen export (default export, then `scene`, then
-`pipeline`, or `#name` — dotted paths such as `#themes.pock` walk into exported records) may be a
+`pipeline`, or `#name` — dotted paths such as `#themes.paper` walk into exported records) may be a
 `ResolvedScene`, a `SceneDefinition` (resolved with `resolveScene` at `--width-container`, default
 960, optionally in a named `--layout` and a machine `--state`), a `PipelineDefinition` (resolved
 with `resolvePipeline`), or a `resolve({ width, theme, layout, state })` function. `--theme`
@@ -83,7 +83,7 @@ and exit with code 1.
 
 ```sh
 kineglyph-export png --scene node_modules/@kineglyph/scenes/dist/index.js#smartSimulationScene \
-  --theme node_modules/@kineglyph/scenes/dist/index.js#themes.pock --state circuit \
+  --theme node_modules/@kineglyph/scenes/dist/index.js#themes.paper --state circuit \
   --width-container 1200 --out smart-simulation-circuit.png
 ```
 

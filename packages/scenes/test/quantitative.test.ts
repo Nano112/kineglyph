@@ -41,7 +41,7 @@ function ids(scene: SceneDefinition): Set<string> {
 }
 
 describe("quantitative examples", () => {
-  it("gives every product its own complete quantitative palette", () => {
+  it("gives every example theme a complete quantitative palette", () => {
     const keys = [
       "chart1",
       "chart2",
@@ -67,8 +67,8 @@ describe("quantitative examples", () => {
       expect(scene.metadata?.data).toBe("illustrative");
       expect(scene.description).toMatch(/illustrative/i);
       for (const width of WIDTHS) {
-        const first = resolveScene(scene, { width, theme: themes.nucleation });
-        const second = resolveScene(scene, { width, theme: themes.nucleation });
+        const first = resolveScene(scene, { width, theme: themes.midnight });
+        const second = resolveScene(scene, { width, theme: themes.midnight });
         expect(first.width).toBe(width);
         expect(first.height).toBeGreaterThan(160);
         expect(layoutProblems(first)).toEqual([]);
@@ -82,7 +82,7 @@ describe("quantitative examples", () => {
       if (timeline === undefined) return;
       expect(timeline.duration).toBeGreaterThan(1_000);
       expect(timeline.tracks.length).toBeGreaterThan(2);
-      const resolved = resolveScene(scene, { width: 1200, theme: themes.schematio });
+      const resolved = resolveScene(scene, { width: 1200, theme: themes.paper });
       const start = seekTimeline(resolved, 0);
       const end = seekTimeline(resolved, timeline.duration);
       expect(
@@ -119,7 +119,7 @@ describe("quantitative examples", () => {
   it("composes the throughput plot inside a gradient card", () => {
     const resolved = resolveScene(throughputOverTimeScene, {
       width: 960,
-      theme: themes.nucleation,
+      theme: themes.midnight,
     });
     expect(resolved.nodes.find((node) => node.id === "stream-card")?.appearance.fill).toMatchObject(
       {
@@ -133,8 +133,8 @@ describe("quantitative examples", () => {
       type: "linear-gradient",
       angle: 90,
       stops: [
-        { color: themes.nucleation.colors.chart1, opacity: 0.5 },
-        { color: themes.nucleation.colors.chart1, opacity: 0.015 },
+        { color: themes.midnight.colors.chart1, opacity: 0.5 },
+        { color: themes.midnight.colors.chart1, opacity: 0.015 },
       ],
     });
     expect(resolved.nodes.find((node) => node.id === "stream-trend")?.parent).toBe("stream-card");
@@ -169,7 +169,7 @@ describe("quantitative examples", () => {
     });
     const focused = resolveScene(bottleneckLensScene, {
       width: 820,
-      theme: themes.pock,
+      theme: themes.default,
       machineState: writes,
     });
     const readSeries = focused.nodes.find((node) => node.id === "pressure-chart:series:reads");

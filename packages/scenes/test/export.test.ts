@@ -8,7 +8,7 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 describe("catalogue export", () => {
   for (const entry of catalogue) {
     it(`${entry.slug} exports to SVG, PNG, and GIF from the same semantic scene`, async () => {
-      const resolved = resolveScene(entry.scene, { width: 820, theme: themes.pock });
+      const resolved = resolveScene(entry.scene, { width: 820, theme: themes.paper });
       const svg = exportSvg(resolved);
       expect(svg.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
       expect(svg).toContain(`data-kineglyph-scene="${entry.scene.id}"`);

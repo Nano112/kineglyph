@@ -25,11 +25,10 @@
   "dependencies": {
     "@kineglyph/anime": "*",
     "@kineglyph/core": "*",
+    "@kineglyph/plot": "*",
     "@kineglyph/svg": "*"
   },
   "devDependencies": {
-    "@kineglyph/plot": "*",
-    "@kineglyph/scenes": "*",
     "vite": "^8.2.1"
   }
 }

@@ -23,7 +23,7 @@ import { exportSvg, resolveOutputSize, sceneDimensions } from "./svg.js";
 const USAGE = `Usage: kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file> [options]
 
 Options:
-  --theme <module>#<export>   Theme tokens module (object, factory, or dotted path like #themes.pock)
+  --theme <module>#<export>   Theme tokens module (object, factory, or dotted path like #themes.paper)
   --width <px>                Output width (height follows the scene aspect ratio)
   --height <px>               Output height (width follows the scene aspect ratio)
   --scale <factor>            Uniform scale (cannot be combined with --width/--height)
@@ -181,7 +181,7 @@ async function loadExport(spec: string): Promise<unknown> {
   const url = pathToFileURL(resolvePath(process.cwd(), modulePath)).href;
   const module = (await import(url)) as Record<string, unknown>;
   if (exportName !== undefined && exportName !== "") {
-    // Dotted paths (e.g. "themes.pock") walk into exported records.
+    // Dotted paths (e.g. "themes.paper") walk into exported records.
     const [head = "", ...rest] = exportName.split(".");
     if (!(head in module)) {
       throw new UsageError(

@@ -375,32 +375,30 @@ A figure is a `SceneDefinition`, so every runtime accepts it directly.
 
 ```ts
 import { mountKineglyph } from "@kineglyph/web";
-import { themes } from "@kineglyph/scenes";
 import { buildExplainer } from "./figures.js";
 
 const controller = mountKineglyph(document.querySelector("#figure")!, {
   scene: buildExplainer,
-  theme: themes.nucleation, // any ThemeTokens; createTheme() for the default
   autoplay: true,
 });
 controller.send("NEXT"); // machine events; controller.destroy() when the host goes away
 ```
 
-**Vanilla `<script type="module">`** — the self-contained web bundle
-(`@kineglyph/web/dist/kineglyph-web.js`) exports the runtime, the product themes, the catalogue,
-and the authoring surface (`figure`, `defineScene`; `plot` once `@kineglyph/plot` is bundled):
+**Vanilla `<script type="module">`** — the self-contained web bundle exports the runtime and
+authoring surface. The application owns its scenes and themes:
 
 ```html
 <div id="explainer"></div>
 <script type="module">
-  import { figure, mountKineglyph, themes } from "/vendor/kineglyph/kineglyph-web.js";
+  import { createTheme, figure, mountKineglyph } from "/vendor/kineglyph/kineglyph-web.js";
   const scene = figure("hello", { title: "Hello" }, (f) => {
     const a = f.card({ title: "A" });
     const b = f.card({ title: "B" });
     f.connect(a, b, { head: "arrow" });
     f.flow([a, b]);
   });
-  mountKineglyph(document.getElementById("explainer"), { scene, theme: themes.pock });
+  const theme = createTheme({ colors: { accent: "#237f74" } });
+  mountKineglyph(document.getElementById("explainer"), { scene, theme });
 </script>
 ```
 
@@ -408,7 +406,7 @@ and the authoring surface (`figure`, `defineScene`; `plot` once `@kineglyph/plot
 
 ```tsx
 import { KineglyphFigure } from "@kineglyph/react";
-<KineglyphFigure figure={buildExplainer} theme={themes.nucleation} controls readout />;
+<KineglyphFigure figure={buildExplainer} controls readout />;
 ```
 
 **Blade (Laravel)** — register the figure in the Vite entry and drop the component in a view; each
@@ -417,15 +415,14 @@ import { KineglyphFigure } from "@kineglyph/react";
 ```js
 // resources/js/kineglyph.js
 import { registerScene, registerTheme, autoMount } from "@kineglyph/web";
-import { themes } from "@kineglyph/scenes";
-import { buildExplainer } from "./figures.js";
+import { buildExplainer, docsTheme } from "./figures.js";
 registerScene("build-explainer", buildExplainer);
-registerTheme("nucleation", themes.nucleation);
+registerTheme("docs", docsTheme);
 autoMount();
 ```
 
 ```blade
-<x-kineglyph-figure scene="build-explainer" theme="nucleation" :autoplay="false"
+<x-kineglyph-figure scene="build-explainer" theme="docs" :autoplay="false"
     caption="Focus a stage to read what it guarantees." />
 ```
 

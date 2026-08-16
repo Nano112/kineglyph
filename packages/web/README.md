@@ -12,12 +12,20 @@ npm install @kineglyph/web
 ## Mount a figure
 
 ```ts
+import { createTheme, figure } from "@kineglyph/core";
 import { mountKineglyph } from "@kineglyph/web";
-import { catalogue, themes } from "@kineglyph/scenes";
+
+const scene = figure("request", { title: "Request path" }, (f) => {
+  const input = f.card({ title: "Input" });
+  const output = f.card({ title: "Output" });
+  f.connect(input, output, { head: "arrow" });
+  f.root(f.flow([input, output]));
+});
+const theme = createTheme({ colors: { accent: "#237f74" } });
 
 const controller = mountKineglyph(document.querySelector("#figure"), {
-  scene: catalogue[0].scene, // SceneDefinition (or a legacy PipelineDefinition)
-  theme: themes.nucleation,
+  scene,
+  theme,
   autoplay: true,
 });
 
@@ -25,9 +33,9 @@ controller.play();
 controller.pause();
 controller.restart();
 controller.seek(1200);
-controller.send("FOCUS_FIELD"); // state-machine event (scenes with a machine)
+controller.send("FOCUS_FIELD"); // state-machine event, when the scene has one
 controller.reset();
-controller.setTheme(themes.pock);
+controller.setTheme(createTheme({ colors: { accent: "#6475b7" } }));
 controller.inspect("field"); // programmatic inspection; inspect(null) clears
 controller.on("state", ({ step }) => console.log(step.transition));
 controller.destroy(); // removes DOM, listeners, observers, and animations
@@ -59,7 +67,7 @@ const controller = mountKineglyph(host, {
       alt: "Generated Minecraft build",
       source: async ({ signals, signal }) => {
         const schematic = buildSchematic(signals, { signal });
-        const mesh = meshWithNucleation(schematic); // custom WASM build with `meshing`
+        const mesh = meshSchematic(schematic); // application-owned adapter
         return mesh.toGlb();
       },
     }),
@@ -72,6 +80,47 @@ with the new signals. Async work is aborted on state changes, resize, scene chan
 If `<model-viewer>` is unavailable or generation fails, the static image remains visible. A custom
 `LiveSurfaceRenderer` can mount Three.js, a native canvas, an iframe, or an application component
 instead.
+
+### Add parameters and binding-aware source
+
+`createParameterPanel` and `createCodeDrawer` cover the controls around a live renderer. They are
+plain DOM helpers: no React dependency, no application assumptions, and no host-page CSS required.
+
+```ts
+import { createCodeDrawer, createParameterPanel, type LiveSurfaceContext } from "@kineglyph/web";
+
+const livePreview = (context: LiveSurfaceContext) => {
+  let settings = { size: 6, detail: 1.2 };
+  const preview = context.element.ownerDocument.createElement("canvas");
+  const source = createCodeDrawer(context.element.ownerDocument, {
+    samples: sourceFor(settings), // [{ id, label, code }, ...]
+  });
+  const parameters = createParameterPanel(context.element.ownerDocument, {
+    parameters: [
+      { id: "size", label: "Size", min: 2, max: 12, step: 0.1, value: settings.size },
+      { id: "detail", label: "Detail", min: 0, max: 3, step: 0.05, value: settings.detail },
+    ],
+    onInput: ({ values }) => {
+      settings = { ...settings, ...values };
+      source.update(sourceFor(settings));
+    },
+    onChange: ({ values }) => renderPreview(values),
+  });
+
+  context.element.append(preview, parameters.element, source.element);
+  return {
+    destroy() {
+      parameters.destroy();
+      source.destroy();
+      preview.remove();
+    },
+  };
+};
+```
+
+`onInput` is immediate, so readouts and source can follow the thumb. `onChange` is debounced while
+dragging and flushes on a committed change, which keeps expensive rendering off the hot path.
+`update()` replaces parameter definitions or source samples without losing the selected language.
 
 ### Lifecycle guarantees
 
@@ -119,14 +168,15 @@ shown, flow strokes stop, and playback controls are disabled.
 ## Auto-mount from data attributes
 
 ```html
-<div data-kineglyph="fast-generation" data-theme="nucleation"></div>
+<div data-kineglyph="request-path" data-theme="docs"></div>
 <script type="module">
   import { autoMount } from "/vendor/kineglyph/kineglyph-web.js";
-  autoMount();
+  import { scenes, themes } from "/assets/figures.js";
+  autoMount({ scenes, themes });
 </script>
 ```
 
-`dist/kineglyph-web.js` is a self-contained ESM bundle (runtime + product themes + catalogue)
-built with Vite for pages without a bundler. With a bundler, import `@kineglyph/web` and register
-your own scenes with `registerScene(id, scene)` / `registerTheme(name, theme)` before calling
-`autoMount()`. See `examples/laravel-blade` for a Blade integration.
+`dist/kineglyph-web.js` is a self-contained ESM bundle of the runtime and authoring primitives.
+It intentionally contains no consumer scenes or themes. Pass registries to `autoMount`, or call
+`registerScene(id, scene)` and `registerTheme(name, theme)` first. See
+`examples/laravel-blade` for a Blade integration.

@@ -1,17 +1,8 @@
 import type { SceneDefinition } from "@kineglyph/core";
 import { benchmarkBreakdownEntry } from "./scenes/benchmark-breakdown.js";
-import { bindingsAndLanguagesEntry } from "./scenes/bindings-and-languages.js";
 import { bottleneckLensEntry } from "./scenes/bottleneck-lens.js";
+import { materialDirectionsScene } from "./scenes/material-directions.js";
 import { operationHeatmapEntry } from "./scenes/operation-heatmap.js";
-import {
-  fastGenerationEntry,
-  formatsAndIoEntry,
-  meshingAndRenderingEntry,
-  palettesAndColorEntry,
-  sdfAndFieldsEntry,
-  shapesAndBrushesEntry,
-  smartSimulationEntry,
-} from "./scenes/nucleation-system.js";
 import { throughputOverTimeEntry } from "./scenes/throughput-over-time.js";
 
 export interface CatalogueEntry {
@@ -32,16 +23,21 @@ export interface CatalogueEntry {
   readonly scene: SceneDefinition;
 }
 
-/** Nucleation illustrations and quantitative examples, in reading order. */
+const materialDirectionsEntry: CatalogueEntry = {
+  slug: "material-directions",
+  order: 1,
+  title: "Material directions",
+  summary: "One responsive composition rendered through several semantic material systems.",
+  concept: "Theme tokens change surface physics without changing scene structure.",
+  interaction: "Switch themes in the playground to compare the same resolved nodes.",
+  animation: "The chart and material surfaces enter on one seekable timeline.",
+  source: "material-directions.svg",
+  scene: materialDirectionsScene,
+};
+
+/** Generic examples shipped with Kineglyph. Product scenes belong to their consumers. */
 export const catalogue: readonly CatalogueEntry[] = [
-  fastGenerationEntry,
-  shapesAndBrushesEntry,
-  sdfAndFieldsEntry,
-  palettesAndColorEntry,
-  smartSimulationEntry,
-  formatsAndIoEntry,
-  bindingsAndLanguagesEntry,
-  meshingAndRenderingEntry,
+  materialDirectionsEntry,
   benchmarkBreakdownEntry,
   throughputOverTimeEntry,
   operationHeatmapEntry,
