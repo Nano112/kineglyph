@@ -67,10 +67,7 @@ describe("prerender", () => {
     const path = await import("node:path");
     const { pathToFileURL } = await import("node:url");
     const dir = await fsPromises.mkdtemp(path.join(tmpdir(), "kg-prerender-"));
-    await fsPromises.writeFile(
-      path.join(dir, "helper.mjs"),
-      `export const TITLE = "From helper";`,
-    );
+    await fsPromises.writeFile(path.join(dir, "helper.mjs"), `export const TITLE = "From helper";`);
     const src = `
       import { defineScene, stack, heading } from "kineglyph";
       import { TITLE } from "./helper.mjs";
