@@ -77,6 +77,13 @@ interface MountRecord {
   load: NonNullable<MountAllOptions["load"]>;
 }
 const registry = new WeakMap<HTMLElement, MountRecord>();
+/**
+ * Elements with a `mountOne` call currently awaiting `load`. Guards against a `kineglyph:update`
+ * event racing the initial mount: without this, the event would find no `registry` record yet
+ * (it's only set after `load` resolves) and trigger a second concurrent `mountOne`, double-
+ * mounting into the same stage and leaking the first controller.
+ */
+const inFlight = new WeakSet<HTMLElement>();
 let updateListenerInstalled = false;
 /**
  * Options from the most recent `mountAll` call. The `kineglyph:update` listener uses them to
@@ -122,9 +129,11 @@ async function mountOne(
   options: MountAllOptions,
 ): Promise<EmbeddedFigure | undefined> {
   if (element.dataset.kineglyphMounted === "true") return undefined;
+  if (inFlight.has(element)) return undefined;
   const source = detectSource(element);
   if (source === undefined) return undefined; // static-only
   const load = options.load ?? defaultLoader;
+  inFlight.add(element);
   try {
     const scene = await load(source, element);
     const theme = resolveTheme(options, element);
@@ -150,6 +159,8 @@ async function mountOne(
     element.dataset.kineglyphError = error instanceof Error ? error.message : String(error);
     setStaticHidden(element, false);
     return undefined;
+  } finally {
+    inFlight.delete(element);
   }
 }
 

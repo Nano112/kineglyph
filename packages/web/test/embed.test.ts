@@ -129,4 +129,33 @@ describe("mountAll", () => {
     expect(el.hasAttribute("data-kineglyph-error")).toBe(false);
     expect(document.querySelector<HTMLImageElement>("#flaky img")!.hidden).toBe(true);
   });
+
+  it("does not double-mount when kineglyph:update fires while the initial load is still pending", async () => {
+    document.body.innerHTML = `<figure class="kg" id="a"><script type="text/kineglyph">A</script></figure>`;
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const mountPromise = mountAll({
+      load: () => {
+        calls++;
+        return gate.then(() => scene);
+      },
+    });
+
+    // Fire the update before the first load resolves: without the in-flight guard this used to
+    // find no registry record yet and trigger a second, overlapping mountOne.
+    document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#a" } }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    release();
+    await mountPromise;
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(calls).toBe(1);
+    const el = document.querySelector<HTMLElement>("#a")!;
+    expect(el.querySelectorAll("[data-kg-stage]")).toHaveLength(1);
+    expect(document.querySelectorAll('[data-kineglyph-mounted="true"]')).toHaveLength(1);
+  });
 });
