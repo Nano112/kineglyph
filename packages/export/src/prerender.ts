@@ -37,12 +37,14 @@ const IMPORT_RE =
 export function rewriteImports(source: string, resolve: (specifier: string) => string): string {
   return source.replace(IMPORT_RE, (match: string, ...rest: unknown[]) => {
     const groups = rest[rest.length - 1] as Record<string, string | undefined>;
+    // JSON.stringify escapes quotes/backslashes/control chars, so a resolved specifier can never
+    // break out of its string literal.
     if (groups.staticHead !== undefined && groups.staticSpec !== undefined)
-      return `${groups.staticHead}"${resolve(groups.staticSpec)}"`;
+      return `${groups.staticHead}${JSON.stringify(resolve(groups.staticSpec))}`;
     if (groups.exportHead !== undefined && groups.exportSpec !== undefined)
-      return `${groups.exportHead}"${resolve(groups.exportSpec)}"`;
+      return `${groups.exportHead}${JSON.stringify(resolve(groups.exportSpec))}`;
     if (groups.dynHead !== undefined && groups.dynSpec !== undefined)
-      return `${groups.dynHead}"${resolve(groups.dynSpec)}"${groups.dynTail ?? ""}`;
+      return `${groups.dynHead}${JSON.stringify(resolve(groups.dynSpec))}${groups.dynTail ?? ""}`;
     return match;
   });
 }
@@ -82,12 +84,16 @@ function resolveRuntimeUrl(): string {
 }
 
 function makeResolver(options: PrerenderOptions): (specifier: string) => string {
-  const bare: Record<string, string> = {
-    kineglyph: resolveRuntimeUrl(),
-    ...(options.imports ?? {}),
-  };
+  // Null-prototype: a scene importing "toString" or "constructor" must not hit Object.prototype.
+  const bare: Record<string, string> = Object.assign(
+    Object.create(null) as Record<string, string>,
+    {
+      kineglyph: resolveRuntimeUrl(),
+      ...(options.imports ?? {}),
+    },
+  );
   return (specifier) => {
-    if (specifier in bare) return bare[specifier]!;
+    if (Object.hasOwn(bare, specifier)) return bare[specifier]!;
     if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/")) {
       if (options.baseUrl === undefined)
         throw new KineglyphExportError(

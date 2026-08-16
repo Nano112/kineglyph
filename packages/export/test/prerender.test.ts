@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { prerender, rewriteImports } from "../src/prerender.js";
-import { defaultTheme } from "@kineglyph/core";
+import { createTheme, defaultTheme } from "@kineglyph/core";
+
+/** Visibly different from `defaultTheme` so per-theme output can be told apart. */
+const darkTheme = createTheme({
+  name: "dark",
+  colors: { canvas: "#0b0f17", surface: "#131a26", text: "#f2f5fa", accent: "#7dd3fc" },
+});
 
 const SCENE = `
 import { defineScene, stack, heading } from "kineglyph";
@@ -33,7 +39,7 @@ describe("prerender", () => {
     const results = await prerender(SCENE, {
       themes: [
         { name: "light", tokens: defaultTheme },
-        { name: "dark", tokens: defaultTheme },
+        { name: "dark", tokens: darkTheme },
       ],
       width: 640,
     });
@@ -43,6 +49,9 @@ describe("prerender", () => {
       expect(r.svg).toContain("Hello");
       expect(r.width).toBeGreaterThan(0);
     }
+    // each theme really is rendered with its own tokens, not just labelled differently
+    expect(results[0]!.svg).not.toBe(results[1]!.svg);
+    expect(results[1]!.svg).toContain("#f2f5fa");
   });
 
   it("rejects a module without a default FigureSource export", async () => {
