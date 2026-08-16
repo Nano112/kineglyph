@@ -10,3 +10,5 @@ export type { FontOptions } from "./raster.js";
 export { gifInfo, pngInfo } from "./formats.js";
 export type { GifInfo, PngInfo } from "./formats.js";
 export { exportFile } from "./file.js";
+export { prerender, rewriteImports } from "./prerender.js";
+export type { PrerenderOptions, PrerenderResult, PrerenderTheme } from "./prerender.js";

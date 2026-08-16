@@ -1,6 +1,11 @@
 /** Stable machine-readable failure categories raised by the exporter. */
 export type KineglyphExportErrorCode =
-  "invalid-time" | "invalid-output" | "missing-font" | "live-media" | "encoder";
+  | "invalid-time"
+  | "invalid-output"
+  | "missing-font"
+  | "live-media"
+  | "encoder"
+  | "invalid-scene";
 
 /** Error raised for every export failure that the caller can act on. */
 export class KineglyphExportError extends Error {
