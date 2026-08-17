@@ -3,8 +3,20 @@ export const STYLE_ID = "kineglyph-web-styles";
 
 export const FIGURE_STYLES = `
 .kg-figure{box-sizing:border-box;position:relative;overflow:hidden;border:1px solid var(--kg-shell-border);border-radius:var(--kg-shell-radius);background:var(--kg-shell-background);color:var(--kg-shell-text);font-family:var(--kg-shell-font)}
+/* The panel is the chrome's container, so it exists when there is chrome. With a readout and a
+   transport under it the border is what holds the parts together; with nothing but a stage inside
+   it, it is a box drawn around a picture that already paints its own canvas — and, for an embedder
+   whose pre-rendered fallback has no such box, a border that appears out of nowhere on hydration. */
+.kg-figure:not(:has(.kg-figure__readout,.kg-figure__machine,.kg-figure__controls)){border:0;border-radius:0;background:transparent}
 .kg-figure *{box-sizing:border-box}
-.kg-figure__stage{position:relative;width:100%;min-height:120px;background:var(--kg-shell-background);overflow:hidden}
+/* overflow-x:auto, not hidden: a drawing laid out wider than its container (an embedder that
+   mounts at a fixed width so the live figure matches a pre-rendered one, rather than reflowing
+   under the reader) must be reachable by scrolling instead of silently cropped. */
+.kg-figure__stage{position:relative;width:100%;background:var(--kg-shell-background);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain}
+/* Only while there is nothing to show. Applied unconditionally this floor inflates every figure
+   shorter than 120px to 120px — which for a short, wide diagram is padding the embedder did not
+   ask for and, again, a height its pre-rendered form does not have. */
+.kg-figure__stage:empty{min-height:120px}
 .kg-figure__stage svg{display:block;width:100%;height:auto;overflow:visible}
 .kg-figure__stage [data-node-id]{transition:filter 160ms ease}
 .kg-figure__stage [data-node-id][data-inspected=true]>.kg-node-shape,.kg-figure__stage [data-node-id][data-selected=true]>.kg-node-shape{stroke:var(--kg-shell-accent);stroke-width:2}
