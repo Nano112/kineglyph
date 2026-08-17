@@ -22,9 +22,12 @@ export const FIGURE_STYLES = `
 .kg-figure__machine-label{color:var(--kg-shell-muted);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-right:4px}
 .kg-figure__controls{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}
 .kg-figure__machine+.kg-figure__controls{border-top:none;padding-top:8px}
-.kg-figure button{appearance:none;border:1px solid var(--kg-shell-border);border-radius:4px;padding:8px 12px;background:var(--kg-shell-background);color:var(--kg-shell-text);font:600 12px/1 var(--kg-shell-font);cursor:pointer}
-.kg-figure button:hover:not(:disabled),.kg-figure button:focus-visible{border-color:var(--kg-shell-accent);outline:none}
-.kg-figure button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--kg-shell-accent),transparent 70%)}
+.kg-figure button{appearance:none;border:1px solid var(--kg-shell-border);border-radius:calc(var(--kg-shell-radius)/2);padding:8px 12px;background:var(--kg-shell-background);color:var(--kg-shell-text);font:600 12px/1 var(--kg-shell-font);cursor:pointer;transition:border-color 120ms ease,background-color 120ms ease}
+.kg-figure button:hover:not(:disabled){border-color:var(--kg-shell-accent)}
+/* An outline and not only a ring: \`box-shadow\` is dropped in forced-colours mode, which is
+   exactly the mode a visible focus indicator exists for. \`outline-offset\` keeps it off the border. */
+.kg-figure button:focus-visible{border-color:var(--kg-shell-accent);outline:2px solid var(--kg-shell-accent);outline-offset:2px}
+.kg-figure__scrubber input:focus-visible{outline:2px solid var(--kg-shell-accent);outline-offset:2px}
 .kg-figure button:disabled{opacity:.42;cursor:not-allowed}
 .kg-figure button[aria-pressed=true]{border-color:var(--kg-shell-accent);background:color-mix(in srgb,var(--kg-shell-accent),var(--kg-shell-background) 84%);color:var(--kg-shell-text)}
 .kg-figure__scrubber{display:flex;align-items:center;gap:10px;flex:1;min-width:160px;color:var(--kg-shell-muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
@@ -40,7 +43,7 @@ export const FIGURE_STYLES = `
 .kg-figure .kg-code-drawer{position:absolute;z-index:5;top:12px;right:12px;margin:0;padding:0;border:0;background:transparent;box-shadow:none;color:var(--kg-shell-text);font-family:var(--kg-shell-font)}.kg-figure .kg-code-drawer>summary{display:block;width:max-content;min-width:58px;margin:0 0 0 auto;padding:8px 11px;border:1px solid var(--kg-shell-border);border-radius:6px;background:color-mix(in srgb,var(--kg-shell-surface) 92%,transparent);color:var(--kg-shell-text);cursor:pointer;font:700 11px/1 var(--kg-shell-font);text-align:center;list-style:none;backdrop-filter:blur(12px)}.kg-figure .kg-code-drawer>summary::-webkit-details-marker,.kg-figure .kg-code-drawer>summary::before,.kg-figure .kg-code-drawer>summary::after{display:none!important;content:none!important}.kg-figure .kg-code-drawer[open]{left:12px;bottom:12px}.kg-figure .kg-code-drawer[open]>summary{position:relative;z-index:2}.kg-figure .kg-code-drawer__body{position:absolute;top:40px;right:0;bottom:0;display:flex;min-height:0;width:min(560px,100%);flex-direction:column;overflow:hidden;border:1px solid var(--kg-shell-border);border-radius:8px;background:var(--kg-shell-background);box-shadow:0 14px 40px color-mix(in srgb,var(--kg-shell-text) 18%,transparent)}.kg-figure .kg-code-drawer__tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}.kg-figure .kg-code-drawer__tabs button{padding:7px 10px;border:1px solid transparent;background:transparent;color:var(--kg-shell-muted)}.kg-figure .kg-code-drawer__tabs button[aria-selected=true]{border-color:var(--kg-shell-accent);background:color-mix(in srgb,var(--kg-shell-accent),var(--kg-shell-background) 86%);color:var(--kg-shell-text)}.kg-figure .kg-code-drawer pre{flex:1;min-height:0;margin:0;padding:14px;overflow:auto;color:var(--kg-shell-text);background:var(--kg-shell-background);font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}.kg-figure .kg-code-drawer code{display:block;padding:0!important;background:transparent!important;color:inherit!important;font:inherit}
 .kg-figure__live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media(max-width:520px){.kg-parameter-panel{left:8px;right:8px;bottom:8px;gap:12px;padding:9px 11px}.kg-figure .kg-code-drawer{top:8px;right:8px}.kg-figure .kg-code-drawer[open]{left:8px;bottom:8px}.kg-figure .kg-code-drawer pre{font-size:11px}}
-@media(prefers-reduced-motion:reduce){.kg-figure__stage [data-node-id]{transition:none}}
+@media(prefers-reduced-motion:reduce){.kg-figure__stage [data-node-id]{transition:none}.kg-figure button{transition:none}}
 `;
 
 /** Ensures the shared stylesheet exists in the document that owns `element`. */

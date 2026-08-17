@@ -47,6 +47,21 @@ export * from "./surfaces.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
 
+/**
+ * Whether a piece of a live figure's chrome is drawn.
+ *
+ * `true`/`false` are the author's word and are obeyed. `"auto"` hands the decision to the scene:
+ * the chrome appears only if the scene gives it something to do. That is the setting an embedder
+ * wants for a figure sitting in prose, where the picture is the point and a control strip with
+ * nothing behind it reads as a debug harness bolted to a diagram.
+ *
+ * The rule is deliberately about *content*, not about the reader's environment: a scene either has
+ * a timeline (or inspectable parts) or it does not, and that answer does not change when
+ * `prefers-reduced-motion` flips or the figure is resized, so the chrome never appears or vanishes
+ * under the reader.
+ */
+export type ChromeSetting = boolean | "auto";
+
 export interface MountOptions {
   /** A general scene definition or a legacy pipeline definition. */
   readonly scene: FigureSource;
@@ -55,12 +70,23 @@ export interface MountOptions {
   /** Fixed container width in CSS pixels; when omitted the host element is measured and observed. */
   readonly width?: number;
   readonly autoplay?: boolean;
-  /** Render the compact play/restart/scrubber controls. Defaults to true. */
-  readonly controls?: boolean;
-  /** Render the inspection readout. Defaults to true. */
-  readonly readout?: boolean;
+  /**
+   * Render the compact play/restart/scrubber transport. Defaults to true.
+   *
+   * `"auto"` defers to the scene: the transport appears only when there is a timeline to drive
+   * (`resolved.timeline.duration > 0`). A still diagram gets no disabled Play button against a
+   * 0.0s track, which is furniture rather than a control.
+   */
+  readonly controls?: ChromeSetting;
+  /**
+   * Render the inspection readout. Defaults to true.
+   *
+   * `"auto"` defers to the scene: the readout appears only when something in it can actually be
+   * inspected — a node that is `interactive`, or one that carries both a label and a description.
+   */
+  readonly readout?: ChromeSetting;
   /** Render machine control buttons when the scene declares them. Defaults to true. */
-  readonly machineControls?: boolean;
+  readonly machineControls?: ChromeSetting;
   /** Overrides the `prefers-reduced-motion` media query. */
   readonly reducedMotion?: boolean;
   /** Stable DOM id prefix. Defaults to a unique generated prefix. */
@@ -152,6 +178,26 @@ export interface KineglyphController {
   destroy(): void;
 }
 
+/**
+ * Resolves a {@link ChromeSetting} against what the scene actually offers.
+ *
+ * `undefined` keeps the historical default — chrome is drawn — so nothing that never asked a
+ * question changes its answer.
+ */
+function chromeWanted(setting: ChromeSetting | undefined, justified: boolean): boolean {
+  if (setting === "auto") return justified;
+  return setting !== false;
+}
+
+/**
+ * Reads a `data-controls` / `data-readout` / `data-machine-controls` attribute as a
+ * {@link ChromeSetting}. `"false"` is off, `"auto"` defers to the scene, anything else (including
+ * an absent attribute) is on — which is what every such attribute has always meant.
+ */
+export function chromeAttr(value: string | undefined): ChromeSetting {
+  return value === "false" ? false : value === "auto" ? "auto" : true;
+}
+
 let mountCounter = 0;
 
 /** Mounts a Kineglyph figure into `element` and returns a disposable controller. */
@@ -233,26 +279,6 @@ class FigureRuntime implements KineglyphController {
     this.#live.className = "kg-figure__live";
     this.#live.setAttribute("aria-live", "polite");
     this.#shell.append(this.#live);
-    if (options.readout !== false) {
-      this.#readout = doc.createElement("div");
-      this.#readout.className = "kg-figure__readout";
-      // The body is a <div> so structured fields (<dl>) stay valid HTML inside it.
-      this.#readout.innerHTML =
-        '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
-      this.#shell.append(this.#readout);
-    }
-    if (options.machineControls !== false) {
-      this.#machineBar = doc.createElement("div");
-      this.#machineBar.className = "kg-figure__machine";
-      this.#machineBar.hidden = true;
-      this.#shell.append(this.#machineBar);
-    }
-    if (options.controls !== false) {
-      this.#controls = doc.createElement("div");
-      this.#controls.className = "kg-figure__controls";
-      this.#shell.append(this.#controls);
-      this.#buildControls(doc);
-    }
     element.append(this.#shell);
 
     this.#reducedMotion = options.reducedMotion ?? prefersReducedMotion(element);
@@ -266,6 +292,32 @@ class FigureRuntime implements KineglyphController {
     }
 
     this.#resolved = this.#resolve();
+
+    // The chrome is built *after* the first resolve, because `"auto"` cannot be answered before
+    // the scene is: whether a transport is meaningful is a fact about the resolved timeline, and
+    // whether a readout is is a fact about the resolved nodes. Appended after the stage and the
+    // live region, which is the order they were created in, so the DOM is unchanged.
+    if (chromeWanted(options.readout, this.#hasInspectableContent())) {
+      this.#readout = doc.createElement("div");
+      this.#readout.className = "kg-figure__readout";
+      // The body is a <div> so structured fields (<dl>) stay valid HTML inside it.
+      this.#readout.innerHTML =
+        '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
+      this.#shell.append(this.#readout);
+    }
+    if (chromeWanted(options.machineControls, this.machine !== undefined)) {
+      this.#machineBar = doc.createElement("div");
+      this.#machineBar.className = "kg-figure__machine";
+      this.#machineBar.hidden = true;
+      this.#shell.append(this.#machineBar);
+    }
+    if (chromeWanted(options.controls, this.#duration > 0)) {
+      this.#controls = doc.createElement("div");
+      this.#controls.className = "kg-figure__controls";
+      this.#shell.append(this.#controls);
+      this.#buildControls(doc);
+    }
+
     this.#render(true);
     this.#bindInteractions(doc);
     this.#observeMedia(element);
@@ -816,6 +868,17 @@ class FigureRuntime implements KineglyphController {
     );
   }
 
+  /**
+   * Whether pointing at this scene could ever fill the readout.
+   *
+   * The same predicate `#bindInteractions` gates on, asked of the whole scene rather than one
+   * node — so `readout: "auto"` promises exactly what hovering will deliver, instead of guessing
+   * from something adjacent like "the scene has a description".
+   */
+  #hasInspectableContent(): boolean {
+    return this.#resolved.nodes.some((node) => this.#isInspectable(node.id));
+  }
+
   #targetFor(id: string): InspectTarget | undefined {
     const node = this.#resolved.nodes.find((entry) => entry.id === id);
     if (node !== undefined) {
@@ -967,8 +1030,9 @@ export interface AutoMountOptions {
 
 /**
  * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
- * `data-layout`, `data-autoplay="false"`, `data-controls="false"`, `data-readout="false"`,
- * `data-reduced-motion="true"`, `data-width`. Returns the controllers in document order.
+ * `data-layout`, `data-autoplay="false"`, `data-controls="false"|"auto"`,
+ * `data-readout="false"|"auto"`, `data-reduced-motion="true"`, `data-width`. Returns the
+ * controllers in document order.
  */
 export function autoMount(options: AutoMountOptions = {}): KineglyphController[] {
   const root: ParentNode =
@@ -999,8 +1063,8 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
       ...(layout === undefined ? {} : { layout }),
       ...(width === undefined || !Number.isFinite(width) ? {} : { width }),
       autoplay: element.dataset.autoplay !== "false",
-      controls: element.dataset.controls !== "false",
-      readout: element.dataset.readout !== "false",
+      controls: chromeAttr(element.dataset.controls),
+      readout: chromeAttr(element.dataset.readout),
       ...(element.dataset.reducedMotion === undefined
         ? {}
         : { reducedMotion: element.dataset.reducedMotion === "true" }),

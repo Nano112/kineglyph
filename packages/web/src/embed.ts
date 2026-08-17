@@ -1,5 +1,6 @@
 import type { FigureSource, ThemeTokens } from "@kineglyph/core";
 import {
+  chromeAttr,
   mountKineglyph,
   getRegisteredScene,
   getRegisteredTheme,
@@ -149,8 +150,8 @@ async function mountOne(
       scene,
       ...(theme === undefined ? {} : { theme }),
       autoplay: element.dataset.autoplay !== "false",
-      controls: element.dataset.controls !== "false",
-      readout: element.dataset.readout !== "false",
+      controls: chromeAttr(element.dataset.controls),
+      readout: chromeAttr(element.dataset.readout),
       ...(options.mountOptions?.(element) ?? {}),
     });
     element.dataset.kineglyphMounted = "true";

@@ -141,21 +141,21 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 
 ### Options
 
-| Option            | Default         | Purpose                                                          |
-| ----------------- | --------------- | ---------------------------------------------------------------- |
-| `scene`           | —               | `SceneDefinition` or `PipelineDefinition`                        |
-| `theme`           | `defaultTheme`  | Semantic theme tokens                                            |
-| `layout`          | `"auto"`        | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines) |
-| `width`           | measured        | Fixed width; otherwise the host is observed with ResizeObserver  |
-| `autoplay`        | `true`          | Start playback on mount (never under reduced motion)             |
-| `controls`        | `true`          | Compact play / restart / scrubber controls                       |
-| `readout`         | `true`          | Inspection readout below the stage                               |
-| `machineControls` | `true`          | Buttons for `scene.controls` with `aria-pressed` state           |
-| `reducedMotion`   | media query     | Force the terminal frame and disable playback                    |
-| `idPrefix`        | generated       | Stable DOM id prefix                                             |
-| `initialState`    | machine initial | Start a machine in a specific `MachineState`                     |
-| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                 |
-| callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`      |
+| Option            | Default         | Purpose                                                           |
+| ----------------- | --------------- | ----------------------------------------------------------------- |
+| `scene`           | —               | `SceneDefinition` or `PipelineDefinition`                         |
+| `theme`           | `defaultTheme`  | Semantic theme tokens                                             |
+| `layout`          | `"auto"`        | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines)  |
+| `width`           | measured        | Fixed width; otherwise the host is observed with ResizeObserver   |
+| `autoplay`        | `true`          | Start playback on mount (never under reduced motion)              |
+| `controls`        | `true`          | Compact play / restart / scrubber controls; `"auto"` if animated  |
+| `readout`         | `true`          | Inspection readout below the stage; `"auto"` if inspectable       |
+| `machineControls` | `true`          | Buttons for `scene.controls`; `"auto"` if the scene has a machine |
+| `reducedMotion`   | media query     | Force the terminal frame and disable playback                     |
+| `idPrefix`        | generated       | Stable DOM id prefix                                              |
+| `initialState`    | machine initial | Start a machine in a specific `MachineState`                      |
+| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                  |
+| callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`       |
 
 ### Keyboard and accessibility
 
@@ -233,6 +233,28 @@ mount; `options.theme`, `options.load`, and `options.mountOptions` accept functi
 when the host needs to override per figure. Elements already carrying
 `data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
 arrives.
+
+### Chrome that the scene decides: `"auto"`
+
+`controls`, `readout` and `machineControls` are three-valued (`ChromeSetting = boolean | "auto"`).
+`true`/`false` are obeyed and `undefined` still means `true`, so nothing that never asked changes
+its answer. `"auto"` — also spelled `data-controls="auto"` / `data-readout="auto"` — hands the
+decision to the resolved scene:
+
+| Setting           | `"auto"` draws it when                                                               |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `controls`        | the scene has a timeline to drive (`resolved.timeline.duration > 0`)                 |
+| `readout`         | some node is inspectable — `interactive`, or carrying both a label and a description |
+| `machineControls` | the scene declares a machine                                                         |
+
+The predicates are about _content_, not about the reader: they are settled once, at the first
+resolve, so chrome never appears or vanishes under a reader who resizes the page or flips
+`prefers-reduced-motion`. Each is decided independently, which is the point — a scene with
+inspectable parts and no timeline gets a readout and no transport, rather than a Play button it
+could only ever render disabled.
+
+This is the setting an embedder wants for a figure that sits in prose, where the picture is the
+point. Kineglyph has no opinion about which figures those are; deciding that is the embedder's job.
 
 ### `kineglyph:update`
 
