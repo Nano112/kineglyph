@@ -66,14 +66,26 @@ export interface ThemeTokens {
   readonly materials: Readonly<Record<MaterialToken, MaterialDefinition>>;
 }
 
-/** Neutral defaults intended as a complete, renderer-independent semantic theme. */
+/**
+ * Neutral defaults intended as a complete, renderer-independent semantic theme.
+ *
+ * The neutrals carry a deliberate three-step depth — ground, then node surface, then the outline
+ * that separates them — because a diagram whose canvas, cards and borders all sit within a few
+ * percent of each other reads as outlines in fog rather than objects on a plane. Measured against
+ * each other: surface on canvas 1.13:1, border on surface 1.52:1.
+ *
+ * `connector` is the one neutral that is not a hairline. A connector is structure, not chrome: it
+ * carries 5.28:1 on the canvas and 5.98:1 on a node surface, which is text-grade contrast, against
+ * the 2.57:1 it used to have. Hosts that want their diagrams' verbs in their brand colour point
+ * `--kg-color-connector` at their accent — see `docs/embedding-and-theming.md`.
+ */
 export const defaultTheme: ThemeTokens = {
   name: "default",
   colors: {
-    canvas: "#f7f8fa",
+    canvas: "#eef1f5",
     surface: "#ffffff",
     surfaceRaised: "#ffffff",
-    surfaceMuted: "#eef0f4",
+    surfaceMuted: "#dfe4ec",
     text: "#15171a",
     textMuted: "#626973",
     accent: "#5b5ce2",
@@ -82,8 +94,8 @@ export const defaultTheme: ThemeTokens = {
     success: "#16835d",
     warning: "#b26200",
     danger: "#c9363e",
-    connector: "#969da8",
-    border: "#dfe2e7",
+    connector: "#5b6472",
+    border: "#ccd2dc",
     chart1: "#5b5ce2",
     chart2: "#2f7bd9",
     chart3: "#b26200",

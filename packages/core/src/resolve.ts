@@ -5,6 +5,7 @@
  * flow bottom-up (text wraps at its resolved width), then positions are assigned top-down.
  * Equal inputs produce byte-equivalent geometry; nothing here reads the DOM.
  */
+import { minimumConnectorRun } from "./connector.js";
 import { assignPorts, packetPositions, resolveEdge, type EdgeNodeBox } from "./edges.js";
 import { rectsIntersect } from "./geometry.js";
 import {
@@ -1659,7 +1660,12 @@ function emit(
             ? "rect"
             : "other",
   });
-  if (!view.hidden && view.type !== "group") out.obstacles.push(rect);
+  // A framed group is as solid as a leaf as far as a label is concerned: it has a fill and a
+  // border, and a label that lands on it looks stuck to it. Unframed groups stay out — they are
+  // arrangement, not surface — and an edge is never pushed around by a box it emerges from, which
+  // is what keeps the root group (and any card an endpoint lives in) from blocking everything.
+  const framed = view.type === "group" && resolved.appearance?.fill !== undefined;
+  if (!view.hidden && (view.type !== "group" || framed)) out.obstacles.push(rect);
   const sorted = [...placed.children].sort((a, b) => a.view.z - b.view.z);
   for (const child of sorted) emit(child, { x, y }, view.id, theme, precision, out);
 }
@@ -1907,21 +1913,19 @@ export function resolveFigure(source: FigureSource, options: ResolveFigureOption
     });
   }
   const requested = options.layout ?? "auto";
+  // "auto" is handed to the layout rather than decided here against a fixed 820px threshold. The
+  // gap between two stages is now whatever the connector between them needs, so how wide a
+  // pipeline has to be before it can run wide is a function of its stage count — something only
+  // the layout knows. Deciding it up here meant asking for a wide layout that could not fit.
   const layout: ResolvePipelineOptions["layout"] =
-    requested === "wide"
-      ? "wide"
-      : requested === "auto"
-        ? options.width >= 820
-          ? "wide"
-          : "stacked"
-        : "stacked";
+    requested === "wide" ? "wide" : requested === "auto" ? "auto" : "stacked";
   const resolved = resolvePipeline(source, {
     width: options.width,
     layout,
     ...(options.theme === undefined ? {} : { theme: options.theme }),
     padding: options.width < 520 ? 16 : 24,
-    gap: 24,
-    stackedGap: 20,
+    gap: minimumConnectorRun(),
+    stackedGap: minimumConnectorRun(),
   });
   const layoutName: LayoutName =
     resolved.layout === "wide" ? "wide" : options.width < 560 ? "narrow" : "compact";

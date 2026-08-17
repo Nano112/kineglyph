@@ -13,6 +13,8 @@
  * restricted to letters, digits, `_` and `-` so the `:` separator can never collide.
  */
 import { drawEdge, flow, reveal, timeline as buildTimeline } from "./authoring.js";
+import { CONNECTOR_LABEL_CLEARANCE, minimumConnectorRun } from "./connector.js";
+import { edgeLabelHeight, edgeLabelWidth } from "./edges.js";
 import { material } from "./material.js";
 import { body, caption, code, container, heading, stack } from "./recipes.js";
 import type { AnimationTimeline, TimelineTrack } from "./resolved.js";
@@ -25,6 +27,8 @@ import type {
   SceneDefinition,
   SceneNode,
 } from "./scene.js";
+import type { TextFont } from "./text.js";
+import { defaultTheme, type ThemeTokens } from "./theme.js";
 
 // ---------------------------------------------------------------------------------------------
 // Types
@@ -255,9 +259,66 @@ function toneOptions(tone: string | undefined): { readonly tone?: Paint } {
   return tone === undefined ? {} : { tone: tone as Paint };
 }
 
-function buildNode(node: SimpleNode): SceneNode {
+// ---------------------------------------------------------------------------------------------
+// Connector-aware spacing
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * How much room the connectors between a set of siblings need.
+ *
+ * A gap is not a spacing preference in a diagram that has edges in it — it is the space a
+ * connector has to live in, and a connector that does not fit reads as a glitch: a 12px run behind
+ * a 10px arrowhead is an arrowhead with a smudge, and an edge label wider than the gap has nowhere
+ * to sit but on top of the boxes either side.
+ *
+ * So the gap is derived, per container, from what its own connectors carry:
+ *
+ *   - every connected pair needs `minimumConnectorRun` — the head's length plus enough shaft
+ *     behind it to read as an arrow;
+ *   - a *labelled* connector in a row also needs its label's width plus clearance, because the run
+ *     is horizontal and the label sits across it; in a stack the label sits beside a vertical run,
+ *     so it needs its height instead.
+ *
+ * Containers with no edges of their own keep the plain spacing default: this only spends space
+ * where a connector actually has to be drawn.
+ */
+interface SpacingContext {
+  /** Edges whose two endpoints are siblings, keyed by the container that holds them. */
+  readonly labelsByPair: ReadonlyMap<string, readonly string[]>;
+  readonly font: TextFont;
+  readonly strokeWidth: number;
+}
+
+function siblingKey(ids: readonly string[]): string {
+  return [...ids].sort().join(" ");
+}
+
+function connectorGap(
+  siblings: readonly SimpleNode[],
+  layout: SimpleLayout,
+  fallback: number,
+  context: SpacingContext,
+): number {
+  if (siblings.length < 2) return fallback;
+  const present = new Set(siblings.map((node) => node.id));
+  let required = 0;
+  for (const [pair, labels] of context.labelsByPair) {
+    const [from, to] = pair.split(" ");
+    if (from === undefined || to === undefined) continue;
+    if (!present.has(from) || !present.has(to)) continue;
+    required = Math.max(required, minimumConnectorRun(context.strokeWidth));
+    for (const label of labels) {
+      const room =
+        layout === "row" ? edgeLabelWidth(label, context.font) : edgeLabelHeight(context.font);
+      required = Math.max(required, Math.ceil(room) + CONNECTOR_LABEL_CLEARANCE * 2);
+    }
+  }
+  return Math.max(fallback, required);
+}
+
+function buildNode(node: SimpleNode, context: SpacingContext): SceneNode {
   const id = nodeId(node.id);
-  if (node.kind === "box") return buildBox(node, id);
+  if (node.kind === "box") return buildBox(node, id, context);
   const options = toneOptions(node.tone);
   switch (node.kind) {
     case "heading":
@@ -271,16 +332,21 @@ function buildNode(node: SimpleNode): SceneNode {
   }
 }
 
-function buildBox(node: SimpleBoxNode, id: string): GroupNode {
+function buildBox(node: SimpleBoxNode, id: string, context: SpacingContext): GroupNode {
   const children: SceneNode[] = [];
   if (node.title !== undefined) children.push(heading(`${id}:title`, node.title));
   if (node.body !== undefined) children.push(caption(`${id}:body`, node.body));
   if (node.children !== undefined && node.children.length > 0)
     children.push(
-      container(`${id}:children`, node.layout ?? "stack", node.children.map(buildNode), {
-        gap: 12,
-        width: "fill",
-      }),
+      container(
+        `${id}:children`,
+        node.layout ?? "stack",
+        node.children.map((child) => buildNode(child, context)),
+        {
+          gap: connectorGap(node.children, node.layout ?? "stack", 12, context),
+          width: "fill",
+        },
+      ),
     );
   return stack(id, children, {
     gap: 8,
@@ -338,21 +404,55 @@ function buildTimelineTracks(
   );
 }
 
+export interface SceneFromSpecOptions {
+  /**
+   * The theme the scene will be resolved with.
+   *
+   * Spacing depends on it: the connector's stroke width decides the shortest run an arrowhead can
+   * sit on, and the caption font decides how much room an edge label asks for. Passing the theme
+   * the figure will actually be drawn in keeps the two in step; the default theme is assumed
+   * otherwise, which is right for every caller that does not retheme.
+   */
+  readonly theme?: ThemeTokens;
+}
+
 /**
  * Turns a validated spec into a scene definition. Throws with the same path-named messages
  * `validateSpec` reports when the spec is unusable.
  */
-export function sceneFromSpec(spec: SimpleSceneSpec): SceneDefinition {
+export function sceneFromSpec(
+  spec: SimpleSceneSpec,
+  options: SceneFromSpecOptions = {},
+): SceneDefinition {
   const validation = validateSpec(spec);
   if (!validation.ok)
     throw new Error(
       `invalid scene spec:\n${validation.errors.map((error) => `- ${error}`).join("\n")}`,
     );
 
-  const root = container(ROOT_ID, spec.layout, spec.nodes.map(buildNode), {
-    gap: spec.gap ?? 16,
-    ...(spec.layout === "row" ? { align: "start" as const } : {}),
-  });
+  const theme = options.theme ?? defaultTheme;
+  const labelsByPair = new Map<string, string[]>();
+  for (const edge of spec.edges ?? []) {
+    const key = siblingKey([edge.from, edge.to]);
+    const list = labelsByPair.get(key) ?? [];
+    if (edge.label !== undefined) list.push(edge.label);
+    labelsByPair.set(key, list);
+  }
+  const spacing: SpacingContext = {
+    labelsByPair,
+    font: theme.typography.caption,
+    strokeWidth: theme.strokes.regular,
+  };
+
+  const root = container(
+    ROOT_ID,
+    spec.layout,
+    spec.nodes.map((node) => buildNode(node, spacing)),
+    {
+      gap: spec.gap ?? connectorGap(spec.nodes, spec.layout, 16, spacing),
+      ...(spec.layout === "row" ? { align: "start" as const } : {}),
+    },
+  );
   const edges = (spec.edges ?? []).map(buildEdge);
   const padding: Insets | undefined = spec.padding;
   const background =

@@ -1,6 +1,7 @@
 /**
  * Edge routing and decoration derived purely from typed edge data.
  */
+import { CONNECTOR_LABEL_CLEARANCE } from "./connector.js";
 import {
   PathGeometry,
   polylineToSegments,
@@ -20,6 +21,7 @@ import type {
   LayoutName,
   MarkerKind,
   StrokeStyle,
+  Tone,
 } from "./scene.js";
 import { pick, pickOr, endpointNode } from "./scene.js";
 import { measureText, type TextFont } from "./text.js";
@@ -347,6 +349,25 @@ const PLACEMENT_T: Readonly<Record<LabelPlacement, number>> = {
   end: 0.86,
 };
 
+/** Breathing room inside an edge label's own box, each side. The renderer's `textLength` matches. */
+const LABEL_PADDING_X = 5;
+
+/**
+ * The width an edge label will occupy, box and all.
+ *
+ * Exported because a layout that wants its labelled connectors to clear the nodes has to know how
+ * much room a label asks for *before* it decides how far apart to put them — see
+ * `sceneFromSpec`.
+ */
+export function edgeLabelWidth(text: string, font: TextFont): number {
+  return measureText(text, font) + LABEL_PADDING_X * 2;
+}
+
+/** The height an edge label will occupy, box and all. */
+export function edgeLabelHeight(font: TextFont): number {
+  return font.lineHeight + 4;
+}
+
 function labelBox(
   anchor: Point,
   angle: number,
@@ -429,20 +450,37 @@ export function resolveEdge(
   const labels: ResolvedEdgeLabel[] = [];
   const claimed: Rect[] = [];
   const collidingLabels: string[] = [];
+  // A box this edge comes out of, or goes into, cannot push its label away — the label has to sit
+  // near the run, and the run starts on that box's border. Every other box can.
+  const contains = (rect: Rect, point: Point): boolean =>
+    point.x >= rect.x - 0.5 &&
+    point.x <= rect.x + rect.width + 0.5 &&
+    point.y >= rect.y - 0.5 &&
+    point.y <= rect.y + rect.height + 0.5;
+  const obstacles = context.obstacles.filter(
+    (obstacle) => !contains(obstacle, start) && !contains(obstacle, end),
+  );
   for (const label of definedLabels) {
     const text = context.overrides?.labelText?.get(label.id) ?? label.text;
     const hidden =
       (context.overrides?.labelHidden?.has(label.id) ?? false) ||
       ("hidden" in label && pickOr(label.hidden, context.layout, false));
     const font = context.labelFont;
-    const textWidth = measureText(text, font);
-    const boxWidth = textWidth + 10;
-    const boxHeight = font.lineHeight + 4;
+    const boxWidth = edgeLabelWidth(text, font);
+    const boxHeight = edgeLabelHeight(font);
     const placement =
       "placement" in label && label.placement !== undefined ? label.placement : "middle";
     const anchor = geometry.pointAt(PLACEMENT_T[placement]);
+    // A label sits *beside* the run, never on it, and how far beside is its own half-extent in
+    // the direction it is being pushed — width for a vertical run, height for a horizontal one,
+    // and the blend of the two for a diagonal. Measuring only the height (which is what this did)
+    // is correct for a horizontal edge and puts a vertical edge's label straight through the line.
+    const labelOffset =
+      (boxWidth * Math.abs(Math.sin(anchor.angle)) + boxHeight * Math.abs(Math.cos(anchor.angle))) /
+        2 +
+      CONNECTOR_LABEL_CLEARANCE;
     const baseOffset =
-      "offset" in label && label.offset !== undefined ? label.offset : -(boxHeight / 2 + 4);
+      "offset" in label && label.offset !== undefined ? label.offset : -labelOffset;
     const candidates: number[] = [];
     for (let step = 1; step <= 6; step += 1) candidates.push(baseOffset * step, -baseOffset * step);
     const bounds = context.bounds;
@@ -452,14 +490,18 @@ export function resolveEdge(
         rect.y >= bounds.y - 0.5 &&
         rect.x + rect.width <= bounds.x + bounds.width + 0.5 &&
         rect.y + rect.height <= bounds.y + bounds.height + 0.5);
+    // A label must clear a node's *corner*, not just its edge, or it reads as a tooltip stuck to
+    // the box. The clearance is the margin a rounded corner needs before the two look separate.
     let box = labelBox(anchor, anchor.angle, baseOffset, boxWidth, boxHeight);
+    let clear = false;
     for (const candidate of candidates) {
       const trial = labelBox(anchor, anchor.angle, candidate, boxWidth, boxHeight);
       const collides =
-        context.obstacles.some((obstacle) => rectsIntersect(trial, obstacle, 1)) ||
+        obstacles.some((obstacle) => rectsIntersect(trial, obstacle, CONNECTOR_LABEL_CLEARANCE)) ||
         claimed.some((other) => rectsIntersect(trial, other, 1));
       if (!collides && inside(trial)) {
         box = trial;
+        clear = true;
         break;
       }
     }
@@ -467,8 +509,9 @@ export function resolveEdge(
       const x = Math.min(Math.max(box.x, bounds.x), bounds.x + bounds.width - box.width);
       const y = Math.min(Math.max(box.y, bounds.y), bounds.y + bounds.height - box.height);
       box = { ...box, x, y };
+      clear = false;
     }
-    if (!hidden && context.obstacles.some((obstacle) => rectsIntersect(box, obstacle, 1)))
+    if (!hidden && obstacles.some((obstacle) => rectsIntersect(box, obstacle, 1)))
       collidingLabels.push(label.id);
     claimed.push(box);
     const color =
@@ -488,17 +531,30 @@ export function resolveEdge(
       fontWeight: font.weight,
       color,
       ...(hidden ? { hidden: true } : {}),
+      ...(clear ? {} : { halo: true }),
     });
   }
   const packets = edge.packets;
-  const packetCount = packets === undefined ? 0 : Math.max(1, Math.floor(packets.count ?? 2));
+  // Beads need room the same way an arrowhead does. Three packets asked for on a 40px run land
+  // 13px apart and read as a dotted line, not as things travelling along one — so the requested
+  // count is capped by what the run can space out, and never falls below one.
+  const packetSpacing = 24;
+  const packetCount =
+    packets === undefined
+      ? 0
+      : Math.max(
+          1,
+          Math.min(
+            Math.floor(packets.count ?? 2),
+            Math.floor(geometry.length / packetSpacing) || 1,
+          ),
+        );
   const packetPeriod = packets?.period ?? 2400;
-  const packetColor = paintColor(
-    packets?.tone ?? (tone as EdgeDefinition["tone"]),
-    theme,
-    "stroke",
-    strokeColor,
-  );
+  // A packet is the line's own ink in motion, so an untoned packet takes the line's colour. It
+  // used to resolve "neutral" through the tone table, which answers `border` — leaving flow edges
+  // carrying beads two steps paler than the line they ride on.
+  const packetTone = packets?.tone ?? (tone === "neutral" ? undefined : (tone as Tone));
+  const packetColor = paintColor(packetTone, theme, "stroke", strokeColor);
   const legacyLabel = definedLabels[0]?.text;
   const resolved: ResolvedEdge = {
     id: edge.id,
@@ -525,7 +581,7 @@ export function resolveEdge(
     packets: [],
     ...(packets === undefined
       ? {}
-      : { packetSize: packets.size ?? Math.max(3, width * 1.6), packetColor }),
+      : { packetSize: packets.size ?? Math.max(3, width * 1.5), packetColor }),
     ...(edge.description === undefined ? {} : { description: edge.description }),
     ...(edge.z === undefined ? {} : { z: edge.z }),
     ...(context.overrides?.hidden === true || pick(edge.hidden, context.layout) === true

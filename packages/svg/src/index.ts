@@ -1,4 +1,10 @@
-import { mixColor, type ResolvedScene } from "@kineglyph/core";
+import {
+  CONNECTOR_HEAD_HALF_ANGLE,
+  CONNECTOR_HEAD_LENGTH,
+  CONNECTOR_HEAD_STROKE,
+  mixColor,
+  type ResolvedScene,
+} from "@kineglyph/core";
 import { motifShapes, type MotifShape } from "./motifs.js";
 
 export { MOTIFS, MOTIF_NAMES, motifShapes, type MotifShape } from "./motifs.js";
@@ -87,8 +93,15 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     enhancedEffects: options.effects === "enhanced",
   };
 
-  const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) <= 0);
-  const aboveEdges = edges.filter((edge) => finiteNumber(edge.z, 0) > 0);
+  // Connectors draw *over* the node layer by default.
+  //
+  // They used to draw under it, which is only safe when every edge runs across bare canvas. The
+  // moment two connected boxes sit inside a third — the ordinary shape of a pipeline figure — the
+  // parent's opaque fill painted straight over every connector between its children, and the
+  // diagram silently lost its verbs. An edge that genuinely belongs behind the nodes asks for it
+  // with a negative `z`, which is the same escape hatch, stated explicitly.
+  const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) < 0);
+  const aboveEdges = edges.filter((edge) => finiteNumber(edge.z, 0) >= 0);
   const edgeLayer = (list: UnknownRecord[], className: string): string =>
     list.length === 0
       ? ""
@@ -173,6 +186,30 @@ function colorKey(color: string): string {
   return key || "default";
 }
 
+/**
+ * Marker geometry, in stroke widths.
+ *
+ * Every marker uses `markerUnits="strokeWidth"` on a `0 0 10 10` viewBox drawn into a 10x10
+ * viewport, so one viewBox unit *is* one stroke width and the numbers below can be read directly
+ * as multiples of the line's weight. That is the point: a head sized in absolute pixels stops
+ * belonging to its line the moment the line changes weight.
+ *
+ * The tip sits at `TIP` on the x axis and `refX` matches it, so the head's point lands exactly on
+ * the edge's endpoint. Barbs are placed by the head's half-angle rather than by eye, which is what
+ * keeps the head from looking squashed.
+ */
+const MARKER_CENTER = 5;
+const HEAD_TIP_X = MARKER_CENTER + CONNECTOR_HEAD_LENGTH / 2;
+const HEAD_BACK_X = HEAD_TIP_X - CONNECTOR_HEAD_LENGTH;
+const HEAD_HALF_WIDTH =
+  CONNECTOR_HEAD_LENGTH * Math.tan((CONNECTOR_HEAD_HALF_ANGLE * Math.PI) / 180);
+/** A filled head reads heavier than an open one at the same width, so it is drawn slimmer. */
+const SOLID_HEAD_HALF_WIDTH = HEAD_HALF_WIDTH * 0.86;
+
+function marker(value: number): string {
+  return number(value, 3);
+}
+
 /** Marker definition markup; the same function serves the renderer and the live runtime. */
 export function renderMarkerDefinition(
   rootId: string,
@@ -187,20 +224,26 @@ export function renderMarkerDefinition(
     ["viewBox", "0 0 10 10"],
     ["orient", "auto-start-reverse"],
     ["markerUnits", "strokeWidth"],
+    ["markerWidth", "10"],
+    ["markerHeight", "10"],
+    ["refY", marker(MARKER_CENTER)],
     ["data-marker-kind", kind],
   ];
   switch (kind) {
     case "arrow":
       return element(
         "marker",
-        [...common, ["refX", "8.5"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        [...common, ["refX", marker(HEAD_TIP_X)]],
         element(
           "path",
           [
-            ["d", "M 1.5 1.5 L 8.5 5 L 1.5 8.5"],
+            [
+              "d",
+              `M ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER - HEAD_HALF_WIDTH)} L ${marker(HEAD_TIP_X)} ${marker(MARKER_CENTER)} L ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER + HEAD_HALF_WIDTH)}`,
+            ],
             ["fill", "none"],
             ["stroke", color],
-            ["stroke-width", "1.7"],
+            ["stroke-width", marker(CONNECTOR_HEAD_STROKE)],
             ["stroke-linecap", "round"],
             ["stroke-linejoin", "round"],
           ],
@@ -210,11 +253,14 @@ export function renderMarkerDefinition(
     case "triangle":
       return element(
         "marker",
-        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "6"], ["markerHeight", "6"]],
+        [...common, ["refX", marker(HEAD_TIP_X)]],
         element(
           "path",
           [
-            ["d", "M 0.5 0.5 L 9.5 5 L 0.5 9.5 z"],
+            [
+              "d",
+              `M ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER - SOLID_HEAD_HALF_WIDTH)} L ${marker(HEAD_TIP_X)} ${marker(MARKER_CENTER)} L ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER + SOLID_HEAD_HALF_WIDTH)} z`,
+            ],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -224,13 +270,13 @@ export function renderMarkerDefinition(
     case "dot":
       return element(
         "marker",
-        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        [...common, ["refX", marker(MARKER_CENTER)]],
         element(
           "circle",
           [
-            ["cx", "5"],
-            ["cy", "5"],
-            ["r", "3.4"],
+            ["cx", marker(MARKER_CENTER)],
+            ["cy", marker(MARKER_CENTER)],
+            ["r", marker(1.8)],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -240,11 +286,14 @@ export function renderMarkerDefinition(
     case "diamond":
       return element(
         "marker",
-        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        [...common, ["refX", marker(MARKER_CENTER + 2.1)]],
         element(
           "path",
           [
-            ["d", "M 5 0.8 L 9.2 5 L 5 9.2 L 0.8 5 z"],
+            [
+              "d",
+              `M ${marker(MARKER_CENTER + 2.1)} ${marker(MARKER_CENTER)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER + 2.1)} L ${marker(MARKER_CENTER - 2.1)} ${marker(MARKER_CENTER)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER - 2.1)} z`,
+            ],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -254,14 +303,17 @@ export function renderMarkerDefinition(
     case "bar":
       return element(
         "marker",
-        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        [...common, ["refX", marker(MARKER_CENTER)]],
         element(
           "path",
           [
-            ["d", "M 5 0.5 L 5 9.5"],
+            [
+              "d",
+              `M ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER - 2.25)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER + 2.25)}`,
+            ],
             ["fill", "none"],
             ["stroke", color],
-            ["stroke-width", "1.8"],
+            ["stroke-width", marker(CONNECTOR_HEAD_STROKE)],
             ["stroke-linecap", "butt"],
           ],
           "",
@@ -782,6 +834,34 @@ export interface EdgeDashResult {
 }
 
 /**
+ * Mark and gap for each stroke style, in stroke widths.
+ *
+ * The three styles have to be told apart at the size figures actually render, which means they
+ * cannot differ by a couple of pixels of dash length — they differ by *ratio*:
+ *
+ *   - `solid` is unbroken;
+ *   - `flow` is a long mark with a small gap (~3.5:1) — a continuous channel with motion notches,
+ *     which is also what the dash-offset animation rides on;
+ *   - `dashed` is a short mark with an equal gap (1:1) — visibly broken, which is what "optional"
+ *     or "indirect" should look like.
+ *
+ * Before this, `flow` and `dashed` emitted byte-identical dasharrays and were distinguishable only
+ * once packets animated, so a still figure had two styles that were one style.
+ */
+const DASH_PATTERNS: Readonly<Record<"dashed" | "dotted" | "flow", { mark: number; gap: number }>> =
+  {
+    dashed: { mark: 2.5, gap: 2.5 },
+    flow: { mark: 7, gap: 2 },
+    dotted: { mark: 0, gap: 2.4 },
+  };
+/** Floors in pixels, so a hairline stroke still produces a pattern the eye can resolve. */
+const DASH_FLOOR: Readonly<Record<"dashed" | "dotted" | "flow", { mark: number; gap: number }>> = {
+  dashed: { mark: 5, gap: 5 },
+  flow: { mark: 12, gap: 4 },
+  dotted: { mark: 0.01, gap: 4 },
+};
+
+/**
  * Deterministic dash pattern for a stroke style, width, path length, and reveal progress.
  * Non-solid styles keep their pattern while revealing by normalising to `pathLength="1"`.
  */
@@ -799,9 +879,14 @@ export function edgeDashArray(
       ? { dasharray: `${number(p, precision)} 1`, pathLength: "1", linecap: undefined }
       : { dasharray: undefined, pathLength: undefined, linecap: undefined };
   }
-  const dashLength = dash === "dotted" ? 0.01 : Math.max(5, w * 3);
-  const gapLength = dash === "dotted" ? Math.max(4, w * 2.4) : Math.max(4, w * 2.2);
-  const linecap = dash === "dotted" ? "round" : undefined;
+  const ratio = DASH_PATTERNS[dash];
+  const floor = DASH_FLOOR[dash];
+  const dashLength = Math.max(floor.mark, ratio.mark * w);
+  const gapLength = Math.max(floor.gap, ratio.gap * w);
+  // Dashed marks are butted so the 1:1 rhythm survives: a round cap adds half a stroke width to
+  // each end of every mark, which on a short run closes the gaps and turns "dashed" back into
+  // "solid, badly". `flow` keeps round caps — it is meant to read as one continuous channel.
+  const linecap = dash === "dotted" ? "round" : dash === "dashed" ? "butt" : undefined;
   if (p >= 1)
     return {
       dasharray: `${number(dashLength, precision)} ${number(gapLength, precision)}`,
@@ -956,6 +1041,27 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
       const w = finiteNumber(item.width, 0);
       const h = finiteNumber(item.height, 0);
       const fontSize = finiteNumber(item.fontSize, 12);
+      // The plate behind a label is a repair, not a style: it is drawn only where the resolver
+      // could find nowhere clear to put the label. Painted unconditionally it reads as a chip
+      // glued to the diagram, and it is the canvas colour, so on a label that lands on a node it
+      // punches a hole in the node.
+      const halo =
+        item.halo === true && context.background !== "transparent"
+          ? element(
+              "rect",
+              [
+                ["class", "kg-edge-label-halo"],
+                ["x", number(x - w / 2, precision)],
+                ["y", number(y - h / 2, precision)],
+                ["width", number(w, precision)],
+                ["height", number(h, precision)],
+                ["rx", number(Math.min(6, h / 2), precision)],
+                ["fill", context.background],
+                ["fill-opacity", "0.9"],
+              ],
+              "",
+            )
+          : "";
       parts.push(
         element(
           "g",
@@ -964,20 +1070,7 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
             ["data-edge-label", string(item.id)],
             ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
           ],
-          element(
-            "rect",
-            [
-              ["class", "kg-edge-label-halo"],
-              ["x", number(x - w / 2, precision)],
-              ["y", number(y - h / 2, precision)],
-              ["width", number(w, precision)],
-              ["height", number(h, precision)],
-              ["rx", number(Math.min(6, h / 2), precision)],
-              ["fill", context.background === "transparent" ? "none" : context.background],
-              ["fill-opacity", "0.9"],
-            ],
-            "",
-          ) +
+          halo +
             element(
               "text",
               [

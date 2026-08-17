@@ -262,7 +262,7 @@ describe("renderSvg", () => {
   });
 
   it.each([
-    [820, "wide"],
+    [840, "wide"],
     [390, "stacked"],
   ] as const)("keeps every rendered text line within its card at %ipx (%s)", (width, mode) => {
     const resolved = resolvePipeline(
@@ -375,5 +375,86 @@ describe("re-themable colour", () => {
     const style = /style="([^"]*)"/.exec(renderSvg(themed))?.[1] ?? "";
 
     expect(style).toMatch(/--kg-font-family:[^v]/);
+  });
+});
+
+/**
+ * The connector is the diagram's verb, so what it looks like is a contract, not an accident.
+ */
+describe("connectors", () => {
+  const twoBoxes = (dash: string) => ({
+    id: "styles",
+    width: 400,
+    height: 120,
+    root: "wrap",
+    nodes: [
+      {
+        id: "wrap",
+        kind: "rect",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 120,
+        appearance: { fill: "#fff" },
+      },
+      { id: "a", parent: "wrap", kind: "rect", x: 20, y: 30, width: 120, height: 60 },
+      { id: "b", parent: "wrap", kind: "rect", x: 220, y: 30, width: 120, height: 60 },
+    ],
+    edges: [
+      {
+        id: "e",
+        from: "a",
+        to: "b",
+        start: { x: 140, y: 60 },
+        end: { x: 220, y: 60 },
+        length: 80,
+        dash,
+        head: "arrow",
+        appearance: { stroke: "#5b6472", strokeWidth: 2 },
+        state: { progress: 1, opacity: 1, flow: dash === "flow" ? 1 : 0 },
+      },
+    ],
+  });
+
+  const dashOf = (dash: string): string =>
+    /stroke-dasharray="([^"]*)"/.exec(renderSvg(twoBoxes(dash) as never))?.[1] ?? "none";
+
+  it("draws solid, dashed and flow as three different patterns", () => {
+    const patterns = ["solid", "dashed", "flow"].map(dashOf);
+    expect(new Set(patterns).size).toBe(3);
+    expect(dashOf("solid")).toBe("none");
+    // Dashed is broken (mark:gap 1:1); flow is a channel with notches (mark much longer than gap).
+    const ratio = (pattern: string): number => {
+      const [mark, gap] = pattern.split(" ").map(Number);
+      return (mark ?? 0) / (gap === undefined || gap === 0 ? 1 : gap);
+    };
+    expect(ratio(dashOf("dashed"))).toBeLessThan(2);
+    expect(ratio(dashOf("flow"))).toBeGreaterThan(3);
+  });
+
+  it("butts dashed marks so a short run keeps its rhythm", () => {
+    expect(renderSvg(twoBoxes("dashed") as never)).toContain('stroke-linecap="butt"');
+  });
+
+  it("draws the arrowhead in stroke widths, at the line's own weight", () => {
+    const svg = renderSvg(twoBoxes("solid") as never);
+    const head = /<marker[^>]*kg-marker--arrow[\s\S]*?<\/marker>/.exec(svg)?.[0] ?? "";
+    expect(head).toContain('markerUnits="strokeWidth"');
+    // One viewBox unit is one stroke width, so the head's numbers read as multiples of the line.
+    expect(head).toContain('viewBox="0 0 10 10"');
+    expect(head).toContain('markerWidth="10"');
+    expect(head).toContain('stroke-width="1"');
+  });
+
+  it("keeps connectors above the nodes, so a parent's fill cannot erase them", () => {
+    const svg = renderSvg(twoBoxes("solid") as never);
+    expect(svg.indexOf('class="kg-edges')).toBeGreaterThan(svg.indexOf('class="kg-nodes"'));
+  });
+
+  it("puts a connector behind the nodes only when it asks", () => {
+    const scene = twoBoxes("solid");
+    const behind = { ...scene, edges: [{ ...scene.edges[0], z: -1 }] };
+    const svg = renderSvg(behind as never);
+    expect(svg.indexOf('class="kg-edges"')).toBeLessThan(svg.indexOf('class="kg-nodes"'));
   });
 });

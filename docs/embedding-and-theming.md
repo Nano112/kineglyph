@@ -57,9 +57,39 @@ They are named for the role a colour plays in a diagram, not for the colour itse
   --kg-color-text: #f2f2f7;
   --kg-color-text-muted: #a0a0b0;
   --kg-color-accent: #e0218a;
-  --kg-color-connector: #6b6b80;
+  --kg-color-connector: #9aa1b2;
 }
 ```
+
+### Three depths, and one that is not a hairline
+
+Four of these tokens decide whether a diagram reads at all, and they are worth setting together
+rather than one at a time.
+
+`canvas`, `surface` and `border` are a **ground, an object on it, and the outline between them**.
+They need to be three distinguishable depths: a figure whose canvas, cards and outlines all sit
+within a couple of percent of each other reads as outlines in fog. Kineglyph's own default carries
+surface at 1.13:1 on canvas and border at 1.52:1 on surface. Below roughly those, nodes stop
+looking like objects.
+
+`connector` is the odd one out. It paints the edges, arrowheads and packets — the **verbs** of a
+flow diagram — and it is the token most often mapped, by reflex, to whatever a host uses for rules
+and dividers. That is the wrong neighbour: a hairline rule is chrome, and a connector is structure.
+Give it text-grade contrast on both the canvas and the node surface; the defaults carry 5.28:1 and
+5.98:1 respectively, measured, and the darker themes are comparable.
+
+Because it is a token, a host that wants its diagrams' arrows in its own brand colour simply says
+so, and nothing else moves:
+
+```css
+:root {
+  --kg-color-connector: var(--my-accent);
+}
+```
+
+That is a deliberate option rather than the default: an accent on every edge of a busy diagram
+competes with the one element the accent is meant to emphasise. It reads well on figures with few
+edges, and on figures where the flow _is_ the subject.
 
 ### How a paint finds its role
 
