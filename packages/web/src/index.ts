@@ -516,15 +516,26 @@ class FigureRuntime implements KineglyphController {
     this.#options.onStateChange?.(step, this.#resolved);
   }
 
+  /**
+   * The chrome around a live figure — its frame, readout and transport — in the same colours as
+   * the diagram inside it.
+   *
+   * Each property is written as a *reference* to the contract token it stands for, with the
+   * theme's own value as the fallback: `var(--kg-color-canvas, #f7f8fa)`. That is what keeps a
+   * page's `--kg-color-*` reaching the chrome as well as the drawing. Written as literals it
+   * could not — an inline style is the last word on an element — and a figure on a dark page
+   * ended up as a re-tinted diagram in a white box.
+   */
   #applyShellTheme(): void {
     const tokens = this.#theme;
     const style = this.#shell.style;
-    style.setProperty("--kg-shell-background", tokens.colors.canvas);
-    style.setProperty("--kg-shell-surface", tokens.colors.surfaceRaised);
-    style.setProperty("--kg-shell-text", tokens.colors.text);
-    style.setProperty("--kg-shell-muted", tokens.colors.textMuted);
-    style.setProperty("--kg-shell-border", tokens.colors.border);
-    style.setProperty("--kg-shell-accent", tokens.colors.accent);
+    const ref = (role: string, value: string): string => `var(--kg-color-${role}, ${value})`;
+    style.setProperty("--kg-shell-background", ref("canvas", tokens.colors.canvas));
+    style.setProperty("--kg-shell-surface", ref("surface-raised", tokens.colors.surfaceRaised));
+    style.setProperty("--kg-shell-text", ref("text", tokens.colors.text));
+    style.setProperty("--kg-shell-muted", ref("text-muted", tokens.colors.textMuted));
+    style.setProperty("--kg-shell-border", ref("border", tokens.colors.border));
+    style.setProperty("--kg-shell-accent", ref("accent", tokens.colors.accent));
     style.setProperty("--kg-shell-radius", `${tokens.radii.lg}px`);
     style.setProperty("--kg-shell-font", tokens.typography.body.family);
     this.#shell.classList.toggle("kg-figure--compact", this.#width < 620);

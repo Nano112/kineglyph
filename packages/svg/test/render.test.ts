@@ -82,7 +82,10 @@ describe("renderSvg", () => {
 
     expect(first).toBe(second);
     expect(first).toContain('id="diagram-title"');
-    expect(first).toContain('aria-labelledby="diagram-title diagram-description"');
+    // Name and description are separate relationships: run together in `aria-labelledby` they
+    // become one very long label and no description at all.
+    expect(first).toContain('aria-labelledby="diagram-title"');
+    expect(first).toContain('aria-describedby="diagram-description"');
     expect(first).toContain('role="group"');
     expect(first).toContain('id="diagram-node-source"');
     expect(first).toContain('tabindex="0" focusable="true"');

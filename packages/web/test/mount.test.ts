@@ -262,9 +262,14 @@ describe("mountKineglyph", () => {
       autoplay: false,
     });
     const shell = element.querySelector<HTMLElement>(".kg-figure");
-    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#ff0000");
+    // The chrome names the same roles the drawing does, so a page that re-tints one re-tints both.
+    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe(
+      "var(--kg-color-accent, #ff0000)",
+    );
     controller.setTheme(createTheme({ colors: { accent: "#00ff00", canvas: "#010203" } }));
-    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#00ff00");
+    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe(
+      "var(--kg-color-accent, #00ff00)",
+    );
     // The paint names its role and carries the theme's value as the fallback, so the live stage
     // paints the new canvas colour whether or not the page defines the token.
     expect(element.querySelector(".kg-canvas")?.getAttribute("fill")).toBe(

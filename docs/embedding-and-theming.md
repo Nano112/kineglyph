@@ -130,3 +130,18 @@ reads free to be inherited from the page.
   <div data-kg-static><svg class="kg-scene" role="img">…</svg></div>
 </figure>
 ```
+
+## A live figure follows the same tokens
+
+Everything above is about a rendered SVG, but a mounted figure honours `--kg-color-*` too, in both
+halves of what it draws:
+
+- the **drawing**, because the animator writes paint through the same role lookup the renderer uses
+  (`paintTokeniser`), so the first frame cannot replace a re-tintable `var()` with a literal;
+- the **chrome** — the frame, readout and transport — because `--kg-shell-*` are set as references
+  (`--kg-shell-background: var(--kg-color-canvas, #f7f8fa)`) rather than as values.
+
+So a re-tinted page does not end up with a themed diagram sitting in an unthemed white box, and a
+theme swapped at runtime through `setTheme` still wins where the page has said nothing.
+
+A colour that has no role — one mixed during a highlight, for instance — stays literal in both.

@@ -50,9 +50,12 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     options.description ??
     firstString(source.description, record(source.accessibility).description);
   const interactive = nodes.some(isInteractive);
-  const labelledBy = [title && `${rootId}-title`, description && `${rootId}-description`]
-    .filter(Boolean)
-    .join(" ");
+  // Name and description are separate relationships. Folding the `<desc>` into `aria-labelledby`
+  // made the accessible *name* the title and the description run together, and left the
+  // description empty — so a screen reader read the whole paragraph as the figure's label and had
+  // nothing left to offer on request.
+  const labelledBy = title === undefined ? undefined : `${rootId}-title`;
+  const describedBy = description === undefined ? undefined : `${rootId}-description`;
   const background = string(source.background);
   const palette = buildPalette(theme);
   const rootAttrs: Attrs = [
@@ -64,8 +67,9 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     ["width", number(width, precision)],
     ["height", number(height, precision)],
     ["role", options.role ?? (interactive ? "group" : "img")],
-    ["aria-labelledby", labelledBy || undefined],
-    ["aria-label", labelledBy ? undefined : "Kineglyph scene"],
+    ["aria-labelledby", labelledBy],
+    ["aria-describedby", describedBy],
+    ["aria-label", labelledBy === undefined ? "Kineglyph scene" : undefined],
     ["data-kineglyph-scene", sceneId],
     ["data-layout", firstString(source.layoutName, source.layout)],
     ["style", palette.rootStyle],
@@ -2399,6 +2403,22 @@ function buildPalette(theme: UnknownRecord): Palette {
  * The fallback is exactly the value the renderer already chose, so an SVG dropped on a page that
  * defines none of these tokens is byte-for-byte the picture it was before.
  */
+/**
+ * A function that turns one literal paint into `var(--kg-color-<role>, <the literal>)`.
+ *
+ * The renderer does this to its own output; anything that writes paint onto a *live* figure
+ * afterwards — the animator, most of all — has to do the same, or a re-tintable diagram loses its
+ * colour to the first frame that touches it. A colour the theme does not name (one mixed during a
+ * highlight, say) has no role and comes back unchanged.
+ */
+export function paintTokeniser(theme: unknown): (literal: string) => string {
+  const { roleOf } = buildPalette(record(theme));
+  return (literal) => {
+    const role = roleOf.get(literal.trim().toLowerCase());
+    return role === undefined ? literal : `var(${role}, ${literal})`;
+  };
+}
+
 function tokenise(svg: string, palette: Palette): string {
   return svg
     .replace(PAINT_ATTRS, (whole, head: string, value: string, tail: string) => {

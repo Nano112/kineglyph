@@ -21,7 +21,14 @@ export interface PrerenderOptions {
 
 export interface PrerenderResult {
   readonly theme: string;
+  /** A standalone SVG document, ready to write to a file. */
   readonly svg: string;
+  /**
+   * The same frame as a fragment for an HTML document — no XML declaration, no opaque background
+   * rect. An embedder that inlines the figure into a page (which is what lets the page's CSS and
+   * its accessibility tree reach it) wants this one; a file on disk wants `svg`.
+   */
+  readonly inlineSvg: string;
   readonly width: number;
   readonly height: number;
 }
@@ -141,10 +148,10 @@ export async function prerender(
         `${scene.id ?? "scene"} (${theme.name}):\n${errors.map((d) => `- ${d.code}: ${d.message}`).join("\n")}`,
       );
     const frame = seekTimeline(scene, scene.timeline?.duration ?? 0);
-    const svg = exportSvg(frame, {
-      idPrefix: `${options.idPrefix ?? "kg"}-${theme.name}`,
-    });
-    results.push({ theme: theme.name, svg, width: frame.width, height: frame.height });
+    const idPrefix = `${options.idPrefix ?? "kg"}-${theme.name}`;
+    const svg = exportSvg(frame, { idPrefix });
+    const inlineSvg = exportSvg(frame, { idPrefix, destination: "inline" });
+    results.push({ theme: theme.name, svg, inlineSvg, width: frame.width, height: frame.height });
   }
   return results;
 }

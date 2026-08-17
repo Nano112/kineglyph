@@ -35,6 +35,16 @@ export interface SvgExportOptions {
   readonly description?: string;
   /** Stable prefix for generated DOM ids. */
   readonly idPrefix?: string;
+  /**
+   * `"standalone"` (the default) produces an SVG *file*: an XML declaration, and an opaque
+   * background rect so a raster encoder has a ground to composite onto.
+   *
+   * `"inline"` produces a fragment for an HTML document. Both of those wrappers are wrong there —
+   * an XML declaration is not valid inside HTML, and the background rect is a literal colour that
+   * no page-level token can move, which would pin a re-themable figure to one scheme. The scene's
+   * own background is already drawn by the renderer, from a token, so nothing is lost.
+   */
+  readonly destination?: "standalone" | "inline";
 }
 
 export const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>';
@@ -111,9 +121,10 @@ export function buildSvgDocument(
     attributes.set("preserveAspectRatio", "xMidYMid meet");
   }
 
+  const inline = options.destination === "inline";
   const background = resolveBackground(scene, options.background);
   const backgroundRect =
-    background === undefined
+    background === undefined || inline
       ? ""
       : `<rect class="kg-export-background" x="${format(viewBox.x)}" y="${format(viewBox.y)}" width="${format(viewBox.width)}" height="${format(viewBox.height)}" fill="${escapeAttribute(background)}"/>`;
 
@@ -121,7 +132,7 @@ export function buildSvgDocument(
   const body = root.selfClosing
     ? `${openTag}${backgroundRect}</svg>`
     : `${openTag}${backgroundRect}${rendered.slice(root.end)}`;
-  let svg = `${XML_DECLARATION}\n${rendered.slice(0, root.start)}${body}`;
+  let svg = `${inline ? "" : `${XML_DECLARATION}\n`}${rendered.slice(0, root.start)}${body}`;
   if (build.raster) svg = toRasterCompatibleSvg(svg);
   return { svg, size, background, time, hasText: /<text[\s/>]/.test(svg) };
 }
