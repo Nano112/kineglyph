@@ -1006,6 +1006,30 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
 }
 
 // ---------------------------------------------------------------------------------------------
+// The page's own font
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The font stack an element is actually rendered in, ready to hand to `withFontFamily`.
+ *
+ * A figure's text is laid out once and shipped as fixed geometry, so it has to be laid out in the
+ * font the page draws with — a diagram rendered against the library's default lands in a host's
+ * article set in something else and reads as a foreign object. Anything that renders a figure
+ * inside a real page (an in-browser publisher, most of all) can read the answer off the page
+ * instead of assuming it.
+ *
+ * Returns `undefined` when there is no view to ask, so a caller can fall back to its theme.
+ */
+export function documentFontFamily(element?: Element): string | undefined {
+  const target = element ?? globalThis.document?.body ?? globalThis.document?.documentElement;
+  const view = target?.ownerDocument.defaultView;
+  if (target === undefined || target === null || view === undefined || view === null)
+    return undefined;
+  const family = view.getComputedStyle(target).fontFamily;
+  return family === "" ? undefined : family;
+}
+
+// ---------------------------------------------------------------------------------------------
 // In-view start (article pages, galleries)
 // ---------------------------------------------------------------------------------------------
 

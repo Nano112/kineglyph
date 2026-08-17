@@ -52,6 +52,21 @@ describe("mountAll", () => {
     expect(document.querySelector("#c")!.hasAttribute("data-kineglyph-mounted")).toBe(false);
   });
 
+  it("hides an inlined SVG frame, and shows it again when the figure is torn down", async () => {
+    // An embedder that wants the page's CSS to reach its diagram cannot use `<img>` — an image is
+    // a separate document — so it inlines the SVG and marks the wrapper instead.
+    document.body.innerHTML = `
+      <figure class="kg" id="inlined" data-scene="scenes/b.mjs">
+        <div data-kg-static><svg class="kg-scene" role="img"></svg></div>
+      </figure>`;
+    const [figure] = await mountAll({ load: () => Promise.resolve(scene) });
+    const frame = document.querySelector<HTMLElement>("#inlined [data-kg-static]")!;
+
+    expect(frame.hidden).toBe(true);
+    figure!.controller.destroy();
+    expect(frame.hidden).toBe(false);
+  });
+
   it("keeps the static image and records an error when loading fails", async () => {
     document.body.innerHTML = `<figure class="kg" id="bad" data-scene="nope.mjs"><img src="s.svg"></figure>`;
     const figures = await mountAll({

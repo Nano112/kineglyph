@@ -73,7 +73,7 @@ describe("renderSvg", () => {
     expect(svg).toContain('data-motif="blocks"');
     expect(svg).toContain('data-kineglyph-edge="delivery"');
     expect(svg).toContain(`viewBox="0 0 ${resolved.width} ${resolved.height}"`);
-    expect(svg).toContain(`--kg-color-accent:${resolved.theme.tokens.colors.accent}`);
+    expect(svg).toContain(`var(--kg-color-accent, ${resolved.theme.tokens.colors.accent})`);
   });
 
   it("renders deterministic accessible scene and node metadata", () => {
@@ -144,10 +144,11 @@ describe("renderSvg", () => {
       edges: [],
     } as never);
 
-    expect(svg).toContain("--kg-background:#010101");
+    expect(svg).toContain("--kg-background:var(--kg-color-canvas, #010101)");
+    // Radii are geometry: baked, not offered as a re-themable token.
     expect(svg).toContain("--kg-radius-md:9px");
-    expect(svg).toContain('fill="var(--kg-color-surface)"');
-    expect(svg).toContain('stroke="var(--kg-color-border)"');
+    expect(svg).toContain('fill="var(--kg-color-surface, #020202)"');
+    expect(svg).toContain('stroke="var(--kg-color-border, #030303)"');
     expect(svg).toContain('x="2" y="3" width="40" height="20"');
     expect(svg).toContain(">Bounded</title>");
     expect(svg).toContain('class="kg-node-label"');
@@ -191,8 +192,8 @@ describe("renderSvg", () => {
       edges: [],
     } as never);
 
-    expect(svg).toContain("--kg-node-fill:papayawhip");
-    expect(svg).toContain("--kg-node-stroke:midnightblue");
+    expect(svg).toContain("--kg-node-fill:var(--kg-color-surface, papayawhip)");
+    expect(svg).toContain("--kg-node-stroke:var(--kg-color-border, midnightblue)");
     expect(svg.indexOf('data-a="2"')).toBeLessThan(svg.indexOf('data-z="1"'));
     expect(svg).toContain('role="img"');
     expect(svg).toContain('aria-label="Kineglyph scene"');
@@ -297,5 +298,79 @@ describe("renderSvg", () => {
       expect(lineWidths.every((lineWidth) => lineWidth <= maximum)).toBe(true);
     }
     expect(svg.match(/clip-path="url\(#.+?-content-clip\)"/g)).toHaveLength(4);
+  });
+});
+
+/**
+ * The contract that makes tokenising safe: on a page that defines no `--kg-color-*`, every
+ * `var()` falls back to the literal the renderer would have written anyway. So the tests below
+ * collapse each `var(--x, y)` to `y` and assert the result is the picture, unchanged.
+ */
+describe("re-themable colour", () => {
+  const themed = {
+    width: 200,
+    height: 100,
+    background: "#f7f8fa",
+    theme: {
+      colors: {
+        canvas: "#f7f8fa",
+        surface: "#ffffff",
+        border: "#dfe2e7",
+        connector: "#969da8",
+        text: "#15171a",
+        textMuted: "#626973",
+        accent: "#5b5ce2",
+        // Shares its value with `accent`; `accent` must win, every time.
+        chart1: "#5b5ce2",
+      },
+    },
+    nodes: [
+      { id: "a", x: 0, y: 0, width: 80, height: 40, label: "A", fill: "#ffffff" },
+      { id: "b", x: 110, y: 0, width: 80, height: 40, label: "B", fill: "#5b5ce2" },
+    ],
+    edges: [{ id: "e", from: "a", to: "b", directed: true }],
+  } as never;
+
+  /** What a viewer that sets none of the tokens actually paints. */
+  const collapse = (svg: string): string => svg.replace(/var\((--[a-z0-9-]+), ([^)]*)\)/g, "$2");
+
+  it("every paint carries the literal it had before as its fallback", () => {
+    const svg = renderSvg(themed);
+    const collapsed = collapse(svg);
+
+    expect(collapsed).toContain('fill="#ffffff"');
+    expect(collapsed).toContain('fill="#5b5ce2"');
+    expect(collapsed).toContain("--kg-text:#15171a");
+    expect(collapsed).toContain("--kg-accent:#5b5ce2");
+    // Nothing is left referring to a token it did not also supply a value for.
+    expect(collapsed).not.toMatch(/var\(--kg-color-/);
+  });
+
+  it("names a paint by the role it plays, and breaks a tie the same way every time", () => {
+    const svg = renderSvg(themed);
+
+    expect(svg).toContain('fill="var(--kg-color-surface, #ffffff)"');
+    expect(svg).toContain('fill="var(--kg-color-accent, #5b5ce2)"');
+    // `chart1` is the same colour; the general role wins, so re-tinting the accent moves it.
+    expect(svg).not.toContain("--kg-color-chart1,");
+    expect(renderSvg(themed)).toBe(svg);
+  });
+
+  it("pins its own aliases without pinning the tokens they read", () => {
+    const style = /style="([^"]*)"/.exec(renderSvg(themed))?.[1] ?? "";
+
+    // Every alias resolves *through* the contract, so a value inherited from the page reaches it.
+    expect(style).toContain("--kg-node-fill:var(--kg-color-surface, #ffffff)");
+    expect(style).toContain("--kg-edge-stroke:var(--kg-color-connector, #969da8)");
+    // …and the contract itself is never defined here, which is what would defeat inheritance.
+    expect(style).not.toMatch(/--kg-color-[a-z0-9-]+:/);
+  });
+
+  it("keeps the measured font out of the re-themable set", () => {
+    // Text is measured at render time and frozen with `textLength`; re-fonting it at view time
+    // would squeeze one font's glyphs into another's metrics.
+    const style = /style="([^"]*)"/.exec(renderSvg(themed))?.[1] ?? "";
+
+    expect(style).toMatch(/--kg-font-family:[^v]/);
   });
 });

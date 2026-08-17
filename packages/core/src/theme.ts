@@ -189,6 +189,34 @@ export function createTheme(
   };
 }
 
+/**
+ * The same theme, drawn in another font stack.
+ *
+ * A figure is laid out once and shipped as fixed geometry, so the family that lays it out has to
+ * be the family that draws it — a page cannot re-font a diagram after the fact without pulling the
+ * text away from the boxes measured for it. An embedder that knows the font its pages actually use
+ * (a browser can read it off the document; a build can be told) passes it through here *before*
+ * resolving, and the whole figure is laid out and labelled in that font.
+ *
+ * Metrics themselves are family-independent by design (see `measureText`): the estimates are
+ * per-glyph classes biased slightly wide, so `textLength` stretches spacing rather than squashing
+ * glyphs for any face narrower than the estimate. Changing the family therefore changes what is
+ * drawn and how it wraps only through the monospace split, and never desynchronises text from the
+ * box that was measured for it.
+ *
+ * `mono` defaults to the theme's existing code family, because a code run in a proportional face
+ * is not the same illustration.
+ */
+export function withFontFamily(theme: ThemeTokens, family: string, mono?: string): ThemeTokens {
+  const typography = Object.fromEntries(
+    Object.entries(theme.typography).map(([style, font]) => [
+      style,
+      { ...font, family: style === "code" ? (mono ?? font.family) : family },
+    ]),
+  ) as ThemeTokens["typography"];
+  return { ...theme, typography };
+}
+
 const TONES: ReadonlySet<string> = new Set<Tone>([
   "neutral",
   "accent",

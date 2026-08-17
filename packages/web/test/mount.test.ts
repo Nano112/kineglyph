@@ -265,7 +265,11 @@ describe("mountKineglyph", () => {
     expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#ff0000");
     controller.setTheme(createTheme({ colors: { accent: "#00ff00", canvas: "#010203" } }));
     expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#00ff00");
-    expect(element.querySelector(".kg-canvas")?.getAttribute("fill")).toBe("#010203");
+    // The paint names its role and carries the theme's value as the fallback, so the live stage
+    // paints the new canvas colour whether or not the page defines the token.
+    expect(element.querySelector(".kg-canvas")?.getAttribute("fill")).toBe(
+      "var(--kg-color-canvas, #010203)",
+    );
     controller.setReducedMotion(true);
     expect(controller.state.time).toBe(400);
     expect(controller.state.reducedMotion).toBe(true);

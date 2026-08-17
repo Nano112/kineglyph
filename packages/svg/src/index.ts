@@ -54,6 +54,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     .filter(Boolean)
     .join(" ");
   const background = string(source.background);
+  const palette = buildPalette(theme);
   const rootAttrs: Attrs = [
     ["xmlns", options.includeXmlns === false ? undefined : "http://www.w3.org/2000/svg"],
     ["id", rootId],
@@ -67,7 +68,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     ["aria-label", labelledBy ? undefined : "Kineglyph scene"],
     ["data-kineglyph-scene", sceneId],
     ["data-layout", firstString(source.layoutName, source.layout)],
-    ["style", themeVariables(theme)],
+    ["style", palette.rootStyle],
   ];
 
   const context: RenderContext = {
@@ -131,7 +132,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     .filter(Boolean)
     .join("");
 
-  return element("svg", rootAttrs, body);
+  return tokenise(element("svg", rootAttrs, body), palette);
 }
 
 /** Alias matching server-renderer naming conventions. */
@@ -2242,7 +2243,59 @@ function edgePoint(
   return { x: finiteNumber(edge[`x${prefix}`], 0), y: finiteNumber(edge[`y${prefix}`], 0) };
 }
 
-function themeVariables(theme: UnknownRecord): string {
+/**
+ * Diagram roles a viewer may retint, in the order that decides a tie.
+ *
+ * The renderer receives a *resolved* scene: by the time paint reaches this file the token a colour
+ * came from is gone and only the literal is left. `tokenise` recovers the role by looking the
+ * literal back up in the theme's palette, so two roles that share a colour (`accent` and `chart1`
+ * do, in the default theme) have to be separated by a rule. This list is that rule — the general
+ * roles first, the chart series after them — and it is stable, so a given theme always produces the
+ * same mapping. A theme that wants its chart series retinted separately gives them distinct values,
+ * and then there is no tie to break.
+ */
+const COLOR_ROLES: readonly string[] = [
+  "canvas",
+  "surface",
+  "surfaceRaised",
+  "surfaceMuted",
+  "border",
+  "text",
+  "textMuted",
+  "accent",
+  "accentContrast",
+  "connector",
+  "info",
+  "success",
+  "warning",
+  "danger",
+  "chart1",
+  "chart2",
+  "chart3",
+  "chart4",
+  "chart5",
+  "chart6",
+  "chartPositive",
+  "chartNegative",
+  "chartNeutral",
+];
+
+/** Attributes whose value is a paint. `data-base-stroke` and friends are deliberately not here:
+ *  the live runtime reads them back to restore a colour, and it wants the literal. */
+const PAINT_ATTRS = /(\s(?:fill|stroke|stop-color|flood-color|lighting-color|color)=")([^"]*)(")/g;
+/** A semantic-colour reference the renderer emitted without a fallback (see `colorValue`). */
+const BARE_COLOR_VAR = /var\(--kg-color-([a-z0-9-]+)\)/g;
+
+interface Palette {
+  /** Literal (lowercased) → `--kg-color-*` name, for every colour the theme actually names. */
+  readonly roleOf: ReadonlyMap<string, string>;
+  /** `--kg-color-*` name → the theme's literal, used as the `var()` fallback. */
+  readonly literalOf: ReadonlyMap<string, string>;
+  /** The root element's `style`: aliases that read the contract, plus baked geometry. */
+  readonly rootStyle: string;
+}
+
+function buildPalette(theme: UnknownRecord): Palette {
   const canvas = record(theme.canvas);
   const node = record(theme.node);
   const edge = record(theme.edge);
@@ -2253,45 +2306,109 @@ function themeVariables(theme: UnknownRecord): string {
   const radii = mergeRecords(record(tokens.radii), record(theme.radii));
   const typography = mergeRecords(record(tokens.typography), record(theme.typography));
   const bodyFont = record(typography.body);
-  const vars: Array<[string, string | undefined]> = [
-    [
+
+  const roleOf = new Map<string, string>();
+  const literalOf = new Map<string, string>();
+  const ordered = [
+    ...COLOR_ROLES.filter((key) => key in colors),
+    ...Object.keys(colors)
+      .filter((key) => !COLOR_ROLES.includes(key))
+      .sort(),
+  ];
+  for (const key of ordered) {
+    const value = string(colors[key]);
+    if (value === undefined) continue;
+    const name = `--kg-color-${cssName(key)}`;
+    literalOf.set(name, value);
+    // First role wins, so the order above is what decides a shared colour.
+    if (!roleOf.has(value.toLowerCase())) roleOf.set(value.toLowerCase(), name);
+  }
+
+  /**
+   * A shorthand the embedded stylesheet reads, defined *as a reference* to the contract token it
+   * stands for. Defining it on the element rather than in the stylesheet keeps one figure's
+   * fallbacks out of the next figure's — an inlined SVG's `<style>` is document-wide — and defining
+   * it as `var(...)` rather than a literal is what keeps inheritance working: the alias is pinned,
+   * the colour it resolves to is not.
+   */
+  const alias = (name: string, role: string, value: string): [string, string] => [
+    name,
+    `var(--kg-color-${role}, ${value})`,
+  ];
+  const vars: Array<[string, string]> = [
+    alias(
       "--kg-background",
+      "canvas",
       firstString(colors.canvas, theme.background, canvas.background, semantic.background) ??
         "transparent",
-    ],
-    [
+    ),
+    alias(
       "--kg-node-fill",
+      "surface",
       firstString(colors.surface, node.fill, theme.nodeFill, semantic.surface) ?? "#ffffff",
-    ],
-    [
+    ),
+    alias(
       "--kg-node-stroke",
+      "border",
       firstString(colors.border, node.stroke, theme.nodeStroke, semantic.foreground) ?? "#1f2937",
-    ],
-    [
+    ),
+    alias(
       "--kg-edge-stroke",
+      "connector",
       firstString(colors.connector, edge.stroke, theme.edgeStroke, semantic.muted) ?? "#64748b",
-    ],
-    [
+    ),
+    alias(
       "--kg-text",
+      "text",
       firstString(colors.text, text.color, theme.foreground, semantic.foreground) ?? "#111827",
-    ],
-    ["--kg-text-muted", firstString(colors.textMuted) ?? "#64748b"],
-    ["--kg-accent", firstString(colors.accent, theme.accent, semantic.accent) ?? "#2563eb"],
+    ),
+    alias("--kg-text-muted", "text-muted", firstString(colors.textMuted) ?? "#64748b"),
+    alias(
+      "--kg-accent",
+      "accent",
+      firstString(colors.accent, theme.accent, semantic.accent) ?? "#2563eb",
+    ),
+    // Geometry, not colour. Text in an exported SVG is measured and frozen at render time, so the
+    // family that measured it has to be the family that draws it; a viewer swapping the font would
+    // squeeze real glyphs into another font's metrics. Deliberately not a re-themable token.
     [
       "--kg-font-family",
       firstString(bodyFont.family, theme.fontFamily, text.fontFamily) ?? "system-ui, sans-serif",
     ],
   ];
-  for (const key of Object.keys(colors).sort()) {
-    const value = string(colors[key]);
-    if (value) vars.push([`--kg-color-${cssName(key)}`, value]);
-  }
   for (const key of Object.keys(radii).sort()) {
     const value = radii[key];
+    // Also geometry: baked, for the same reason.
     if (typeof value === "number" && Number.isFinite(value))
       vars.push([`--kg-radius-${cssName(key)}`, `${value}px`]);
   }
-  return vars.map(([name, value]) => `${name}:${value}`).join(";");
+  return {
+    roleOf,
+    literalOf,
+    rootStyle: vars.map(([name, value]) => `${name}:${value}`).join(";"),
+  };
+}
+
+/**
+ * Turns every paint the markup carries into `var(--kg-color-<role>, <the literal it has today>)`.
+ *
+ * Two passes, both on the finished string rather than on each call site: a paint is a paint
+ * wherever it was written, and doing it here cannot miss one or disturb the marker ids, which are
+ * keyed on the literal and computed before this runs.
+ *
+ * The fallback is exactly the value the renderer already chose, so an SVG dropped on a page that
+ * defines none of these tokens is byte-for-byte the picture it was before.
+ */
+function tokenise(svg: string, palette: Palette): string {
+  return svg
+    .replace(PAINT_ATTRS, (whole, head: string, value: string, tail: string) => {
+      const role = palette.roleOf.get(value.trim().toLowerCase());
+      return role === undefined ? whole : `${head}var(${role}, ${value})${tail}`;
+    })
+    .replace(BARE_COLOR_VAR, (whole, name: string) => {
+      const literal = palette.literalOf.get(`--kg-color-${name}`);
+      return literal === undefined ? whole : `var(--kg-color-${name}, ${literal})`;
+    });
 }
 
 const BASE_STYLES = escapeXml(

@@ -102,9 +102,17 @@ function stageOf(element: HTMLElement): HTMLElement {
   return stage;
 }
 
+/**
+ * The pre-rendered frame a figure shows before (and without) JavaScript.
+ *
+ * `img` and `picture` are the obvious carriers, but an embedder that wants the host's CSS to reach
+ * its diagram has to inline the SVG instead — an image is a separate document and inherits nothing
+ * — so `[data-kg-static]` lets any element say "I am the frame the live stage replaces".
+ */
+const STATIC_SELECTOR = ":scope > img, :scope > picture, :scope > [data-kg-static]";
+
 function setStaticHidden(element: HTMLElement, hidden: boolean): void {
-  for (const img of element.querySelectorAll<HTMLElement>(":scope > img, :scope > picture"))
-    img.hidden = hidden;
+  for (const frame of element.querySelectorAll<HTMLElement>(STATIC_SELECTOR)) frame.hidden = hidden;
 }
 
 function resolveTheme(options: MountAllOptions, element: HTMLElement): ThemeTokens | undefined {
