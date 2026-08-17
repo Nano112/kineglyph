@@ -11,6 +11,7 @@ export * from "./pipeline.js";
 export * from "./recipes.js";
 export * from "./resolve.js";
 export * from "./resolved.js";
+export * from "./runtime-need.js";
 export * from "./scene.js";
 export {
   findSceneNode,

@@ -18,7 +18,20 @@ export interface MountAllOptions {
   readonly selector?: string;
   readonly theme?: ThemeTokens | ((element: HTMLElement) => ThemeTokens | undefined);
   readonly load?: (source: EmbedSource, element: HTMLElement) => Promise<FigureSource>;
-  readonly mountOptions?: (element: HTMLElement) => Partial<Omit<MountOptions, "scene">>;
+  /**
+   * Per-element mount options, or **`null` to decline this element entirely**.
+   *
+   * Declining is checked before the scene is loaded, so a declined figure costs no module fetch
+   * and no resolve, and its pre-rendered frame is left visible and unhidden — which is the point:
+   * for a scene with nothing to drive (see `sceneNeedsRuntime`) the live mount would render the
+   * frame that is already on the page, and the server-rendered SVG is the more accessible of the
+   * two. Kineglyph never declines on its own; whether a still figure is worth mounting is the
+   * embedder's call, and this is where that answer goes.
+   *
+   * An explicit `kineglyph:update` event overrides a decline — asking for an update is asking for
+   * a live figure, which is what an editor preview or a dev-server scene edit means.
+   */
+  readonly mountOptions?: (element: HTMLElement) => Partial<Omit<MountOptions, "scene">> | null;
 }
 
 export interface EmbeddedFigure {
@@ -130,17 +143,29 @@ function cacheBust(url: string): string {
 
 /**
  * Mounts one embedded figure. Returns `undefined` when the element is already mounted, carries no
- * detectable source (static-only), or the load/mount attempt failed (which records
- * `data-kineglyph-error` and leaves the static fallback visible).
+ * detectable source (static-only), the embedder declined it (`mountOptions` → `null`), or the
+ * load/mount attempt failed (which records `data-kineglyph-error` and leaves the static fallback
+ * visible).
+ *
+ * `force` is set by the `kineglyph:update` listener: an explicit request for a fresh scene is a
+ * request for a live figure, so it overrides a decline.
  */
 async function mountOne(
   element: HTMLElement,
   options: MountAllOptions,
+  force = false,
 ): Promise<EmbeddedFigure | undefined> {
   if (element.dataset.kineglyphMounted === "true") return undefined;
   if (inFlight.has(element)) return undefined;
   const source = detectSource(element);
   if (source === undefined) return undefined; // static-only
+  /*
+   * Asked *before* `load`, so declining costs nothing: no module fetch, no resolve, and the
+   * pre-rendered frame stays exactly as the server sent it. Asking after would have thrown away
+   * the whole saving, since the fetch is the expensive half.
+   */
+  const chosen = options.mountOptions === undefined ? {} : options.mountOptions(element);
+  if (chosen === null && !force) return undefined; // declined
   const load = options.load ?? defaultLoader;
   inFlight.add(element);
   try {
@@ -152,7 +177,7 @@ async function mountOne(
       autoplay: element.dataset.autoplay !== "false",
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
-      ...(options.mountOptions?.(element) ?? {}),
+      ...(chosen ?? {}),
     });
     element.dataset.kineglyphMounted = "true";
     delete element.dataset.kineglyphError;
@@ -198,7 +223,7 @@ function installUpdateListener(doc: Document): void {
       if (rec === undefined) {
         // Never mounted (or the first attempt failed): try a fresh mount rather than give up —
         // otherwise a figure that errored once can never recover from an update event.
-        if (detectSource(el) !== undefined) void mountOne(el, lastMountAllOptions);
+        if (detectSource(el) !== undefined) void mountOne(el, lastMountAllOptions, true);
         continue;
       }
       const source: EmbedSource =

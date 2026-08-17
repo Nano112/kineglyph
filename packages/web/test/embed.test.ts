@@ -172,3 +172,51 @@ describe("mountAll", () => {
     expect(document.querySelectorAll('[data-kineglyph-mounted="true"]')).toHaveLength(1);
   });
 });
+
+/**
+ * An embedder that pre-renders its figures can find that the live mount would redraw the frame
+ * already on the page. Skipping it keeps the server-rendered SVG — which is the accessible one —
+ * and costs the reader nothing, so `mountOptions` may answer `null`.
+ */
+describe("declining an element", () => {
+  it("skips the mount without loading the scene, and leaves the static frame visible", async () => {
+    document.body.innerHTML = `
+      <figure class="kg" id="inert" data-kg-inert="true"><div data-kg-static>frame</div><script type="text/kineglyph">A</script></figure>
+      <figure class="kg" id="live"><div data-kg-static>frame</div><script type="text/kineglyph">A</script></figure>`;
+    let loads = 0;
+    const figures = await mountAll({
+      load: () => {
+        loads++;
+        return Promise.resolve(scene);
+      },
+      mountOptions: (el) => (el.dataset.kgInert === "true" ? null : {}),
+    });
+
+    // The saving is the fetch, so the decline has to happen before `load` — not after.
+    expect(loads).toBe(1);
+    expect(figures.map((f) => f.element.id)).toEqual(["live"]);
+
+    const inert = document.querySelector<HTMLElement>("#inert")!;
+    expect(inert.dataset.kineglyphMounted).toBeUndefined();
+    expect(inert.querySelector("[data-kg-stage]")).toBeNull();
+    expect(inert.querySelector<HTMLElement>("[data-kg-static]")!.hidden).toBe(false);
+    expect(inert.hasAttribute("data-kineglyph-error")).toBe(false);
+
+    const live = document.querySelector<HTMLElement>("#live")!;
+    expect(live.dataset.kineglyphMounted).toBe("true");
+    expect(live.querySelector<HTMLElement>("[data-kg-static]")!.hidden).toBe(true);
+  });
+
+  it("mounts a declined figure anyway when kineglyph:update asks for it", async () => {
+    // Asking for a fresh scene is asking for a live figure: an editor preview and a dev-server
+    // scene edit both go through this event, and both want to see the edit move.
+    document.body.innerHTML = `<figure class="kg" id="inert" data-scene="s.mjs"><div data-kg-static>frame</div></figure>`;
+    await mountAll({ load: () => Promise.resolve(scene), mountOptions: () => null });
+    const el = document.querySelector<HTMLElement>("#inert")!;
+    expect(el.dataset.kineglyphMounted).toBeUndefined();
+
+    document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#inert" } }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.dataset.kineglyphMounted).toBe("true");
+  });
+});

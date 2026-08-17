@@ -131,6 +131,29 @@ reads free to be inherited from the page.
 </figure>
 ```
 
+### Not replacing it at all
+
+For a great many diagrams the live mount draws the frame that is already on the page. A still
+picture with no timeline, no inspectable part and no machine gains nothing from hydration — it only
+trades a server-rendered, screen-reader-reachable SVG for an identical one built in JavaScript.
+
+`sceneNeedsRuntime(resolved)` is the fact that decision needs, and only the fact: `true` when the
+runtime could show a reader something the frame cannot — a timeline with a duration, an inspectable
+node, a machine, declared controls, or a live image surface. `prerender` reports it per result as
+`needsRuntime`, so an embedder can settle it at build time and carry the answer into the markup.
+
+The decision itself stays with the embedder, because it is one: a playground may legitimately want
+a live mount around an inert scene so it can `setScene` later. `mountAll`'s `mountOptions` may
+return `null` to decline an element:
+
+```js
+mountAll({ mountOptions: (el) => (el.dataset.kgInert === "true" ? null : { readout: "auto" }) });
+```
+
+A decline is checked **before** the scene module is fetched, so it costs no request and no resolve,
+and the pre-rendered frame is left visible. A `kineglyph:update` event overrides it — asking for a
+fresh scene is asking for a live figure.
+
 ## A live figure follows the same tokens
 
 Everything above is about a rendered SVG, but a mounted figure honours `--kg-color-*` too, in both

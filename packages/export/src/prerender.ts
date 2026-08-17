@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import { resolveFigure, seekTimeline, type FigureSource, type ThemeTokens } from "@kineglyph/core";
+import {
+  resolveFigure,
+  sceneNeedsRuntime,
+  seekTimeline,
+  type FigureSource,
+  type ThemeTokens,
+} from "@kineglyph/core";
 import { exportSvg } from "./svg.js";
 import { KineglyphExportError } from "./errors.js";
 
@@ -31,6 +37,12 @@ export interface PrerenderResult {
   readonly inlineSvg: string;
   readonly width: number;
   readonly height: number;
+  /**
+   * Whether the live runtime could show this reader anything this frame does not — see
+   * `sceneNeedsRuntime`. An embedder that pre-renders can carry the answer into the page (as an
+   * attribute, say) and skip hydrating the figures that would only redraw what is already there.
+   */
+  readonly needsRuntime: boolean;
 }
 
 const IMPORT_RE =
@@ -151,7 +163,14 @@ export async function prerender(
     const idPrefix = `${options.idPrefix ?? "kg"}-${theme.name}`;
     const svg = exportSvg(frame, { idPrefix });
     const inlineSvg = exportSvg(frame, { idPrefix, destination: "inline" });
-    results.push({ theme: theme.name, svg, inlineSvg, width: frame.width, height: frame.height });
+    results.push({
+      theme: theme.name,
+      svg,
+      inlineSvg,
+      width: frame.width,
+      height: frame.height,
+      needsRuntime: sceneNeedsRuntime(scene),
+    });
   }
   return results;
 }
