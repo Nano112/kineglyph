@@ -13,16 +13,16 @@ All eight publish at the version they already carry — no bumps. `.github/kineg
 pagina repository pins this repository by commit SHA, and bumping versions here for their own sake
 would only make the two harder to reason about.
 
-| Package | Version |
-| --- | --- |
-| `@kineglyph/core` | 0.1.0 |
-| `@kineglyph/svg` | 0.1.0 |
-| `@kineglyph/anime` | 0.1.0 |
-| `@kineglyph/plot` | 0.1.0 |
-| `@kineglyph/scenes` | 0.1.0 |
-| `@kineglyph/web` | 0.1.0 |
-| `@kineglyph/export` | 0.2.0 |
-| `@kineglyph/react` | 0.1.0 |
+| Package             | Version |
+| ------------------- | ------- |
+| `@kineglyph/core`   | 0.1.0   |
+| `@kineglyph/svg`    | 0.1.0   |
+| `@kineglyph/anime`  | 0.1.0   |
+| `@kineglyph/plot`   | 0.1.0   |
+| `@kineglyph/scenes` | 0.1.0   |
+| `@kineglyph/web`    | 0.1.0   |
+| `@kineglyph/export` | 0.2.0   |
+| `@kineglyph/react`  | 0.1.0   |
 
 Intra-repo dependencies are caret ranges against those numbers rather than `"*"`. One range works
 in both worlds: npm's workspace resolution satisfies it from the checkout today, and the registry
@@ -102,6 +102,6 @@ known-good.
 ## If something goes wrong mid-chain
 
 Packages published before the failure stay published — versions are immutable and `npm unpublish`
-is only available for 72 hours. Fix the problem, bump the *patch* version of the packages that did
+is only available for 72 hours. Fix the problem, bump the _patch_ version of the packages that did
 not make it, and run `npm run release:publish` again; it skips nothing, so bump anything already
 on the registry or it will fail on the duplicate.

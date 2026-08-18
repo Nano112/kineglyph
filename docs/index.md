@@ -4,12 +4,18 @@ Kineglyph turns compact scene definitions into deterministic technical illustrat
 scene can be responsive, animated, interactive, themeable, rendered as SVG in a browser, or
 exported reproducibly to PNG and GIF.
 
-[Install Kineglyph](./getting-started.md) or edit the live example below directly in your browser.
+<figure markdown="span">
+  ![The Kineglyph wordmark beside a line travelling through geometric forms.](./assets/readme/cover@2x.gif)
+  <figcaption>The README cover is a Kineglyph scene—not a separate animation asset. Its PNG and GIF are sampled from the same timeline.</figcaption>
+</figure>
 
-The example below is the documentation: edit its labels, tones, layout, or timeline and the
-preview updates without reloading this page.
+[Install Kineglyph](./getting-started.md), browse the [visual gallery](./gallery.md), or edit the
+example below directly in your browser.
 
-```kineglyph live id=first-live-figure view=split height=520
+Every live example opens on its finished preview. Choose **Editor + preview** when you want to
+change labels, tones, layout, data, or motion; the result updates without reloading the page.
+
+```kineglyph live id=first-live-figure view=preview height=440 autoplay=true
 import { sceneFromSpec } from "kineglyph";
 
 export default sceneFromSpec({

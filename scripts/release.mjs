@@ -87,9 +87,10 @@ function audit(pkgs) {
     const entries = [p.json.main, p.json.types, ...Object.values(p.json.bin ?? {})].filter(Boolean);
     for (const cond of Object.values(p.json.exports ?? {})) {
       if (typeof cond === "string") entries.push(cond);
-      else for (const [k, v] of Object.entries(cond ?? {})) {
-        if (k !== "development" && typeof v === "string") entries.push(v);
-      }
+      else
+        for (const [k, v] of Object.entries(cond ?? {})) {
+          if (k !== "development" && typeof v === "string") entries.push(v);
+        }
     }
     for (const e of new Set(entries)) {
       const rel = e.replace(/^\.\//, "");
@@ -127,14 +128,15 @@ if (step === "check" || step === "publish") {
   // `npm ci` prunes anything that is not in the lockfile, which includes a linked sibling
   // checkout. If this repo still consumes a package that is not on the registry, say so here
   // rather than letting the test run fail three minutes later with a module-not-found.
-  const needsLink = existsSync(join(ROOT, "package.json")) &&
+  const needsLink =
+    existsSync(join(ROOT, "package.json")) &&
     JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).scripts?.["link:kineglyph"] &&
     !existsSync(join(ROOT, "node_modules", "@kineglyph", "core"));
   if (needsLink) {
     console.error(
       "\n@kineglyph/* is not installed after `npm ci`.\n" +
-      "Either publish Kineglyph and run `npm run adopt:kineglyph`, or run\n" +
-      "`npm run link:kineglyph` against a local checkout before releasing.",
+        "Either publish Kineglyph and run `npm run adopt:kineglyph`, or run\n" +
+        "`npm run link:kineglyph` against a local checkout before releasing.",
     );
     process.exit(1);
   }
@@ -161,8 +163,13 @@ if (step === "publish") {
   const dry = process.env.RELEASE_DRY_RUN === "1" ? ["--dry-run"] : [];
   for (const p of pkgs) {
     console.log(`\n--- publish ${p.json.name}@${p.json.version}`);
-    execFileSync("npm", ["publish", "--access", "public", ...dry], { cwd: p.dir, stdio: "inherit" });
+    execFileSync("npm", ["publish", "--access", "public", ...dry], {
+      cwd: p.dir,
+      stdio: "inherit",
+    });
   }
   const stamp = pkgs.map((p) => `${p.json.name}@${p.json.version}`).join("\n  ");
-  console.log(`\nAll published:\n  ${stamp}\n\nTag the release, naming the versions it carries:\n  git tag -a release-$(date +%Y-%m-%d) -m 'first npm release' && git push origin --tags`);
+  console.log(
+    `\nAll published:\n  ${stamp}\n\nTag the release, naming the versions it carries:\n  git tag -a release-$(date +%Y-%m-%d) -m 'first npm release' && git push origin --tags`,
+  );
 }

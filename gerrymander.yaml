@@ -1,0 +1,10 @@
+project: kineglyph
+zone: kineglyph.test
+services:
+  docs:
+    hostnames: [kineglyph.test, "*.kineglyph.test"]
+    port_pool: dev
+    # Pagina stays a read-only sibling dependency here. Its development condition resolves the
+    # linked Kineglyph packages from source, so edits to docs and runtime code both hot-reload.
+    # `--edit` is intentionally local-only: it exposes a writable article backend with no auth.
+    dev: 'node "${PAGINA_ROOT:-../pagina}/packages/cli/dist/cli.js" dev docs --port {PORT} --host 0.0.0.0 --edit'

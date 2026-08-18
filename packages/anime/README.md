@@ -14,8 +14,8 @@ import { createAnimationProgram, KineglyphSceneAnimator } from "@kineglyph/anime
 
 const animator = new KineglyphSceneAnimator(rootSvgElement, resolvedScene);
 animator.play();
-animator.seek(0.5);   // halfway, deterministically — the same frame every time
-animator.dispose();   // tears the Anime.js scope down with it
+animator.seek(0.5); // halfway, deterministically — the same frame every time
+animator.dispose(); // tears the Anime.js scope down with it
 ```
 
 Most people never import this directly: [`@kineglyph/web`](../web) mounts figures and owns an

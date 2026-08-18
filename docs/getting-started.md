@@ -13,6 +13,29 @@ npm install @kineglyph/core @kineglyph/svg
 for the container width, measures text, and routes connectors; the SVG renderer draws that resolved
 geometry.
 
+The example is preview-first. Open **Editor + preview** to change a card or switch `f.flow` to
+`f.stack`.
+
+```kineglyph live id=getting-started-figure view=preview height=390 autoplay=true
+import { figure } from "kineglyph";
+
+export default figure("first-figure", { title: "First figure" }, (f) => {
+  const source = f.card({ title: "Scene", body: "Serializable structure", motif: "code" });
+  const result = f.card({
+    title: "Explanation",
+    body: "Responsive and deterministic",
+    motif: "spark",
+    tone: "success",
+  });
+  const edge = f.connect(source, result, { head: "arrow", packets: { count: 2 } });
+
+  f.root(f.flow([source, result], { gap: 48 }));
+  f.sequence([f.reveal(source), f.draw(edge), f.reveal(result), f.flow(edge)]);
+});
+```
+
+The equivalent application-side render path is:
+
 ```ts
 import { figure, resolveScene } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";

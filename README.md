@@ -337,6 +337,18 @@ npm run dev
 The playground serves the catalogue at `#/`, individual scenes at `#/scene/<slug>`, and the plain
 browser integration at `#/embed`.
 
+With Pagina checked out beside this repository, Gerrymander serves the documentation with source
+hot reload and its local page editor:
+
+```sh
+gerry dev docs
+# reading view: https://kineglyph.test/
+# page editor:  https://kineglyph.test/__edit/
+```
+
+Set `PAGINA_ROOT` when the Pagina checkout lives elsewhere. The editor is intentionally exposed
+only on this trusted local development service.
+
 ```sh
 npm run check
 ```

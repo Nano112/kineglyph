@@ -21,11 +21,11 @@ snippets:
 
 exclude:
   - assets/fonts/
-  - assets/readme/
 
 nav:
   - { title: Introduction, page: index.md }
   - { title: Getting started, page: getting-started.md }
+  - { title: Visual gallery, page: gallery.md }
   - section: Authoring
     children:
       - { title: Authoring API, page: authoring-api.md }
