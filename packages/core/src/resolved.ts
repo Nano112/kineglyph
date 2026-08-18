@@ -231,6 +231,15 @@ export interface ResolvedEdgeLabel {
   readonly fontWeight: number;
   readonly color: string;
   readonly hidden?: boolean;
+  /**
+   * Whether this label needs a plate behind it to stay readable.
+   *
+   * Set only when the resolver could not find a placement clear of every node and every other
+   * label, and had to leave the label somewhere it overlaps something. A label with room around
+   * it is drawn as plain text: an unconditional plate reads as a chip stuck to the diagram, and
+   * it is painted in the canvas colour, which is wrong the moment the label lands on a node.
+   */
+  readonly halo?: boolean;
 }
 
 export interface ResolvedEdge {

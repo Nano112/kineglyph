@@ -1,4 +1,10 @@
-import { mixColor, type ResolvedScene } from "@kineglyph/core";
+import {
+  CONNECTOR_HEAD_HALF_ANGLE,
+  CONNECTOR_HEAD_LENGTH,
+  CONNECTOR_HEAD_STROKE,
+  mixColor,
+  type ResolvedScene,
+} from "@kineglyph/core";
 import { motifShapes, type MotifShape } from "./motifs.js";
 
 export { MOTIFS, MOTIF_NAMES, motifShapes, type MotifShape } from "./motifs.js";
@@ -50,10 +56,14 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     options.description ??
     firstString(source.description, record(source.accessibility).description);
   const interactive = nodes.some(isInteractive);
-  const labelledBy = [title && `${rootId}-title`, description && `${rootId}-description`]
-    .filter(Boolean)
-    .join(" ");
+  // Name and description are separate relationships. Folding the `<desc>` into `aria-labelledby`
+  // made the accessible *name* the title and the description run together, and left the
+  // description empty — so a screen reader read the whole paragraph as the figure's label and had
+  // nothing left to offer on request.
+  const labelledBy = title === undefined ? undefined : `${rootId}-title`;
+  const describedBy = description === undefined ? undefined : `${rootId}-description`;
   const background = string(source.background);
+  const palette = buildPalette(theme);
   const rootAttrs: Attrs = [
     ["xmlns", options.includeXmlns === false ? undefined : "http://www.w3.org/2000/svg"],
     ["id", rootId],
@@ -63,11 +73,12 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     ["width", number(width, precision)],
     ["height", number(height, precision)],
     ["role", options.role ?? (interactive ? "group" : "img")],
-    ["aria-labelledby", labelledBy || undefined],
-    ["aria-label", labelledBy ? undefined : "Kineglyph scene"],
+    ["aria-labelledby", labelledBy],
+    ["aria-describedby", describedBy],
+    ["aria-label", labelledBy === undefined ? "Kineglyph scene" : undefined],
     ["data-kineglyph-scene", sceneId],
     ["data-layout", firstString(source.layoutName, source.layout)],
-    ["style", themeVariables(theme)],
+    ["style", palette.rootStyle],
   ];
 
   const context: RenderContext = {
@@ -82,8 +93,15 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     enhancedEffects: options.effects === "enhanced",
   };
 
-  const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) <= 0);
-  const aboveEdges = edges.filter((edge) => finiteNumber(edge.z, 0) > 0);
+  // Connectors draw *over* the node layer by default.
+  //
+  // They used to draw under it, which is only safe when every edge runs across bare canvas. The
+  // moment two connected boxes sit inside a third — the ordinary shape of a pipeline figure — the
+  // parent's opaque fill painted straight over every connector between its children, and the
+  // diagram silently lost its verbs. An edge that genuinely belongs behind the nodes asks for it
+  // with a negative `z`, which is the same escape hatch, stated explicitly.
+  const belowEdges = edges.filter((edge) => finiteNumber(edge.z, 0) < 0);
+  const aboveEdges = edges.filter((edge) => finiteNumber(edge.z, 0) >= 0);
   const edgeLayer = (list: UnknownRecord[], className: string): string =>
     list.length === 0
       ? ""
@@ -131,7 +149,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     .filter(Boolean)
     .join("");
 
-  return element("svg", rootAttrs, body);
+  return tokenise(element("svg", rootAttrs, body), palette);
 }
 
 /** Alias matching server-renderer naming conventions. */
@@ -168,6 +186,30 @@ function colorKey(color: string): string {
   return key || "default";
 }
 
+/**
+ * Marker geometry, in stroke widths.
+ *
+ * Every marker uses `markerUnits="strokeWidth"` on a `0 0 10 10` viewBox drawn into a 10x10
+ * viewport, so one viewBox unit *is* one stroke width and the numbers below can be read directly
+ * as multiples of the line's weight. That is the point: a head sized in absolute pixels stops
+ * belonging to its line the moment the line changes weight.
+ *
+ * The tip sits at `TIP` on the x axis and `refX` matches it, so the head's point lands exactly on
+ * the edge's endpoint. Barbs are placed by the head's half-angle rather than by eye, which is what
+ * keeps the head from looking squashed.
+ */
+const MARKER_CENTER = 5;
+const HEAD_TIP_X = MARKER_CENTER + CONNECTOR_HEAD_LENGTH / 2;
+const HEAD_BACK_X = HEAD_TIP_X - CONNECTOR_HEAD_LENGTH;
+const HEAD_HALF_WIDTH =
+  CONNECTOR_HEAD_LENGTH * Math.tan((CONNECTOR_HEAD_HALF_ANGLE * Math.PI) / 180);
+/** A filled head reads heavier than an open one at the same width, so it is drawn slimmer. */
+const SOLID_HEAD_HALF_WIDTH = HEAD_HALF_WIDTH * 0.86;
+
+function marker(value: number): string {
+  return number(value, 3);
+}
+
 /** Marker definition markup; the same function serves the renderer and the live runtime. */
 export function renderMarkerDefinition(
   rootId: string,
@@ -182,20 +224,26 @@ export function renderMarkerDefinition(
     ["viewBox", "0 0 10 10"],
     ["orient", "auto-start-reverse"],
     ["markerUnits", "strokeWidth"],
+    ["markerWidth", "10"],
+    ["markerHeight", "10"],
+    ["refY", marker(MARKER_CENTER)],
     ["data-marker-kind", kind],
   ];
   switch (kind) {
     case "arrow":
       return element(
         "marker",
-        [...common, ["refX", "8.5"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        [...common, ["refX", marker(HEAD_TIP_X)]],
         element(
           "path",
           [
-            ["d", "M 1.5 1.5 L 8.5 5 L 1.5 8.5"],
+            [
+              "d",
+              `M ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER - HEAD_HALF_WIDTH)} L ${marker(HEAD_TIP_X)} ${marker(MARKER_CENTER)} L ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER + HEAD_HALF_WIDTH)}`,
+            ],
             ["fill", "none"],
             ["stroke", color],
-            ["stroke-width", "1.7"],
+            ["stroke-width", marker(CONNECTOR_HEAD_STROKE)],
             ["stroke-linecap", "round"],
             ["stroke-linejoin", "round"],
           ],
@@ -205,11 +253,14 @@ export function renderMarkerDefinition(
     case "triangle":
       return element(
         "marker",
-        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "6"], ["markerHeight", "6"]],
+        [...common, ["refX", marker(HEAD_TIP_X)]],
         element(
           "path",
           [
-            ["d", "M 0.5 0.5 L 9.5 5 L 0.5 9.5 z"],
+            [
+              "d",
+              `M ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER - SOLID_HEAD_HALF_WIDTH)} L ${marker(HEAD_TIP_X)} ${marker(MARKER_CENTER)} L ${marker(HEAD_BACK_X)} ${marker(MARKER_CENTER + SOLID_HEAD_HALF_WIDTH)} z`,
+            ],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -219,13 +270,13 @@ export function renderMarkerDefinition(
     case "dot":
       return element(
         "marker",
-        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        [...common, ["refX", marker(MARKER_CENTER)]],
         element(
           "circle",
           [
-            ["cx", "5"],
-            ["cy", "5"],
-            ["r", "3.4"],
+            ["cx", marker(MARKER_CENTER)],
+            ["cy", marker(MARKER_CENTER)],
+            ["r", marker(1.8)],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -235,11 +286,14 @@ export function renderMarkerDefinition(
     case "diamond":
       return element(
         "marker",
-        [...common, ["refX", "9"], ["refY", "5"], ["markerWidth", "7"], ["markerHeight", "7"]],
+        [...common, ["refX", marker(MARKER_CENTER + 2.1)]],
         element(
           "path",
           [
-            ["d", "M 5 0.8 L 9.2 5 L 5 9.2 L 0.8 5 z"],
+            [
+              "d",
+              `M ${marker(MARKER_CENTER + 2.1)} ${marker(MARKER_CENTER)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER + 2.1)} L ${marker(MARKER_CENTER - 2.1)} ${marker(MARKER_CENTER)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER - 2.1)} z`,
+            ],
             ["fill", color],
             ["stroke", "none"],
           ],
@@ -249,14 +303,17 @@ export function renderMarkerDefinition(
     case "bar":
       return element(
         "marker",
-        [...common, ["refX", "5"], ["refY", "5"], ["markerWidth", "5"], ["markerHeight", "5"]],
+        [...common, ["refX", marker(MARKER_CENTER)]],
         element(
           "path",
           [
-            ["d", "M 5 0.5 L 5 9.5"],
+            [
+              "d",
+              `M ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER - 2.25)} L ${marker(MARKER_CENTER)} ${marker(MARKER_CENTER + 2.25)}`,
+            ],
             ["fill", "none"],
             ["stroke", color],
-            ["stroke-width", "1.8"],
+            ["stroke-width", marker(CONNECTOR_HEAD_STROKE)],
             ["stroke-linecap", "butt"],
           ],
           "",
@@ -777,6 +834,34 @@ export interface EdgeDashResult {
 }
 
 /**
+ * Mark and gap for each stroke style, in stroke widths.
+ *
+ * The three styles have to be told apart at the size figures actually render, which means they
+ * cannot differ by a couple of pixels of dash length — they differ by *ratio*:
+ *
+ *   - `solid` is unbroken;
+ *   - `flow` is a long mark with a small gap (~3.5:1) — a continuous channel with motion notches,
+ *     which is also what the dash-offset animation rides on;
+ *   - `dashed` is a short mark with an equal gap (1:1) — visibly broken, which is what "optional"
+ *     or "indirect" should look like.
+ *
+ * Before this, `flow` and `dashed` emitted byte-identical dasharrays and were distinguishable only
+ * once packets animated, so a still figure had two styles that were one style.
+ */
+const DASH_PATTERNS: Readonly<Record<"dashed" | "dotted" | "flow", { mark: number; gap: number }>> =
+  {
+    dashed: { mark: 2.5, gap: 2.5 },
+    flow: { mark: 7, gap: 2 },
+    dotted: { mark: 0, gap: 2.4 },
+  };
+/** Floors in pixels, so a hairline stroke still produces a pattern the eye can resolve. */
+const DASH_FLOOR: Readonly<Record<"dashed" | "dotted" | "flow", { mark: number; gap: number }>> = {
+  dashed: { mark: 5, gap: 5 },
+  flow: { mark: 12, gap: 4 },
+  dotted: { mark: 0.01, gap: 4 },
+};
+
+/**
  * Deterministic dash pattern for a stroke style, width, path length, and reveal progress.
  * Non-solid styles keep their pattern while revealing by normalising to `pathLength="1"`.
  */
@@ -794,9 +879,14 @@ export function edgeDashArray(
       ? { dasharray: `${number(p, precision)} 1`, pathLength: "1", linecap: undefined }
       : { dasharray: undefined, pathLength: undefined, linecap: undefined };
   }
-  const dashLength = dash === "dotted" ? 0.01 : Math.max(5, w * 3);
-  const gapLength = dash === "dotted" ? Math.max(4, w * 2.4) : Math.max(4, w * 2.2);
-  const linecap = dash === "dotted" ? "round" : undefined;
+  const ratio = DASH_PATTERNS[dash];
+  const floor = DASH_FLOOR[dash];
+  const dashLength = Math.max(floor.mark, ratio.mark * w);
+  const gapLength = Math.max(floor.gap, ratio.gap * w);
+  // Dashed marks are butted so the 1:1 rhythm survives: a round cap adds half a stroke width to
+  // each end of every mark, which on a short run closes the gaps and turns "dashed" back into
+  // "solid, badly". `flow` keeps round caps — it is meant to read as one continuous channel.
+  const linecap = dash === "dotted" ? "round" : dash === "dashed" ? "butt" : undefined;
   if (p >= 1)
     return {
       dasharray: `${number(dashLength, precision)} ${number(gapLength, precision)}`,
@@ -951,6 +1041,27 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
       const w = finiteNumber(item.width, 0);
       const h = finiteNumber(item.height, 0);
       const fontSize = finiteNumber(item.fontSize, 12);
+      // The plate behind a label is a repair, not a style: it is drawn only where the resolver
+      // could find nowhere clear to put the label. Painted unconditionally it reads as a chip
+      // glued to the diagram, and it is the canvas colour, so on a label that lands on a node it
+      // punches a hole in the node.
+      const halo =
+        item.halo === true && context.background !== "transparent"
+          ? element(
+              "rect",
+              [
+                ["class", "kg-edge-label-halo"],
+                ["x", number(x - w / 2, precision)],
+                ["y", number(y - h / 2, precision)],
+                ["width", number(w, precision)],
+                ["height", number(h, precision)],
+                ["rx", number(Math.min(6, h / 2), precision)],
+                ["fill", context.background],
+                ["fill-opacity", "0.9"],
+              ],
+              "",
+            )
+          : "";
       parts.push(
         element(
           "g",
@@ -959,20 +1070,7 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
             ["data-edge-label", string(item.id)],
             ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
           ],
-          element(
-            "rect",
-            [
-              ["class", "kg-edge-label-halo"],
-              ["x", number(x - w / 2, precision)],
-              ["y", number(y - h / 2, precision)],
-              ["width", number(w, precision)],
-              ["height", number(h, precision)],
-              ["rx", number(Math.min(6, h / 2), precision)],
-              ["fill", context.background === "transparent" ? "none" : context.background],
-              ["fill-opacity", "0.9"],
-            ],
-            "",
-          ) +
+          halo +
             element(
               "text",
               [
@@ -2242,7 +2340,59 @@ function edgePoint(
   return { x: finiteNumber(edge[`x${prefix}`], 0), y: finiteNumber(edge[`y${prefix}`], 0) };
 }
 
-function themeVariables(theme: UnknownRecord): string {
+/**
+ * Diagram roles a viewer may retint, in the order that decides a tie.
+ *
+ * The renderer receives a *resolved* scene: by the time paint reaches this file the token a colour
+ * came from is gone and only the literal is left. `tokenise` recovers the role by looking the
+ * literal back up in the theme's palette, so two roles that share a colour (`accent` and `chart1`
+ * do, in the default theme) have to be separated by a rule. This list is that rule — the general
+ * roles first, the chart series after them — and it is stable, so a given theme always produces the
+ * same mapping. A theme that wants its chart series retinted separately gives them distinct values,
+ * and then there is no tie to break.
+ */
+const COLOR_ROLES: readonly string[] = [
+  "canvas",
+  "surface",
+  "surfaceRaised",
+  "surfaceMuted",
+  "border",
+  "text",
+  "textMuted",
+  "accent",
+  "accentContrast",
+  "connector",
+  "info",
+  "success",
+  "warning",
+  "danger",
+  "chart1",
+  "chart2",
+  "chart3",
+  "chart4",
+  "chart5",
+  "chart6",
+  "chartPositive",
+  "chartNegative",
+  "chartNeutral",
+];
+
+/** Attributes whose value is a paint. `data-base-stroke` and friends are deliberately not here:
+ *  the live runtime reads them back to restore a colour, and it wants the literal. */
+const PAINT_ATTRS = /(\s(?:fill|stroke|stop-color|flood-color|lighting-color|color)=")([^"]*)(")/g;
+/** A semantic-colour reference the renderer emitted without a fallback (see `colorValue`). */
+const BARE_COLOR_VAR = /var\(--kg-color-([a-z0-9-]+)\)/g;
+
+interface Palette {
+  /** Literal (lowercased) → `--kg-color-*` name, for every colour the theme actually names. */
+  readonly roleOf: ReadonlyMap<string, string>;
+  /** `--kg-color-*` name → the theme's literal, used as the `var()` fallback. */
+  readonly literalOf: ReadonlyMap<string, string>;
+  /** The root element's `style`: aliases that read the contract, plus baked geometry. */
+  readonly rootStyle: string;
+}
+
+function buildPalette(theme: UnknownRecord): Palette {
   const canvas = record(theme.canvas);
   const node = record(theme.node);
   const edge = record(theme.edge);
@@ -2253,45 +2403,125 @@ function themeVariables(theme: UnknownRecord): string {
   const radii = mergeRecords(record(tokens.radii), record(theme.radii));
   const typography = mergeRecords(record(tokens.typography), record(theme.typography));
   const bodyFont = record(typography.body);
-  const vars: Array<[string, string | undefined]> = [
-    [
+
+  const roleOf = new Map<string, string>();
+  const literalOf = new Map<string, string>();
+  const ordered = [
+    ...COLOR_ROLES.filter((key) => key in colors),
+    ...Object.keys(colors)
+      .filter((key) => !COLOR_ROLES.includes(key))
+      .sort(),
+  ];
+  for (const key of ordered) {
+    const value = string(colors[key]);
+    if (value === undefined) continue;
+    const name = `--kg-color-${cssName(key)}`;
+    literalOf.set(name, value);
+    // First role wins, so the order above is what decides a shared colour.
+    if (!roleOf.has(value.toLowerCase())) roleOf.set(value.toLowerCase(), name);
+  }
+
+  /**
+   * A shorthand the embedded stylesheet reads, defined *as a reference* to the contract token it
+   * stands for. Defining it on the element rather than in the stylesheet keeps one figure's
+   * fallbacks out of the next figure's — an inlined SVG's `<style>` is document-wide — and defining
+   * it as `var(...)` rather than a literal is what keeps inheritance working: the alias is pinned,
+   * the colour it resolves to is not.
+   */
+  const alias = (name: string, role: string, value: string): [string, string] => [
+    name,
+    `var(--kg-color-${role}, ${value})`,
+  ];
+  const vars: Array<[string, string]> = [
+    alias(
       "--kg-background",
+      "canvas",
       firstString(colors.canvas, theme.background, canvas.background, semantic.background) ??
         "transparent",
-    ],
-    [
+    ),
+    alias(
       "--kg-node-fill",
+      "surface",
       firstString(colors.surface, node.fill, theme.nodeFill, semantic.surface) ?? "#ffffff",
-    ],
-    [
+    ),
+    alias(
       "--kg-node-stroke",
+      "border",
       firstString(colors.border, node.stroke, theme.nodeStroke, semantic.foreground) ?? "#1f2937",
-    ],
-    [
+    ),
+    alias(
       "--kg-edge-stroke",
+      "connector",
       firstString(colors.connector, edge.stroke, theme.edgeStroke, semantic.muted) ?? "#64748b",
-    ],
-    [
+    ),
+    alias(
       "--kg-text",
+      "text",
       firstString(colors.text, text.color, theme.foreground, semantic.foreground) ?? "#111827",
-    ],
-    ["--kg-text-muted", firstString(colors.textMuted) ?? "#64748b"],
-    ["--kg-accent", firstString(colors.accent, theme.accent, semantic.accent) ?? "#2563eb"],
+    ),
+    alias("--kg-text-muted", "text-muted", firstString(colors.textMuted) ?? "#64748b"),
+    alias(
+      "--kg-accent",
+      "accent",
+      firstString(colors.accent, theme.accent, semantic.accent) ?? "#2563eb",
+    ),
+    // Geometry, not colour. Text in an exported SVG is measured and frozen at render time, so the
+    // family that measured it has to be the family that draws it; a viewer swapping the font would
+    // squeeze real glyphs into another font's metrics. Deliberately not a re-themable token.
     [
       "--kg-font-family",
       firstString(bodyFont.family, theme.fontFamily, text.fontFamily) ?? "system-ui, sans-serif",
     ],
   ];
-  for (const key of Object.keys(colors).sort()) {
-    const value = string(colors[key]);
-    if (value) vars.push([`--kg-color-${cssName(key)}`, value]);
-  }
   for (const key of Object.keys(radii).sort()) {
     const value = radii[key];
+    // Also geometry: baked, for the same reason.
     if (typeof value === "number" && Number.isFinite(value))
       vars.push([`--kg-radius-${cssName(key)}`, `${value}px`]);
   }
-  return vars.map(([name, value]) => `${name}:${value}`).join(";");
+  return {
+    roleOf,
+    literalOf,
+    rootStyle: vars.map(([name, value]) => `${name}:${value}`).join(";"),
+  };
+}
+
+/**
+ * Turns every paint the markup carries into `var(--kg-color-<role>, <the literal it has today>)`.
+ *
+ * Two passes, both on the finished string rather than on each call site: a paint is a paint
+ * wherever it was written, and doing it here cannot miss one or disturb the marker ids, which are
+ * keyed on the literal and computed before this runs.
+ *
+ * The fallback is exactly the value the renderer already chose, so an SVG dropped on a page that
+ * defines none of these tokens is byte-for-byte the picture it was before.
+ */
+/**
+ * A function that turns one literal paint into `var(--kg-color-<role>, <the literal>)`.
+ *
+ * The renderer does this to its own output; anything that writes paint onto a *live* figure
+ * afterwards — the animator, most of all — has to do the same, or a re-tintable diagram loses its
+ * colour to the first frame that touches it. A colour the theme does not name (one mixed during a
+ * highlight, say) has no role and comes back unchanged.
+ */
+export function paintTokeniser(theme: unknown): (literal: string) => string {
+  const { roleOf } = buildPalette(record(theme));
+  return (literal) => {
+    const role = roleOf.get(literal.trim().toLowerCase());
+    return role === undefined ? literal : `var(${role}, ${literal})`;
+  };
+}
+
+function tokenise(svg: string, palette: Palette): string {
+  return svg
+    .replace(PAINT_ATTRS, (whole, head: string, value: string, tail: string) => {
+      const role = palette.roleOf.get(value.trim().toLowerCase());
+      return role === undefined ? whole : `${head}var(${role}, ${value})${tail}`;
+    })
+    .replace(BARE_COLOR_VAR, (whole, name: string) => {
+      const literal = palette.literalOf.get(`--kg-color-${name}`);
+      return literal === undefined ? whole : `var(--kg-color-${name}, ${literal})`;
+    });
 }
 
 const BASE_STYLES = escapeXml(

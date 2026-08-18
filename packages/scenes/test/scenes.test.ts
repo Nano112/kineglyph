@@ -21,16 +21,9 @@ function layoutProblems(resolved: ResolvedScene): string[] {
 }
 
 describe("illustration catalogue", () => {
-  it("lists the Nucleation and quantitative illustrations with authored copy", () => {
+  it("lists the generic example scenes with authored copy", () => {
     expect(catalogue.map((entry) => entry.slug)).toEqual([
-      "fast-generation",
-      "shapes-and-brushes",
-      "sdf-and-fields",
-      "palettes-and-color",
-      "smart-simulation",
-      "formats-and-io",
-      "bindings-and-languages",
-      "meshing-and-rendering",
+      "material-directions",
       "benchmark-breakdown",
       "throughput-over-time",
       "operation-heatmap",
@@ -43,36 +36,7 @@ describe("illustration catalogue", () => {
       expect(entry.scene.description?.length ?? 0).toBeGreaterThan(24);
       expect(validateScene(entry.scene).ok).toBe(true);
       expect(entry.scene.timeline?.duration ?? 0).toBeGreaterThan(1000);
-      const interactive = JSON.stringify(entry.scene.root).includes('"interactive":true');
-      expect(interactive || (entry.scene.controls?.length ?? 0) > 0).toBe(true);
     }
-  });
-
-  it("visibly demonstrates the edge grammar across the catalogue", () => {
-    const routes = new Set<string>();
-    const heads = new Set<string>();
-    const strokes = new Set<string>();
-    let labels = 0;
-    let packets = 0;
-    let twoWay = 0;
-    for (const entry of catalogue) {
-      const resolved = resolveScene(entry.scene, { width: 1200, theme: themes.nucleation });
-      for (const edge of resolved.edges) {
-        routes.add(edge.route ?? "straight");
-        heads.add(edge.head ?? "none");
-        heads.add(edge.tail ?? "none");
-        strokes.add(edge.dash ?? "solid");
-        labels += edge.labels?.length ?? 0;
-        packets += (edge.metadata?.packetCount as number | undefined) ?? 0;
-        if ((edge.head ?? "none") !== "none" && (edge.tail ?? "none") !== "none") twoWay += 1;
-      }
-    }
-    expect([...routes].sort()).toEqual(["arc", "curve", "orthogonal", "straight"]);
-    expect(heads.size).toBeGreaterThanOrEqual(4);
-    expect(strokes.size).toBeGreaterThanOrEqual(3);
-    expect(labels).toBeGreaterThan(0);
-    expect(packets).toBeGreaterThan(0);
-    expect(twoWay).toBeGreaterThan(0);
   });
 
   for (const entry of catalogue) {
@@ -114,7 +78,7 @@ describe("illustration catalogue", () => {
       }
 
       it("ends in a complete, readable terminal frame", () => {
-        const resolved = resolveScene(entry.scene, { width: 1200, theme: themes.nucleation });
+        const resolved = resolveScene(entry.scene, { width: 1200, theme: themes.midnight });
         const duration = resolved.timeline?.duration ?? 0;
         const final = seekTimeline(resolved, duration);
         for (const node of final.nodes)
@@ -151,7 +115,7 @@ describe("illustration catalogue", () => {
             if (before !== after) differed = true;
             const resolved = resolveScene(entry.scene, {
               width: 1200,
-              theme: themes.pock,
+              theme: themes.default,
               machineState: step.next,
             });
             expect(layoutProblems(resolved)).toEqual([]);

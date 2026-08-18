@@ -180,8 +180,12 @@ describe("gradient fills", () => {
     const svg = renderSvg(resolveScene(gradientScene, { width: 420, theme }));
     expect(svg).toContain('<linearGradient id="kineglyph-gradients-paint-area-fill"');
     expect(svg).toContain('data-gradient-of="area"');
-    expect(svg).toContain('offset="0%" stop-color="#5b5ce2" stop-opacity="0.7"');
-    expect(svg).toContain('offset="100%" stop-color="#5b5ce2" stop-opacity="0"');
+    expect(svg).toContain(
+      'offset="0%" stop-color="var(--kg-color-accent, #5b5ce2)" stop-opacity="0.7"',
+    );
+    expect(svg).toContain(
+      'offset="100%" stop-color="var(--kg-color-accent, #5b5ce2)" stop-opacity="0"',
+    );
     expect(svg).toContain('fill="url(#kineglyph-gradients-paint-area-fill)"');
     expect(svg).toContain('fill="url(#kineglyph-gradients-paint-blend-fill)"');
     expect(svg).toContain('<radialGradient id="kineglyph-gradients-paint-glow-fill"');
@@ -332,11 +336,14 @@ describe("structured scene rendering", () => {
     expect(svg).toContain(">Card</title>");
     expect(svg).toContain(">An interactive card</desc>");
     expect(svg).toContain('clip-path="url(#kinds-node-card-clip)"');
-    // Text carries explicit fonts and fills so static rasterisers never depend on CSS variables.
+    // Text carries an explicit font — it is measured at render time, so the family that measured
+    // it has to be the family that draws it — and a fill that names the role it plays with the
+    // measured colour as its fallback, so a rasteriser that resolves no variables paints exactly
+    // what it painted before.
     expect(svg).toMatch(
-      /<text class="kg-text"[^>]*font-family="[^"]+" font-size="24" font-weight="650"[^>]*fill="#15171a"/,
+      /<text class="kg-text"[^>]*font-family="[^"]+" font-size="24" font-weight="650"[^>]*fill="var\(--kg-color-text, #15171a\)"/,
     );
-    expect(svg).toContain(`fill="${theme.colors.success}"`);
+    expect(svg).toContain(`fill="var(--kg-color-success, ${theme.colors.success})"`);
     expect(svg).toContain('class="kg-canvas"');
     const again = renderSvg(resolved, { idPrefix: "kinds" });
     expect(again).toBe(svg);

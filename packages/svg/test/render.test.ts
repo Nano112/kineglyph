@@ -73,7 +73,7 @@ describe("renderSvg", () => {
     expect(svg).toContain('data-motif="blocks"');
     expect(svg).toContain('data-kineglyph-edge="delivery"');
     expect(svg).toContain(`viewBox="0 0 ${resolved.width} ${resolved.height}"`);
-    expect(svg).toContain(`--kg-color-accent:${resolved.theme.tokens.colors.accent}`);
+    expect(svg).toContain(`var(--kg-color-accent, ${resolved.theme.tokens.colors.accent})`);
   });
 
   it("renders deterministic accessible scene and node metadata", () => {
@@ -82,7 +82,10 @@ describe("renderSvg", () => {
 
     expect(first).toBe(second);
     expect(first).toContain('id="diagram-title"');
-    expect(first).toContain('aria-labelledby="diagram-title diagram-description"');
+    // Name and description are separate relationships: run together in `aria-labelledby` they
+    // become one very long label and no description at all.
+    expect(first).toContain('aria-labelledby="diagram-title"');
+    expect(first).toContain('aria-describedby="diagram-description"');
     expect(first).toContain('role="group"');
     expect(first).toContain('id="diagram-node-source"');
     expect(first).toContain('tabindex="0" focusable="true"');
@@ -144,10 +147,11 @@ describe("renderSvg", () => {
       edges: [],
     } as never);
 
-    expect(svg).toContain("--kg-background:#010101");
+    expect(svg).toContain("--kg-background:var(--kg-color-canvas, #010101)");
+    // Radii are geometry: baked, not offered as a re-themable token.
     expect(svg).toContain("--kg-radius-md:9px");
-    expect(svg).toContain('fill="var(--kg-color-surface)"');
-    expect(svg).toContain('stroke="var(--kg-color-border)"');
+    expect(svg).toContain('fill="var(--kg-color-surface, #020202)"');
+    expect(svg).toContain('stroke="var(--kg-color-border, #030303)"');
     expect(svg).toContain('x="2" y="3" width="40" height="20"');
     expect(svg).toContain(">Bounded</title>");
     expect(svg).toContain('class="kg-node-label"');
@@ -191,8 +195,8 @@ describe("renderSvg", () => {
       edges: [],
     } as never);
 
-    expect(svg).toContain("--kg-node-fill:papayawhip");
-    expect(svg).toContain("--kg-node-stroke:midnightblue");
+    expect(svg).toContain("--kg-node-fill:var(--kg-color-surface, papayawhip)");
+    expect(svg).toContain("--kg-node-stroke:var(--kg-color-border, midnightblue)");
     expect(svg.indexOf('data-a="2"')).toBeLessThan(svg.indexOf('data-z="1"'));
     expect(svg).toContain('role="img"');
     expect(svg).toContain('aria-label="Kineglyph scene"');
@@ -258,7 +262,7 @@ describe("renderSvg", () => {
   });
 
   it.each([
-    [820, "wide"],
+    [840, "wide"],
     [390, "stacked"],
   ] as const)("keeps every rendered text line within its card at %ipx (%s)", (width, mode) => {
     const resolved = resolvePipeline(
@@ -297,5 +301,160 @@ describe("renderSvg", () => {
       expect(lineWidths.every((lineWidth) => lineWidth <= maximum)).toBe(true);
     }
     expect(svg.match(/clip-path="url\(#.+?-content-clip\)"/g)).toHaveLength(4);
+  });
+});
+
+/**
+ * The contract that makes tokenising safe: on a page that defines no `--kg-color-*`, every
+ * `var()` falls back to the literal the renderer would have written anyway. So the tests below
+ * collapse each `var(--x, y)` to `y` and assert the result is the picture, unchanged.
+ */
+describe("re-themable colour", () => {
+  const themed = {
+    width: 200,
+    height: 100,
+    background: "#f7f8fa",
+    theme: {
+      colors: {
+        canvas: "#f7f8fa",
+        surface: "#ffffff",
+        border: "#dfe2e7",
+        connector: "#969da8",
+        text: "#15171a",
+        textMuted: "#626973",
+        accent: "#5b5ce2",
+        // Shares its value with `accent`; `accent` must win, every time.
+        chart1: "#5b5ce2",
+      },
+    },
+    nodes: [
+      { id: "a", x: 0, y: 0, width: 80, height: 40, label: "A", fill: "#ffffff" },
+      { id: "b", x: 110, y: 0, width: 80, height: 40, label: "B", fill: "#5b5ce2" },
+    ],
+    edges: [{ id: "e", from: "a", to: "b", directed: true }],
+  } as never;
+
+  /** What a viewer that sets none of the tokens actually paints. */
+  const collapse = (svg: string): string => svg.replace(/var\((--[a-z0-9-]+), ([^)]*)\)/g, "$2");
+
+  it("every paint carries the literal it had before as its fallback", () => {
+    const svg = renderSvg(themed);
+    const collapsed = collapse(svg);
+
+    expect(collapsed).toContain('fill="#ffffff"');
+    expect(collapsed).toContain('fill="#5b5ce2"');
+    expect(collapsed).toContain("--kg-text:#15171a");
+    expect(collapsed).toContain("--kg-accent:#5b5ce2");
+    // Nothing is left referring to a token it did not also supply a value for.
+    expect(collapsed).not.toMatch(/var\(--kg-color-/);
+  });
+
+  it("names a paint by the role it plays, and breaks a tie the same way every time", () => {
+    const svg = renderSvg(themed);
+
+    expect(svg).toContain('fill="var(--kg-color-surface, #ffffff)"');
+    expect(svg).toContain('fill="var(--kg-color-accent, #5b5ce2)"');
+    // `chart1` is the same colour; the general role wins, so re-tinting the accent moves it.
+    expect(svg).not.toContain("--kg-color-chart1,");
+    expect(renderSvg(themed)).toBe(svg);
+  });
+
+  it("pins its own aliases without pinning the tokens they read", () => {
+    const style = /style="([^"]*)"/.exec(renderSvg(themed))?.[1] ?? "";
+
+    // Every alias resolves *through* the contract, so a value inherited from the page reaches it.
+    expect(style).toContain("--kg-node-fill:var(--kg-color-surface, #ffffff)");
+    expect(style).toContain("--kg-edge-stroke:var(--kg-color-connector, #969da8)");
+    // …and the contract itself is never defined here, which is what would defeat inheritance.
+    expect(style).not.toMatch(/--kg-color-[a-z0-9-]+:/);
+  });
+
+  it("keeps the measured font out of the re-themable set", () => {
+    // Text is measured at render time and frozen with `textLength`; re-fonting it at view time
+    // would squeeze one font's glyphs into another's metrics.
+    const style = /style="([^"]*)"/.exec(renderSvg(themed))?.[1] ?? "";
+
+    expect(style).toMatch(/--kg-font-family:[^v]/);
+  });
+});
+
+/**
+ * The connector is the diagram's verb, so what it looks like is a contract, not an accident.
+ */
+describe("connectors", () => {
+  const twoBoxes = (dash: string) => ({
+    id: "styles",
+    width: 400,
+    height: 120,
+    root: "wrap",
+    nodes: [
+      {
+        id: "wrap",
+        kind: "rect",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 120,
+        appearance: { fill: "#fff" },
+      },
+      { id: "a", parent: "wrap", kind: "rect", x: 20, y: 30, width: 120, height: 60 },
+      { id: "b", parent: "wrap", kind: "rect", x: 220, y: 30, width: 120, height: 60 },
+    ],
+    edges: [
+      {
+        id: "e",
+        from: "a",
+        to: "b",
+        start: { x: 140, y: 60 },
+        end: { x: 220, y: 60 },
+        length: 80,
+        dash,
+        head: "arrow",
+        appearance: { stroke: "#5b6472", strokeWidth: 2 },
+        state: { progress: 1, opacity: 1, flow: dash === "flow" ? 1 : 0 },
+      },
+    ],
+  });
+
+  const dashOf = (dash: string): string =>
+    /stroke-dasharray="([^"]*)"/.exec(renderSvg(twoBoxes(dash) as never))?.[1] ?? "none";
+
+  it("draws solid, dashed and flow as three different patterns", () => {
+    const patterns = ["solid", "dashed", "flow"].map(dashOf);
+    expect(new Set(patterns).size).toBe(3);
+    expect(dashOf("solid")).toBe("none");
+    // Dashed is broken (mark:gap 1:1); flow is a channel with notches (mark much longer than gap).
+    const ratio = (pattern: string): number => {
+      const [mark, gap] = pattern.split(" ").map(Number);
+      return (mark ?? 0) / (gap === undefined || gap === 0 ? 1 : gap);
+    };
+    expect(ratio(dashOf("dashed"))).toBeLessThan(2);
+    expect(ratio(dashOf("flow"))).toBeGreaterThan(3);
+  });
+
+  it("butts dashed marks so a short run keeps its rhythm", () => {
+    expect(renderSvg(twoBoxes("dashed") as never)).toContain('stroke-linecap="butt"');
+  });
+
+  it("draws the arrowhead in stroke widths, at the line's own weight", () => {
+    const svg = renderSvg(twoBoxes("solid") as never);
+    const head = /<marker[^>]*kg-marker--arrow[\s\S]*?<\/marker>/.exec(svg)?.[0] ?? "";
+    expect(head).toContain('markerUnits="strokeWidth"');
+    // One viewBox unit is one stroke width, so the head's numbers read as multiples of the line.
+    expect(head).toContain('viewBox="0 0 10 10"');
+    expect(head).toContain('markerWidth="10"');
+    expect(head).toContain('stroke-width="1"');
+  });
+
+  it("keeps connectors above the nodes, so a parent's fill cannot erase them", () => {
+    const svg = renderSvg(twoBoxes("solid") as never);
+    expect(svg.indexOf('class="kg-edges')).toBeGreaterThan(svg.indexOf('class="kg-nodes"'));
+  });
+
+  it("puts a connector behind the nodes only when it asks", () => {
+    const scene = twoBoxes("solid");
+    const behind = { ...scene, edges: [{ ...scene.edges[0], z: -1 }] };
+    const svg = renderSvg(behind as never);
+    expect(svg.indexOf('class="kg-edges"')).toBeLessThan(svg.indexOf('class="kg-nodes"'));
   });
 });

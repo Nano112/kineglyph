@@ -89,10 +89,97 @@ describe("edge grammar", () => {
       { id: "a-c", from: "a", to: "c" },
     ];
     const ports = assignPorts(edges, "wide", boxes);
-    expect(ports.get("a-b")?.from).toEqual({ side: "right", offset: 1 / 3 });
-    expect(ports.get("a-c")?.from).toEqual({ side: "right", offset: 2 / 3 });
+    expect(ports.get("a-b")?.from).toEqual({ side: "right", offset: 1 / 3, pinned: true });
+    expect(ports.get("a-c")?.from).toEqual({ side: "right", offset: 2 / 3, pinned: true });
     const again = assignPorts([...edges].reverse(), "wide", boxes);
     expect(again.get("a-b")?.from.offset).toBeCloseTo(1 / 3);
+    // A place in a fan is a statement, so it is pinned; the far end of each edge is the only
+    // thing on its own side and stays free to move to meet its partner.
+    expect(ports.get("a-b")?.to.pinned).toBe(false);
+  });
+
+  it("puts a connector between facing sides on the axis the two boxes share", () => {
+    // `tall` and `short` face each other and overlap on y; each one's own middle would give a
+    // 20px lean over a 200px run, which reads as a rendering mistake rather than as a slope.
+    const sized = new Map<string, EdgeNodeBox>([
+      ["tall", { id: "tall", kind: "rect", x: 0, y: 0, width: 100, height: 120 }],
+      ["short", { id: "short", kind: "rect", x: 300, y: 0, width: 100, height: 80 }],
+    ]);
+    const edge: EdgeDefinition = { id: "t-s", from: "tall", to: "short" };
+    const ports = assignPorts([edge], "wide", sized);
+    const port = ports.get("t-s");
+    if (port === undefined) throw new Error("missing port");
+    const resolved = resolveEdge(edge, port, {
+      layout: "wide",
+      theme,
+      boxes: sized,
+      obstacles: [...sized.values()],
+      labelFont: font,
+      labelColor: "#333333",
+      precision: 3,
+    });
+    if (resolved === undefined) throw new Error("unresolved");
+    // The shared span is y 0-80; its middle is 40, inside both boxes.
+    expect(resolved.edge.path).toBe("M 100 40 L 300 40");
+    expect(resolved.edge.start.y).toBe(resolved.edge.end.y);
+  });
+
+  it("routes facing boxes that share none of the cross axis instead of leaning across it", () => {
+    const apart = new Map<string, EdgeNodeBox>([
+      ["low", { id: "low", kind: "rect", x: 0, y: 0, width: 100, height: 40 }],
+      ["high", { id: "high", kind: "rect", x: 300, y: 200, width: 100, height: 40 }],
+    ]);
+    const edge: EdgeDefinition = {
+      id: "l-h",
+      from: { node: "low", side: "right" },
+      to: { node: "high", side: "left" },
+    };
+    const ports = assignPorts([edge], "wide", apart);
+    const port = ports.get("l-h");
+    if (port === undefined) throw new Error("missing port");
+    const resolved = resolveEdge(edge, port, {
+      layout: "wide",
+      theme,
+      boxes: apart,
+      obstacles: [...apart.values()],
+      labelFont: font,
+      labelColor: "#333333",
+      precision: 3,
+    });
+    if (resolved === undefined) throw new Error("unresolved");
+    // Authored as "straight", but nothing is straight between sides that do not face: it turns.
+    expect(resolved.edge.route).toBe("orthogonal");
+    expect(resolved.edge.path).not.toMatch(/^M 100 20 L 300 220$/);
+    expect(resolved.edge.start).toEqual({ x: 100, y: 20 });
+    expect(resolved.edge.end).toEqual({ x: 300, y: 220 });
+  });
+
+  it("leaves an authored port exactly where the author put it", () => {
+    const sized = new Map<string, EdgeNodeBox>([
+      ["tall", { id: "tall", kind: "rect", x: 0, y: 0, width: 100, height: 120 }],
+      ["short", { id: "short", kind: "rect", x: 300, y: 0, width: 100, height: 80 }],
+    ]);
+    const edge: EdgeDefinition = {
+      id: "pinned",
+      from: { node: "tall", side: "right", offset: 0.75 },
+      to: "short",
+    };
+    const ports = assignPorts([edge], "wide", sized);
+    const port = ports.get("pinned");
+    if (port === undefined) throw new Error("missing port");
+    expect(port.from.pinned).toBe(true);
+    const resolved = resolveEdge(edge, port, {
+      layout: "wide",
+      theme,
+      boxes: sized,
+      obstacles: [...sized.values()],
+      labelFont: font,
+      labelColor: "#333333",
+      precision: 3,
+    });
+    if (resolved === undefined) throw new Error("unresolved");
+    expect(resolved.edge.start).toEqual({ x: 100, y: 90 });
+    expect(resolved.edge.end).toEqual({ x: 300, y: 40 });
   });
 
   it("places labels with collision-safe offsets and positions packets by time", () => {

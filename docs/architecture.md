@@ -6,7 +6,7 @@ Kineglyph is a deterministic technical-illustration and quantitative-graphics co
 live runtime. It is not a
 drag-and-drop editor, a general graph-layout engine, a video editor, or a 3D renderer. It targets
 explanatory figures: plots, matrices, pipelines, transformations, comparisons, decision
-laboratories, lifecycles, and domain adapters such as Nucleation build sequences.
+laboratories, lifecycles, and application-owned domain adapters.
 
 The semantic scene, its state machine, and its timeline are the source of truth. SVG markup, DOM
 animation state, and raster pixels are outputs of the same resolved scene at exact times.
@@ -145,9 +145,17 @@ final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing
 - `export` owns resvg and GIF encoding; it must not change layout semantics.
 - `scenes` holds authored content and themes only.
 
+Every package declares a `development` export condition ahead of `import`, pointing at its
+TypeScript source (`./src/index.ts`, plus `./src/bundle.ts` for `@kineglyph/web/bundle`). A
+consumer running under Vite/Vitest — which apply that condition by default — therefore compiles
+Kineglyph from source and picks up edits without a rebuild, while plain Node, bundlers, and
+published consumers still resolve `import` and get `dist/`. Because the condition points into
+`src/`, every package publishes `src` alongside `dist` in `files`; `scripts/check-exports.test.mjs`
+enforces both halves of that contract.
+
 ## Deferred work
 
 - Exact embedded-font shaping for byte-identical export across machines (explicit font files
   are supported; system-font fallback differs per machine).
 - Collision-aware routing for arbitrary graphs beyond the constrained routes and port rules.
-- A Nucleation operation/frame adapter and rendered-media synchronisation.
+- Application-owned operation/frame adapters and rendered-media synchronisation.

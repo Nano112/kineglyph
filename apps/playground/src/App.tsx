@@ -48,7 +48,7 @@ function useHashRoute(): Route {
 }
 
 export function App() {
-  const [themeName, setThemeName] = useState<ThemeName>("nucleation");
+  const [themeName, setThemeName] = useState<ThemeName>("default");
   const [preset, setPreset] = useState<WidthPreset>("desktop");
   const route = useHashRoute();
   const theme = themes[themeName];

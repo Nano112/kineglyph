@@ -34,7 +34,7 @@ for (const entry of catalogue) {
       parts.push(
         `<h3 id="${entry.slug}-${width}-${name}" style="font:14px system-ui;color:#888;margin:16px 0 4px">${entry.slug} · ${width}px · ${name} · ${resolved.layoutName} · ${resolved.height}px</h3>${problemHtml}<div style="width:${width}px;border:1px dashed #666">${svg}</div>`,
       );
-      if (entry.scene.machine !== undefined && width === 1200 && name === "nucleation") {
+      if (entry.scene.machine !== undefined && width === 1200 && name === "midnight") {
         for (const state of Object.keys(entry.scene.machine.states).slice(0, 6)) {
           const machineState = resolveMachineState(entry.scene.machine, state);
           const stateResolved = resolveScene(entry.scene, { width, theme, machineState });

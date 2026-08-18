@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 /**
  * Builds the self-contained ESM bundle (`dist/kineglyph-web.js`) that plain
  * `<script type="module">` pages and Blade views can import without any build step.
- * The bundle includes the runtime, the three product themes, and the illustration catalogue.
+ * Consumer scenes and themes stay outside the bundle and are supplied at mount time.
  */
 export default defineConfig({
   build: {

@@ -1,3 +1,4 @@
+import { minimumConnectorRun } from "./connector.js";
 import type { EdgeInsets, Point, Rect, Size } from "./schema.js";
 
 export type PipelineLayoutMode = "auto" | "wide" | "stacked";
@@ -49,9 +50,11 @@ export interface PipelineLayoutResult {
   readonly connectors: readonly PipelineConnector[];
 }
 
+// Every stage of a pipeline is joined to the next by a connector, so the gap between stages is
+// not a spacing choice — it is however much room the connector needs. See `connector.ts`.
 const DEFAULTS = {
-  gap: 24,
-  stackedGap: 16,
+  gap: minimumConnectorRun(),
+  stackedGap: minimumConnectorRun(),
   minItemWidth: 168,
   preferredItemWidth: 224,
   maxItemWidth: 320,

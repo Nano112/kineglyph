@@ -12,12 +12,20 @@ npm install @kineglyph/web
 ## Mount a figure
 
 ```ts
+import { createTheme, figure } from "@kineglyph/core";
 import { mountKineglyph } from "@kineglyph/web";
-import { catalogue, themes } from "@kineglyph/scenes";
+
+const scene = figure("request", { title: "Request path" }, (f) => {
+  const input = f.card({ title: "Input" });
+  const output = f.card({ title: "Output" });
+  f.connect(input, output, { head: "arrow" });
+  f.root(f.flow([input, output]));
+});
+const theme = createTheme({ colors: { accent: "#237f74" } });
 
 const controller = mountKineglyph(document.querySelector("#figure"), {
-  scene: catalogue[0].scene, // SceneDefinition (or a legacy PipelineDefinition)
-  theme: themes.nucleation,
+  scene,
+  theme,
   autoplay: true,
 });
 
@@ -25,9 +33,9 @@ controller.play();
 controller.pause();
 controller.restart();
 controller.seek(1200);
-controller.send("FOCUS_FIELD"); // state-machine event (scenes with a machine)
+controller.send("FOCUS_FIELD"); // state-machine event, when the scene has one
 controller.reset();
-controller.setTheme(themes.pock);
+controller.setTheme(createTheme({ colors: { accent: "#6475b7" } }));
 controller.inspect("field"); // programmatic inspection; inspect(null) clears
 controller.on("state", ({ step }) => console.log(step.transition));
 controller.destroy(); // removes DOM, listeners, observers, and animations
@@ -59,7 +67,7 @@ const controller = mountKineglyph(host, {
       alt: "Generated Minecraft build",
       source: async ({ signals, signal }) => {
         const schematic = buildSchematic(signals, { signal });
-        const mesh = meshWithNucleation(schematic); // custom WASM build with `meshing`
+        const mesh = meshSchematic(schematic); // application-owned adapter
         return mesh.toGlb();
       },
     }),
@@ -72,6 +80,47 @@ with the new signals. Async work is aborted on state changes, resize, scene chan
 If `<model-viewer>` is unavailable or generation fails, the static image remains visible. A custom
 `LiveSurfaceRenderer` can mount Three.js, a native canvas, an iframe, or an application component
 instead.
+
+### Add parameters and binding-aware source
+
+`createParameterPanel` and `createCodeDrawer` cover the controls around a live renderer. They are
+plain DOM helpers: no React dependency, no application assumptions, and no host-page CSS required.
+
+```ts
+import { createCodeDrawer, createParameterPanel, type LiveSurfaceContext } from "@kineglyph/web";
+
+const livePreview = (context: LiveSurfaceContext) => {
+  let settings = { size: 6, detail: 1.2 };
+  const preview = context.element.ownerDocument.createElement("canvas");
+  const source = createCodeDrawer(context.element.ownerDocument, {
+    samples: sourceFor(settings), // [{ id, label, code }, ...]
+  });
+  const parameters = createParameterPanel(context.element.ownerDocument, {
+    parameters: [
+      { id: "size", label: "Size", min: 2, max: 12, step: 0.1, value: settings.size },
+      { id: "detail", label: "Detail", min: 0, max: 3, step: 0.05, value: settings.detail },
+    ],
+    onInput: ({ values }) => {
+      settings = { ...settings, ...values };
+      source.update(sourceFor(settings));
+    },
+    onChange: ({ values }) => renderPreview(values),
+  });
+
+  context.element.append(preview, parameters.element, source.element);
+  return {
+    destroy() {
+      parameters.destroy();
+      source.destroy();
+      preview.remove();
+    },
+  };
+};
+```
+
+`onInput` is immediate, so readouts and source can follow the thumb. `onChange` is debounced while
+dragging and flushes on a committed change, which keeps expensive rendering off the hot path.
+`update()` replaces parameter definitions or source samples without losing the selected language.
 
 ### Lifecycle guarantees
 
@@ -92,21 +141,21 @@ instead.
 
 ### Options
 
-| Option            | Default         | Purpose                                                          |
-| ----------------- | --------------- | ---------------------------------------------------------------- |
-| `scene`           | —               | `SceneDefinition` or `PipelineDefinition`                        |
-| `theme`           | `defaultTheme`  | Semantic theme tokens                                            |
-| `layout`          | `"auto"`        | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines) |
-| `width`           | measured        | Fixed width; otherwise the host is observed with ResizeObserver  |
-| `autoplay`        | `true`          | Start playback on mount (never under reduced motion)             |
-| `controls`        | `true`          | Compact play / restart / scrubber controls                       |
-| `readout`         | `true`          | Inspection readout below the stage                               |
-| `machineControls` | `true`          | Buttons for `scene.controls` with `aria-pressed` state           |
-| `reducedMotion`   | media query     | Force the terminal frame and disable playback                    |
-| `idPrefix`        | generated       | Stable DOM id prefix                                             |
-| `initialState`    | machine initial | Start a machine in a specific `MachineState`                     |
-| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                 |
-| callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`      |
+| Option            | Default         | Purpose                                                           |
+| ----------------- | --------------- | ----------------------------------------------------------------- |
+| `scene`           | —               | `SceneDefinition` or `PipelineDefinition`                         |
+| `theme`           | `defaultTheme`  | Semantic theme tokens                                             |
+| `layout`          | `"auto"`        | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines)  |
+| `width`           | measured        | Fixed width; otherwise the host is observed with ResizeObserver   |
+| `autoplay`        | `true`          | Start playback on mount (never under reduced motion)              |
+| `controls`        | `true`          | Compact play / restart / scrubber controls; `"auto"` if animated  |
+| `readout`         | `true`          | Inspection readout below the stage; `"auto"` if inspectable       |
+| `machineControls` | `true`          | Buttons for `scene.controls`; `"auto"` if the scene has a machine |
+| `reducedMotion`   | media query     | Force the terminal frame and disable playback                     |
+| `idPrefix`        | generated       | Stable DOM id prefix                                              |
+| `initialState`    | machine initial | Start a machine in a specific `MachineState`                      |
+| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                  |
+| callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`       |
 
 ### Keyboard and accessibility
 
@@ -119,14 +168,109 @@ shown, flow strokes stop, and playback controls are disabled.
 ## Auto-mount from data attributes
 
 ```html
-<div data-kineglyph="fast-generation" data-theme="nucleation"></div>
+<div data-kineglyph="request-path" data-theme="docs"></div>
 <script type="module">
   import { autoMount } from "/vendor/kineglyph/kineglyph-web.js";
-  autoMount();
+  import { scenes, themes } from "/assets/figures.js";
+  autoMount({ scenes, themes });
 </script>
 ```
 
-`dist/kineglyph-web.js` is a self-contained ESM bundle (runtime + product themes + catalogue)
-built with Vite for pages without a bundler. With a bundler, import `@kineglyph/web` and register
-your own scenes with `registerScene(id, scene)` / `registerTheme(name, theme)` before calling
-`autoMount()`. See `examples/laravel-blade` for a Blade integration.
+`dist/kineglyph-web.js` is a self-contained ESM bundle of the runtime and authoring primitives.
+It intentionally contains no consumer scenes or themes. Pass registries to `autoMount`, or call
+`registerScene(id, scene)` and `registerTheme(name, theme)` first. See
+`examples/laravel-blade` for a Blade integration.
+
+Because the bundle re-exports both `@kineglyph/core` and `@kineglyph/plot`, and both packages
+export `rule` and `formatNumber`, the bare names are core's (`rule(id, tone)` thin divider,
+`formatNumber(value, precision)`) and plot's are aliased to `plotRule(options)` and
+`formatPlotNumber(value, spec)`. Importing from `@kineglyph/plot` directly is unaffected.
+
+## Embedding (`mountAll`)
+
+`mountAll(options?)` upgrades every embedded figure already in the document — the contract an
+external renderer (docs site, CMS, static-site generator) writes HTML against. It resolves once
+every mount attempt has settled and returns the figures that mounted.
+
+```ts
+import { mountAll } from "@kineglyph/web";
+
+await mountAll(); // default selector: figure.kg, [data-kineglyph]
+```
+
+Each host element is classified by `detectSource`, in priority order:
+
+| Markup                                           | Source        | Loaded by                                      |
+| ------------------------------------------------ | ------------- | ---------------------------------------------- |
+| `<script type="text/kineglyph">…</script>` child | inline        | blob module URL (page import maps still apply) |
+| `data-scene="…"`                                 | module        | `import()` of the URL, relative to `baseURI`   |
+| `data-kineglyph="id"`                            | registered    | `getRegisteredScene(id)`                       |
+| none of the above                                | _static-only_ | left untouched                                 |
+
+```html
+<figure class="kg">
+  <img src="latency.svg" alt="Latency" />
+  <script type="text/kineglyph">
+    import { defineScene, stack, heading } from "kineglyph";
+    export default defineScene({ /* … */ });
+  </script>
+</figure>
+
+<figure class="kg" data-scene="/figures/latency.mjs">
+  <img src="latency.svg" alt="Latency" />
+</figure>
+
+<figure class="kg"><img src="latency.svg" alt="Latency" /></figure>
+```
+
+A static-only figure is a feature, not a failure: its `<img>`/`<picture>` fallback simply stays.
+Mounting hides the fallback and sets `data-kineglyph-mounted="true"`; a failed mount keeps the
+fallback visible and records the message in `data-kineglyph-error`. Destroying a figure's
+controller restores the fallback and clears the mounted flag, so mounting is reversible.
+
+Per-element attributes `data-theme`, `data-autoplay`, `data-controls`, and `data-readout` feed the
+mount; `options.theme`, `options.load`, and `options.mountOptions` accept functions of the element
+when the host needs to override per figure. Elements already carrying
+`data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
+arrives.
+
+### Chrome that the scene decides: `"auto"`
+
+`controls`, `readout` and `machineControls` are three-valued (`ChromeSetting = boolean | "auto"`).
+`true`/`false` are obeyed and `undefined` still means `true`, so nothing that never asked changes
+its answer. `"auto"` — also spelled `data-controls="auto"` / `data-readout="auto"` — hands the
+decision to the resolved scene:
+
+| Setting           | `"auto"` draws it when                                                               |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `controls`        | the scene has a timeline to drive (`resolved.timeline.duration > 0`)                 |
+| `readout`         | some node is inspectable — `interactive`, or carrying both a label and a description |
+| `machineControls` | the scene declares a machine                                                         |
+
+The predicates are about _content_, not about the reader: they are settled once, at the first
+resolve, so chrome never appears or vanishes under a reader who resizes the page or flips
+`prefers-reduced-motion`. Each is decided independently, which is the point — a scene with
+inspectable parts and no timeline gets a readout and no transport, rather than a Play button it
+could only ever render disabled.
+
+This is the setting an embedder wants for a figure that sits in prose, where the picture is the
+point. Kineglyph has no opinion about which figures those are; deciding that is the embedder's job.
+
+### `kineglyph:update`
+
+Dispatch a `kineglyph:update` `CustomEvent` on the document to refresh figures in place — the hook
+a dev server's HMR channel drives:
+
+```js
+document.dispatchEvent(new CustomEvent("kineglyph:update", { detail: { selector: "#latency" } }));
+document.dispatchEvent(
+  new CustomEvent("kineglyph:update", { detail: { url: "/figures/latency.mjs" } }),
+);
+```
+
+`selector` targets matching elements; `url` targets every `[data-scene]` whose URL has the same
+pathname. Already-mounted figures reload their source (module URLs get a cache-busting query so
+`import()` re-fetches) and swap the scene through the live controller, preserving the element.
+An element with no live figure — never mounted, or whose first mount threw — is mounted fresh
+using the options from the most recent `mountAll` call, so a figure that failed once recovers on
+the next update instead of staying dead.

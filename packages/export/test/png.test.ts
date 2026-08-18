@@ -88,7 +88,7 @@ describe("exportPng", () => {
     };
     // Node interior is the surface colour, canvas corner is the theme background.
     expect(pixel(first.x + 4, first.y + first.height / 2)).toEqual([255, 255, 255, 255]);
-    expect(pixel(1, 1)).toEqual([0xf7, 0xf8, 0xfa, 255]);
+    expect(pixel(1, 1)).toEqual([0xee, 0xf1, 0xf5, 255]);
   });
 
   it("supports transparent backgrounds", async () => {

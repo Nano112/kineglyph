@@ -10,13 +10,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
-    "./bundle": "./dist/kineglyph-web.js",
+    "./bundle": {
+      "development": "./src/bundle.ts",
+      "import": "./dist/kineglyph-web.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && vite build",
@@ -25,11 +30,10 @@
   "dependencies": {
     "@kineglyph/anime": "*",
     "@kineglyph/core": "*",
+    "@kineglyph/plot": "*",
     "@kineglyph/svg": "*"
   },
   "devDependencies": {
-    "@kineglyph/plot": "*",
-    "@kineglyph/scenes": "*",
     "vite": "^8.2.1"
   }
 }

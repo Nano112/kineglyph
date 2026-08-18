@@ -1,5 +1,5 @@
 {{--
-    <x-kineglyph-figure scene="fast-generation" theme="nucleation" static="/img/figures/fast-generation.svg" />
+    <x-kineglyph-figure scene="request-path" theme="docs" static="/img/figures/request-path.svg" />
 
     Renders a host element that the Kineglyph runtime mounts into. Every instance gets its own
     controller and DOM ids, so several figures can share one article without collisions.
@@ -12,7 +12,7 @@
 --}}
 @props([
     'scene',
-    'theme' => 'nucleation',
+    'theme' => 'docs',
     'layout' => 'auto',
     'autoplay' => true,
     'controls' => true,

@@ -13,6 +13,7 @@ import {
   edgeDashArray,
   highlightStroke,
   markerId,
+  paintTokeniser,
   nodeTransformParts,
   pathDashAttrs,
   renderMarkerDefinition,
@@ -474,15 +475,19 @@ export class KineglyphSceneAnimator {
     const frame = seekTimeline(this.#scene, time);
     if (this.#disposed) return frame;
     const accent = this.#scene.theme.accent;
-    for (const node of frame.nodes) this.#applyNode(node, accent);
-    for (const edge of frame.edges) this.#applyEdge(edge, accent);
+    // Paint written here has to name its role exactly as the renderer's does, or the first frame
+    // would replace a re-tintable `var(--kg-color-…)` with the literal it happens to fall back to
+    // and quietly pin the live figure to one palette.
+    const paint = paintTokeniser(this.#scene.theme);
+    for (const node of frame.nodes) this.#applyNode(node, accent, paint);
+    for (const edge of frame.edges) this.#applyEdge(edge, accent, paint);
     this.#root.style.setProperty("--kg-time", String(frame.time));
     this.#root.style.setProperty("--kg-timeline-progress", String(frame.progress));
     this.#onFrame?.(frame);
     return frame;
   }
 
-  #applyNode(node: ResolvedNode, accent: string): void {
+  #applyNode(node: ResolvedNode, accent: string, paint: (literal: string) => string): void {
     for (const element of this.#find(`[data-node-id="${cssEscape(node.id)}"]`)) {
       if (!(element instanceof SVGElement)) continue;
       element.style.opacity = String(node.state.opacity);
@@ -532,7 +537,7 @@ export class KineglyphSceneAnimator {
         let strokeWidth = width;
         if (node.appearance.stroke !== "none" || highlight > 0) {
           const outline = highlightStroke(base, accent, highlight, width);
-          shape.setAttribute("stroke", outline.stroke);
+          shape.setAttribute("stroke", paint(outline.stroke));
           strokeWidth = outline.strokeWidth;
           if (strokeWidth > 0)
             shape.setAttribute("stroke-width", String(round(strokeWidth / unitScale)));
@@ -570,7 +575,7 @@ export class KineglyphSceneAnimator {
     }
   }
 
-  #applyEdge(edge: ResolvedEdge, accent: string): void {
+  #applyEdge(edge: ResolvedEdge, accent: string, paint: (literal: string) => string): void {
     const paths = this.#find(`[data-edge-id="${cssEscape(edge.id)}"]`);
     for (const element of paths) {
       if (!isSvgTag(element, "path")) continue;
@@ -582,7 +587,7 @@ export class KineglyphSceneAnimator {
         highlight,
         edge.appearance.strokeWidth,
       );
-      element.setAttribute("stroke", outline.stroke);
+      element.setAttribute("stroke", paint(outline.stroke));
       element.setAttribute("stroke-width", String(round(outline.strokeWidth)));
       const dashKind = (element.getAttribute("data-dash") ?? edge.dash ?? "solid") as EdgeDashKind;
       const length = Number(element.getAttribute("data-length")) || edge.length || 0;

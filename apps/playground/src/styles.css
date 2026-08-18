@@ -42,7 +42,7 @@ a {
     var(--page);
   transition: background-color 0.3s ease;
 }
-.app--pock {
+.app--midnight {
   --page: #050605;
   --panel: #0a0d0b;
   --panel-2: #101611;
@@ -51,7 +51,7 @@ a {
   --muted: #7b9c8e;
   --accent: #10b981;
 }
-.app--schematio {
+.app--paper {
   --page: #191a1f;
   --panel: #202126;
   --panel-2: #292a31;

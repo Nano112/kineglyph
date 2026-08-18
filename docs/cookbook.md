@@ -170,6 +170,15 @@ Every group helper takes children plus `ContainerOptions` (`gap`, `padding`, `al
 Percent lengths resolve against the parent's content box (`"50%"` inside a stack is half the
 stack's inner width; inside `coordinates`, heights resolve against the box height too).
 
+**A row is a band; a column is a column.** On the cross axis a _container_ child fills its parent
+by default — every card in a row is the height of the tallest, every card in a column is the width
+of the column — so a row reads as one band and, because a connector attaches at the middle of a
+side, the arrows between the cards come out level. A _leaf_ mark (text, `f.pill`, `f.rule`, a dot,
+an icon) keeps its own size, because for a mark the size is the content and not the slot. Say
+otherwise with `align` on the container or `alignSelf` on one child: `"start"`, `"center"`, `"end"`
+or `"stretch"`. A deliberately ragged row is one word; `align: "center"` gives ragged heights with
+their middles lined up.
+
 **Responsive values.** Anything typed `Responsive<T>` accepts either a value or a map
 `{ wide?, compact?, narrow? }`. The cascade is desktop-first: `compact` falls back to `wide`,
 `narrow` falls back to `compact` then `wide`, and a value declared only for a narrower layout
@@ -244,6 +253,13 @@ const branch = f.connect(
 - **Sides per layout.** When you omit `side`, ports are chosen from geometry (horizontal when the
   boxes sit side by side, vertical when stacked), so a `flow` layout usually needs nothing. Set
   `side: { wide: "right", compact: "bottom" }` when the automatic choice is wrong on one layout.
+- **A connector is on an axis or it is routed — never leaning.** When two boxes attach on sides
+  that face each other and neither port was placed by hand, both ports move to the middle of the
+  span the two boxes **share** on the cross axis, so the run is exactly perpendicular: identical
+  boxes meet centre to centre, and a small box beside a tall one is entered at its own middle. If
+  the boxes share none of that axis there is no perpendicular run to draw, so a `straight` edge is
+  routed `orthogonal` instead of leaning across the gap. Both ends stay exactly where you put them
+  the moment you give either an `offset`, and a fan of edges spread along one side keeps its fan.
 - **Gutters for U-turns.** An orthogonal edge that leaves and enters on the _same_ side (left →
   left in a stacked layout) swings 14 px outside the boxes. Reserve room for it, otherwise it
   reports `overflow`: give the parent `padding: { wide: 0, compact: [0, 22] }` or an endpoint `gap`.
@@ -375,32 +391,30 @@ A figure is a `SceneDefinition`, so every runtime accepts it directly.
 
 ```ts
 import { mountKineglyph } from "@kineglyph/web";
-import { themes } from "@kineglyph/scenes";
 import { buildExplainer } from "./figures.js";
 
 const controller = mountKineglyph(document.querySelector("#figure")!, {
   scene: buildExplainer,
-  theme: themes.nucleation, // any ThemeTokens; createTheme() for the default
   autoplay: true,
 });
 controller.send("NEXT"); // machine events; controller.destroy() when the host goes away
 ```
 
-**Vanilla `<script type="module">`** — the self-contained web bundle
-(`@kineglyph/web/dist/kineglyph-web.js`) exports the runtime, the product themes, the catalogue,
-and the authoring surface (`figure`, `defineScene`; `plot` once `@kineglyph/plot` is bundled):
+**Vanilla `<script type="module">`** — the self-contained web bundle exports the runtime and
+authoring surface. The application owns its scenes and themes:
 
 ```html
 <div id="explainer"></div>
 <script type="module">
-  import { figure, mountKineglyph, themes } from "/vendor/kineglyph/kineglyph-web.js";
+  import { createTheme, figure, mountKineglyph } from "/vendor/kineglyph/kineglyph-web.js";
   const scene = figure("hello", { title: "Hello" }, (f) => {
     const a = f.card({ title: "A" });
     const b = f.card({ title: "B" });
     f.connect(a, b, { head: "arrow" });
     f.flow([a, b]);
   });
-  mountKineglyph(document.getElementById("explainer"), { scene, theme: themes.pock });
+  const theme = createTheme({ colors: { accent: "#237f74" } });
+  mountKineglyph(document.getElementById("explainer"), { scene, theme });
 </script>
 ```
 
@@ -408,7 +422,7 @@ and the authoring surface (`figure`, `defineScene`; `plot` once `@kineglyph/plot
 
 ```tsx
 import { KineglyphFigure } from "@kineglyph/react";
-<KineglyphFigure figure={buildExplainer} theme={themes.nucleation} controls readout />;
+<KineglyphFigure figure={buildExplainer} controls readout />;
 ```
 
 **Blade (Laravel)** — register the figure in the Vite entry and drop the component in a view; each
@@ -417,15 +431,14 @@ import { KineglyphFigure } from "@kineglyph/react";
 ```js
 // resources/js/kineglyph.js
 import { registerScene, registerTheme, autoMount } from "@kineglyph/web";
-import { themes } from "@kineglyph/scenes";
-import { buildExplainer } from "./figures.js";
+import { buildExplainer, docsTheme } from "./figures.js";
 registerScene("build-explainer", buildExplainer);
-registerTheme("nucleation", themes.nucleation);
+registerTheme("docs", docsTheme);
 autoMount();
 ```
 
 ```blade
-<x-kineglyph-figure scene="build-explainer" theme="nucleation" :autoplay="false"
+<x-kineglyph-figure scene="build-explainer" theme="docs" :autoplay="false"
     caption="Focus a stage to read what it guarantees." />
 ```
 

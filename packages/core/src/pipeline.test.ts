@@ -51,8 +51,8 @@ describe("pipeline resolution and random-access timeline", () => {
       from: "source",
       to: "compile",
       directed: true,
-      start: { x: 258.667, y: 88 },
-      end: { x: 282.667, y: 88 },
+      start: { x: 248, y: 88 },
+      end: { x: 288, y: 88 },
     });
     expect(first.theme.semantic.surface).toBe("#ffffff");
   });

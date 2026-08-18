@@ -233,6 +233,12 @@ describe("mountKineglyph", () => {
     controller.reset();
     expect(controller.state.machineState?.state).toBe("idle");
     expect(engineText()).toBe("Choose");
+    // Nested content is part of the interactive card, not a dead click target.
+    controller.element
+      .querySelector('[data-node-id="a-text"]')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(controller.state.machineState?.state).toBe("a");
+    controller.reset();
     // Inspection updates the readout and reports the target.
     const inspected: string[] = [];
     controller.on("inspect", (target) => inspected.push(target?.id ?? "none"));
@@ -256,10 +262,19 @@ describe("mountKineglyph", () => {
       autoplay: false,
     });
     const shell = element.querySelector<HTMLElement>(".kg-figure");
-    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#ff0000");
+    // The chrome names the same roles the drawing does, so a page that re-tints one re-tints both.
+    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe(
+      "var(--kg-color-accent, #ff0000)",
+    );
     controller.setTheme(createTheme({ colors: { accent: "#00ff00", canvas: "#010203" } }));
-    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe("#00ff00");
-    expect(element.querySelector(".kg-canvas")?.getAttribute("fill")).toBe("#010203");
+    expect(shell?.style.getPropertyValue("--kg-shell-accent")).toBe(
+      "var(--kg-color-accent, #00ff00)",
+    );
+    // The paint names its role and carries the theme's value as the fallback, so the live stage
+    // paints the new canvas colour whether or not the page defines the token.
+    expect(element.querySelector(".kg-canvas")?.getAttribute("fill")).toBe(
+      "var(--kg-color-canvas, #010203)",
+    );
     controller.setReducedMotion(true);
     expect(controller.state.time).toBe(400);
     expect(controller.state.reducedMotion).toBe(true);
@@ -268,6 +283,29 @@ describe("mountKineglyph", () => {
     controller.resize(390);
     expect(controller.state.width).toBe(390);
     expect(controller.state.layout).toBe("narrow");
+    controller.destroy();
+  });
+
+  it("leaves a drawn stage free to be as tall as its drawing", () => {
+    // The reported defect, from the other end. The stage is `overflow-y: hidden`, and it used to
+    // be pinned to `aspect-ratio: width / height` the moment a drawing was put in it. That is the
+    // drawing's height only while the drawing shrinks to fit; an embedder that holds the SVG to a
+    // minimum width — so labels stay legible on a phone instead of scaling to nothing — makes it
+    // wider than the stage and therefore taller than that ratio, and the pin then cut the bottom
+    // off the picture with no scrollbar to reach it. Half of a 128px figure, in the real case.
+    //
+    // The reservation belongs to the *empty* stage, so it is carried as custom properties that
+    // `.kg-figure__stage:empty` reads, and a stage with a drawing in it is sized by the drawing.
+    const element = host(1000);
+    const controller = mountKineglyph(element, { scene, autoplay: false });
+    const stage = element.querySelector<HTMLElement>(".kg-figure__stage");
+    expect(stage?.querySelector("svg")).not.toBeNull();
+    expect(stage?.style.aspectRatio).toBe("");
+    expect(Number(stage?.style.getPropertyValue("--kg-stage-width"))).toBeGreaterThan(0);
+    expect(Number(stage?.style.getPropertyValue("--kg-stage-height"))).toBeGreaterThan(0);
+    // Still true after a re-render, which is where the pin was being re-applied.
+    controller.resize(390);
+    expect(stage?.style.aspectRatio).toBe("");
     controller.destroy();
   });
 
@@ -291,7 +329,7 @@ describe("mountKineglyph", () => {
           mounts += 1;
           expect(node.image?.alt).toBe("Minecraft build preview");
           const canvas = document.createElement("canvas");
-          canvas.dataset.renderer = "nucleation";
+          canvas.dataset.renderer = "custom";
           element.append(canvas);
           return () => {
             destroys += 1;
@@ -304,7 +342,7 @@ describe("mountKineglyph", () => {
         "true",
       ),
     );
-    expect(controller.element.querySelector("[data-renderer=nucleation]")).not.toBeNull();
+    expect(controller.element.querySelector("[data-renderer=custom]")).not.toBeNull();
     expect(
       controller.element.querySelector<SVGImageElement>("image[data-live=true]")?.style.opacity,
     ).toBe("0");

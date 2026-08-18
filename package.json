@@ -25,7 +25,6 @@
     "render:readme-cover": "npm run bootstrap && node packages/scenes/scripts/readme-cover.mjs",
     "render:readme-materials": "npm run bootstrap && node packages/scenes/scripts/readme-materials.mjs",
     "render:readme-throughput": "npm run bootstrap && node packages/scenes/scripts/readme-throughput.mjs",
-    "render:nucleation-docs": "npm run bootstrap && node packages/scenes/scripts/nucleation-docs.mjs",
     "pretest": "npm run bootstrap",
     "test": "vitest run",
     "test:watch": "vitest",

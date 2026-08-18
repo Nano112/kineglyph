@@ -1,4 +1,5 @@
 export * from "./authoring.js";
+export * from "./connector.js";
 export * from "./easing.js";
 export * from "./edges.js";
 export * from "./figure.js";
@@ -11,6 +12,7 @@ export * from "./pipeline.js";
 export * from "./recipes.js";
 export * from "./resolve.js";
 export * from "./resolved.js";
+export * from "./runtime-need.js";
 export * from "./scene.js";
 export {
   findSceneNode,
@@ -34,6 +36,7 @@ export {
   type TextNode as LegacyTextNode,
 } from "./schema.js";
 export * from "./seek.js";
+export * from "./spec.js";
 export * from "./text.js";
 export * from "./theme.js";
 export * from "./timeline.js";

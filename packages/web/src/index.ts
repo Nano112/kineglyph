@@ -28,12 +28,39 @@ import {
 import { renderSvg } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
+
+export {
+  createCodeDrawer,
+  createParameterPanel,
+  type CodeDrawerHandle,
+  type CodeDrawerOptions,
+  type CodeSample,
+  type ParameterChange,
+  type ParameterPanelHandle,
+  type ParameterPanelOptions,
+  type RangeParameter,
+} from "./controls.js";
 import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
+
+/**
+ * Whether a piece of a live figure's chrome is drawn.
+ *
+ * `true`/`false` are the author's word and are obeyed. `"auto"` hands the decision to the scene:
+ * the chrome appears only if the scene gives it something to do. That is the setting an embedder
+ * wants for a figure sitting in prose, where the picture is the point and a control strip with
+ * nothing behind it reads as a debug harness bolted to a diagram.
+ *
+ * The rule is deliberately about *content*, not about the reader's environment: a scene either has
+ * a timeline (or inspectable parts) or it does not, and that answer does not change when
+ * `prefers-reduced-motion` flips or the figure is resized, so the chrome never appears or vanishes
+ * under the reader.
+ */
+export type ChromeSetting = boolean | "auto";
 
 export interface MountOptions {
   /** A general scene definition or a legacy pipeline definition. */
@@ -43,12 +70,23 @@ export interface MountOptions {
   /** Fixed container width in CSS pixels; when omitted the host element is measured and observed. */
   readonly width?: number;
   readonly autoplay?: boolean;
-  /** Render the compact play/restart/scrubber controls. Defaults to true. */
-  readonly controls?: boolean;
-  /** Render the inspection readout. Defaults to true. */
-  readonly readout?: boolean;
+  /**
+   * Render the compact play/restart/scrubber transport. Defaults to true.
+   *
+   * `"auto"` defers to the scene: the transport appears only when there is a timeline to drive
+   * (`resolved.timeline.duration > 0`). A still diagram gets no disabled Play button against a
+   * 0.0s track, which is furniture rather than a control.
+   */
+  readonly controls?: ChromeSetting;
+  /**
+   * Render the inspection readout. Defaults to true.
+   *
+   * `"auto"` defers to the scene: the readout appears only when something in it can actually be
+   * inspected — a node that is `interactive`, or one that carries both a label and a description.
+   */
+  readonly readout?: ChromeSetting;
   /** Render machine control buttons when the scene declares them. Defaults to true. */
-  readonly machineControls?: boolean;
+  readonly machineControls?: ChromeSetting;
   /** Overrides the `prefers-reduced-motion` media query. */
   readonly reducedMotion?: boolean;
   /** Stable DOM id prefix. Defaults to a unique generated prefix. */
@@ -140,6 +178,26 @@ export interface KineglyphController {
   destroy(): void;
 }
 
+/**
+ * Resolves a {@link ChromeSetting} against what the scene actually offers.
+ *
+ * `undefined` keeps the historical default — chrome is drawn — so nothing that never asked a
+ * question changes its answer.
+ */
+function chromeWanted(setting: ChromeSetting | undefined, justified: boolean): boolean {
+  if (setting === "auto") return justified;
+  return setting !== false;
+}
+
+/**
+ * Reads a `data-controls` / `data-readout` / `data-machine-controls` attribute as a
+ * {@link ChromeSetting}. `"false"` is off, `"auto"` defers to the scene, anything else (including
+ * an absent attribute) is on — which is what every such attribute has always meant.
+ */
+export function chromeAttr(value: string | undefined): ChromeSetting {
+  return value === "false" ? false : value === "auto" ? "auto" : true;
+}
+
 let mountCounter = 0;
 
 /** Mounts a Kineglyph figure into `element` and returns a disposable controller. */
@@ -221,26 +279,6 @@ class FigureRuntime implements KineglyphController {
     this.#live.className = "kg-figure__live";
     this.#live.setAttribute("aria-live", "polite");
     this.#shell.append(this.#live);
-    if (options.readout !== false) {
-      this.#readout = doc.createElement("div");
-      this.#readout.className = "kg-figure__readout";
-      // The body is a <div> so structured fields (<dl>) stay valid HTML inside it.
-      this.#readout.innerHTML =
-        '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
-      this.#shell.append(this.#readout);
-    }
-    if (options.machineControls !== false) {
-      this.#machineBar = doc.createElement("div");
-      this.#machineBar.className = "kg-figure__machine";
-      this.#machineBar.hidden = true;
-      this.#shell.append(this.#machineBar);
-    }
-    if (options.controls !== false) {
-      this.#controls = doc.createElement("div");
-      this.#controls.className = "kg-figure__controls";
-      this.#shell.append(this.#controls);
-      this.#buildControls(doc);
-    }
     element.append(this.#shell);
 
     this.#reducedMotion = options.reducedMotion ?? prefersReducedMotion(element);
@@ -254,6 +292,32 @@ class FigureRuntime implements KineglyphController {
     }
 
     this.#resolved = this.#resolve();
+
+    // The chrome is built *after* the first resolve, because `"auto"` cannot be answered before
+    // the scene is: whether a transport is meaningful is a fact about the resolved timeline, and
+    // whether a readout is is a fact about the resolved nodes. Appended after the stage and the
+    // live region, which is the order they were created in, so the DOM is unchanged.
+    if (chromeWanted(options.readout, this.#hasInspectableContent())) {
+      this.#readout = doc.createElement("div");
+      this.#readout.className = "kg-figure__readout";
+      // The body is a <div> so structured fields (<dl>) stay valid HTML inside it.
+      this.#readout.innerHTML =
+        '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
+      this.#shell.append(this.#readout);
+    }
+    if (chromeWanted(options.machineControls, this.machine !== undefined)) {
+      this.#machineBar = doc.createElement("div");
+      this.#machineBar.className = "kg-figure__machine";
+      this.#machineBar.hidden = true;
+      this.#shell.append(this.#machineBar);
+    }
+    if (chromeWanted(options.controls, this.#duration > 0)) {
+      this.#controls = doc.createElement("div");
+      this.#controls.className = "kg-figure__controls";
+      this.#shell.append(this.#controls);
+      this.#buildControls(doc);
+    }
+
     this.#render(true);
     this.#bindInteractions(doc);
     this.#observeMedia(element);
@@ -435,7 +499,16 @@ class FigureRuntime implements KineglyphController {
       role: "group",
       effects: "enhanced",
     });
-    this.stage.style.aspectRatio = `${this.#resolved.width} / ${this.#resolved.height}`;
+    // The stage reserves the drawing's box only while it is *empty* (see `.kg-figure__stage:empty`
+    // in `styles.ts`); once a drawing is in it, the drawing's own height is the honest one.
+    //
+    // Pinning `aspect-ratio` on a *full* stage makes its height follow its own width, which is the
+    // drawing's height only while the drawing shrinks to fit. An embedder that holds the SVG to a
+    // minimum width — so labels stay legible on a narrow screen instead of scaling to nothing —
+    // makes it wider than the stage and therefore taller than that ratio, and the pin then cut the
+    // bottom off the picture against `overflow-y: hidden`, with no way to scroll to what was lost.
+    this.stage.style.setProperty("--kg-stage-width", String(this.#resolved.width));
+    this.stage.style.setProperty("--kg-stage-height", String(this.#resolved.height));
     this.#shaders = mountShaderSurfaces(this.stage, initialTime);
     this.#liveSurfaces = new LiveSurfaceManager(this.stage, this.#resolved, {
       ...(this.#options.liveSurfaces === undefined
@@ -504,15 +577,26 @@ class FigureRuntime implements KineglyphController {
     this.#options.onStateChange?.(step, this.#resolved);
   }
 
+  /**
+   * The chrome around a live figure — its frame, readout and transport — in the same colours as
+   * the diagram inside it.
+   *
+   * Each property is written as a *reference* to the contract token it stands for, with the
+   * theme's own value as the fallback: `var(--kg-color-canvas, #f7f8fa)`. That is what keeps a
+   * page's `--kg-color-*` reaching the chrome as well as the drawing. Written as literals it
+   * could not — an inline style is the last word on an element — and a figure on a dark page
+   * ended up as a re-tinted diagram in a white box.
+   */
   #applyShellTheme(): void {
     const tokens = this.#theme;
     const style = this.#shell.style;
-    style.setProperty("--kg-shell-background", tokens.colors.canvas);
-    style.setProperty("--kg-shell-surface", tokens.colors.surfaceRaised);
-    style.setProperty("--kg-shell-text", tokens.colors.text);
-    style.setProperty("--kg-shell-muted", tokens.colors.textMuted);
-    style.setProperty("--kg-shell-border", tokens.colors.border);
-    style.setProperty("--kg-shell-accent", tokens.colors.accent);
+    const ref = (role: string, value: string): string => `var(--kg-color-${role}, ${value})`;
+    style.setProperty("--kg-shell-background", ref("canvas", tokens.colors.canvas));
+    style.setProperty("--kg-shell-surface", ref("surface-raised", tokens.colors.surfaceRaised));
+    style.setProperty("--kg-shell-text", ref("text", tokens.colors.text));
+    style.setProperty("--kg-shell-muted", ref("text-muted", tokens.colors.textMuted));
+    style.setProperty("--kg-shell-border", ref("border", tokens.colors.border));
+    style.setProperty("--kg-shell-accent", ref("accent", tokens.colors.accent));
     style.setProperty("--kg-shell-radius", `${tokens.radii.lg}px`);
     style.setProperty("--kg-shell-font", tokens.typography.body.family);
     this.#shell.classList.toggle("kg-figure--compact", this.#width < 620);
@@ -713,7 +797,8 @@ class FigureRuntime implements KineglyphController {
       this.#setInspected(undefined);
     };
     const activate = (event: Event): void => {
-      const target = nodeFrom(event);
+      const target =
+        event.target instanceof Element ? event.target.closest("[data-activate]") : null;
       if (target === null) return;
       const eventName = target.getAttribute("data-activate");
       if (eventName === null) return;
@@ -790,6 +875,17 @@ class FigureRuntime implements KineglyphController {
       node !== undefined &&
       (node.interactive || (node.label.length > 0 && node.description !== undefined))
     );
+  }
+
+  /**
+   * Whether pointing at this scene could ever fill the readout.
+   *
+   * The same predicate `#bindInteractions` gates on, asked of the whole scene rather than one
+   * node — so `readout: "auto"` promises exactly what hovering will deliver, instead of guessing
+   * from something adjacent like "the scene has a description".
+   */
+  #hasInspectableContent(): boolean {
+    return this.#resolved.nodes.some((node) => this.#isInspectable(node.id));
   }
 
   #targetFor(id: string): InspectTarget | undefined {
@@ -919,6 +1015,16 @@ export function registerTheme(name: string, theme: ThemeTokens): void {
   themeRegistry.set(name, theme);
 }
 
+/** Looks up a scene registered via `registerScene`. */
+export function getRegisteredScene(id: string): FigureSource | undefined {
+  return sceneRegistry.get(id);
+}
+
+/** Looks up a theme registered via `registerTheme`. */
+export function getRegisteredTheme(name: string): ThemeTokens | undefined {
+  return themeRegistry.get(name);
+}
+
 export interface AutoMountOptions {
   readonly root?: ParentNode;
   readonly selector?: string;
@@ -933,8 +1039,9 @@ export interface AutoMountOptions {
 
 /**
  * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
- * `data-layout`, `data-autoplay="false"`, `data-controls="false"`, `data-readout="false"`,
- * `data-reduced-motion="true"`, `data-width`. Returns the controllers in document order.
+ * `data-layout`, `data-autoplay="false"`, `data-controls="false"|"auto"`,
+ * `data-readout="false"|"auto"`, `data-reduced-motion="true"`, `data-width`. Returns the
+ * controllers in document order.
  */
 export function autoMount(options: AutoMountOptions = {}): KineglyphController[] {
   const root: ParentNode =
@@ -965,8 +1072,8 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
       ...(layout === undefined ? {} : { layout }),
       ...(width === undefined || !Number.isFinite(width) ? {} : { width }),
       autoplay: element.dataset.autoplay !== "false",
-      controls: element.dataset.controls !== "false",
-      readout: element.dataset.readout !== "false",
+      controls: chromeAttr(element.dataset.controls),
+      readout: chromeAttr(element.dataset.readout),
       ...(element.dataset.reducedMotion === undefined
         ? {}
         : { reducedMotion: element.dataset.reducedMotion === "true" }),
@@ -980,6 +1087,30 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
     controllers.push(controller);
   }
   return controllers;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The page's own font
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The font stack an element is actually rendered in, ready to hand to `withFontFamily`.
+ *
+ * A figure's text is laid out once and shipped as fixed geometry, so it has to be laid out in the
+ * font the page draws with — a diagram rendered against the library's default lands in a host's
+ * article set in something else and reads as a foreign object. Anything that renders a figure
+ * inside a real page (an in-browser publisher, most of all) can read the answer off the page
+ * instead of assuming it.
+ *
+ * Returns `undefined` when there is no view to ask, so a caller can fall back to its theme.
+ */
+export function documentFontFamily(element?: Element): string | undefined {
+  const target = element ?? globalThis.document?.body ?? globalThis.document?.documentElement;
+  const view = target?.ownerDocument.defaultView;
+  if (target === undefined || target === null || view === undefined || view === null)
+    return undefined;
+  const family = view.getComputedStyle(target).fontFamily;
+  return family === "" ? undefined : family;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1087,3 +1218,4 @@ function cssEscape(value: string): string {
 
 export { createMachineState };
 export type { FigureSource, MachineState, MachineStep, ResolvedFrame, ResolvedScene, ThemeTokens };
+export * from "./embed.js";

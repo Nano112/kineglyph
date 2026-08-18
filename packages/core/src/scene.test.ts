@@ -238,4 +238,62 @@ describe("resolveScene", () => {
     expect(narrow.layoutName).toBe("narrow");
     expect(resolveFigure(scene, { width: 700, theme }).layoutName).toBe("compact");
   });
+
+  it("makes a row a band and a column a column, and lets an author say otherwise", () => {
+    const hug = (id: string, text: string): SceneDefinition["root"] => ({
+      id,
+      type: "group",
+      layout: "stack",
+      padding: 12,
+      width: "fill",
+      frame: { fill: "surface", stroke: "border" },
+      children: [{ id: `${id}-t`, type: "text", text, textStyle: "caption", maxLines: 3 }],
+    });
+    const build = (
+      layout: "row" | "stack",
+      align?: "start" | "center" | "end" | "stretch",
+    ): SceneDefinition => ({
+      schemaVersion: 2,
+      id: `band-${layout}-${align ?? "default"}`,
+      title: "Band",
+      root: {
+        id: "root",
+        type: "group",
+        layout,
+        gap: 40,
+        ...(align === undefined ? {} : { align }),
+        children: [
+          hug("one", "One line."),
+          hug(
+            "two",
+            "A body long enough to wrap onto two or three lines inside a narrow card, and then some more words.",
+          ),
+        ],
+      },
+      edges: [{ id: "one-two", from: "one", to: "two" }],
+    });
+
+    const boxOf = (figure: ReturnType<typeof resolveFigure>, id: string) =>
+      (figure.nodes ?? []).find((node) => node.id === id);
+
+    // A row: same height, same top, and the connector between them is exactly level.
+    const row = resolveFigure(build("row"), { width: 520, theme });
+    expect(boxOf(row, "one")?.height).toBe(boxOf(row, "two")?.height);
+    expect(row.edges?.[0]?.start.y).toBe(row.edges?.[0]?.end.y);
+
+    // A column has the same problem mirrored onto x — cards sized to their own text have different
+    // widths, so their middles disagree — and the same answer: the column's width is the band.
+    const column = resolveFigure(build("stack"), { width: 520, theme });
+    expect(boxOf(column, "one")?.width).toBe(boxOf(column, "two")?.width);
+    expect(column.edges?.[0]?.start.x).toBe(column.edges?.[0]?.end.x);
+
+    // Ragged is still one word away, and it is the author's word.
+    const ragged = resolveFigure(build("row", "start"), { width: 520, theme });
+    expect(boxOf(ragged, "one")?.height).not.toBe(boxOf(ragged, "two")?.height);
+    // …and even then the connector does not lean: the ports meet on the axis the boxes share.
+    expect(ragged.edges?.[0]?.start.y).toBe(ragged.edges?.[0]?.end.y);
+    const centred = resolveFigure(build("row", "center"), { width: 520, theme });
+    expect(boxOf(centred, "one")?.y).toBeGreaterThan(boxOf(centred, "two")?.y ?? 0);
+    expect(centred.edges?.[0]?.start.y).toBe(centred.edges?.[0]?.end.y);
+  });
 });
