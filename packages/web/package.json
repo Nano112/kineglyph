@@ -17,6 +17,11 @@
       "development": "./src/bundle.ts",
       "import": "./dist/kineglyph-web.js"
     },
+    "./lab": {
+      "types": "./dist/lab.d.ts",
+      "development": "./src/lab.ts",
+      "import": "./dist/lab.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -28,10 +33,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/state": "^6.5.2",
     "@kineglyph/anime": "*",
     "@kineglyph/core": "*",
     "@kineglyph/plot": "*",
-    "@kineglyph/svg": "*"
+    "@kineglyph/svg": "*",
+    "codemirror": "^6.0.2"
   },
   "devDependencies": {
     "vite": "^8.2.1"

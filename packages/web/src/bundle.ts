@@ -4,6 +4,7 @@
  * and `registerTheme`.
  */
 export * from "./index.js";
+export * from "./lab.js";
 export * from "@kineglyph/core";
 export * from "@kineglyph/plot";
 export { renderSvg } from "@kineglyph/svg";

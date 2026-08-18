@@ -311,3 +311,41 @@ pathname. Already-mounted figures reload their source (module URLs get a cache-b
 An element with no live figure — never mounted, or whose first mount threw — is mounted fresh
 using the options from the most recent `mountAll` call, so a figure that failed once recovers on
 the next update instead of staying dead.
+
+## Live documentation examples
+
+`mountAllKineglyphLabs()` upgrades an inline scene into a three-mode documentation example:
+read-only source, a live editor beside its preview, and preview alone. Successful edits replace the
+scene in place; a broken edit leaves the last good preview visible and reports the module error.
+The CodeMirror editor is loaded as a separate chunk only when a source pane is opened.
+
+```html
+<figure data-kineglyph-lab data-view="split" data-height="440">
+  <script type="text/kineglyph">
+    import { defineScene, heading, stack } from "kineglyph";
+    export default defineScene({
+      schemaVersion: 2,
+      id: "hello",
+      title: "Hello",
+      root: stack("root", [heading("title", "Edit me")], { padding: 24, width: "fill" }),
+    });
+  </script>
+</figure>
+```
+
+```ts
+import { mountAllKineglyphLabs } from "@kineglyph/web/lab";
+
+const labs = await mountAllKineglyphLabs({
+  theme: () => currentTheme(),
+});
+
+// Theme switches use the same controller contract as ordinary figures.
+for (const lab of labs) lab.setTheme(nextTheme);
+```
+
+The default loader evaluates a browser ESM blob, so bare imports such as `"kineglyph"` are owned
+by the host page's import map. `load` is injectable for a restricted compiler or sandboxed runner.
+Auto-run is debounced by 220ms, `Cmd/Ctrl+Enter` runs immediately, and `data-height="…"` accepts a
+240–1200px editor height. The authoring surface is container-responsive and stacks vertically
+below 760px.
