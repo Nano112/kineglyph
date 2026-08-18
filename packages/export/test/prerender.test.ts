@@ -79,4 +79,58 @@ describe("prerender", () => {
     });
     expect(r?.svg).toContain("From helper");
   });
+
+  it("draws one variant per width, widest first, each tagged with the width it was drawn for", async () => {
+    const results = await prerender(SCENE, {
+      themes: [{ name: "light", tokens: defaultTheme }],
+      widths: [320, 960, 600],
+    });
+    // De-duplicated and sorted widest first, whatever order they were asked for in, because that
+    // is the order an embedder's fallback wants: the first child is the one a page shows when no
+    // query has matched.
+    expect(results.map((r) => r.containerWidth)).toEqual([960, 600, 320]);
+    for (const r of results) expect(r.width).toBeLessThanOrEqual(r.containerWidth);
+    // Different drawings, not one drawing repeated.
+    expect(new Set(results.map((r) => r.inlineSvg)).size).toBe(3);
+  });
+
+  it("draws every width for every theme", async () => {
+    const results = await prerender(SCENE, {
+      themes: [
+        { name: "light", tokens: defaultTheme },
+        { name: "dark", tokens: darkTheme },
+      ],
+      widths: [960, 320],
+    });
+    expect(results).toHaveLength(4);
+    expect(results.map((r) => `${r.theme}@${r.containerWidth}`)).toEqual([
+      "light@960",
+      "dark@960",
+      "light@320",
+      "dark@320",
+    ]);
+    // Ids have to stay unique across variants or the second copy inlined into one page would
+    // re-point the first copy's gradients and markers at its own defs.
+    const ids = results.map((r) => /id="([^"]+)"/.exec(r.inlineSvg)?.[1]);
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  it("draws one figure, with the ids it always had, when a single width is asked for", async () => {
+    const [one] = await prerender(SCENE, {
+      themes: [{ name: "light", tokens: defaultTheme }],
+      width: 960,
+    });
+    const [same] = await prerender(SCENE, {
+      themes: [{ name: "light", tokens: defaultTheme }],
+      widths: [960],
+    });
+    expect(one?.containerWidth).toBe(960);
+    expect(same?.inlineSvg).toBe(one?.inlineSvg);
+  });
+
+  it("refuses a width that is not a positive number", async () => {
+    await expect(
+      prerender(SCENE, { themes: [{ name: "light", tokens: defaultTheme }], widths: [960, 0] }),
+    ).rejects.toThrow(/positive, finite/);
+  });
 });

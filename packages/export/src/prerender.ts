@@ -16,8 +16,23 @@ export interface PrerenderTheme {
 
 export interface PrerenderOptions {
   readonly themes: readonly PrerenderTheme[];
-  /** Layout width used to resolve the figure. Defaults to 960. */
+  /** Layout width used to resolve the figure. Defaults to 960. Ignored when `widths` is given. */
   readonly width?: number;
+  /**
+   * Container widths to draw the figure at, one variant each — the responsive answer to a figure
+   * whose geometry is measured once and then cannot reflow in the page.
+   *
+   * A scene resolves *to the width it is given*: text wraps against it, boxes are sized from it,
+   * and a row that is allowed to becomes a column below the narrow breakpoint. So a figure drawn
+   * at 320 and the same figure drawn at 960 are two different, individually correct pictures
+   * rather than one picture at two scales — which is the whole reason to emit both and let the
+   * page choose, instead of scaling one down until the labels stop being readable.
+   *
+   * Results come back widest first, tagged with the `containerWidth` each was drawn for. Every
+   * variant costs a full copy of the drawing, so an embedder should pick a small set (three is
+   * usually enough: a phone, a column, and a wide page) rather than one per plausible screen.
+   */
+  readonly widths?: readonly number[];
   /** Absolute URL the module "lives at"; relative imports resolve against it. */
   readonly baseUrl?: string;
   /** Extra bare-specifier mappings. `kineglyph` is always mapped to `@kineglyph/web/bundle` (the entry that re-exports core authoring helpers). */
@@ -35,6 +50,11 @@ export interface PrerenderResult {
    * its accessibility tree reach it) wants this one; a file on disk wants `svg`.
    */
   readonly inlineSvg: string;
+  /**
+   * The container width this variant was resolved for — the number an embedder writes its query
+   * against. Not the same as `width`: a scene may draw itself narrower than the room it was given.
+   */
+  readonly containerWidth: number;
   readonly width: number;
   readonly height: number;
   /**
@@ -143,34 +163,58 @@ async function loadFigure(moduleSource: string, options: PrerenderOptions): Prom
   return scene as FigureSource;
 }
 
-/** Evaluates a scene module under Node and renders one SVG per theme. */
+/** Evaluates a scene module under Node and renders one SVG per theme, per container width. */
 export async function prerender(
   moduleSource: string,
   options: PrerenderOptions,
 ): Promise<PrerenderResult[]> {
-  const width = options.width ?? 960;
+  const widths = containerWidths(options);
   const figure = await loadFigure(moduleSource, options);
   const results: PrerenderResult[] = [];
-  for (const theme of options.themes) {
-    const scene = resolveFigure(figure, { width, theme: theme.tokens });
-    const errors = (scene.diagnostics ?? []).filter((d) => d.severity === "error");
-    if (errors.length > 0)
-      throw new KineglyphExportError(
-        "invalid-scene",
-        `${scene.id ?? "scene"} (${theme.name}):\n${errors.map((d) => `- ${d.code}: ${d.message}`).join("\n")}`,
-      );
-    const frame = seekTimeline(scene, scene.timeline?.duration ?? 0);
-    const idPrefix = `${options.idPrefix ?? "kg"}-${theme.name}`;
-    const svg = exportSvg(frame, { idPrefix });
-    const inlineSvg = exportSvg(frame, { idPrefix, destination: "inline" });
-    results.push({
-      theme: theme.name,
-      svg,
-      inlineSvg,
-      width: frame.width,
-      height: frame.height,
-      needsRuntime: sceneNeedsRuntime(scene),
-    });
+  for (const containerWidth of widths) {
+    for (const theme of options.themes) {
+      const scene = resolveFigure(figure, { width: containerWidth, theme: theme.tokens });
+      const errors = (scene.diagnostics ?? []).filter((d) => d.severity === "error");
+      if (errors.length > 0)
+        throw new KineglyphExportError(
+          "invalid-scene",
+          `${scene.id ?? "scene"} (${theme.name} at ${containerWidth}px):\n${errors.map((d) => `- ${d.code}: ${d.message}`).join("\n")}`,
+        );
+      const frame = seekTimeline(scene, scene.timeline?.duration ?? 0);
+      // The width is part of the id prefix only when there is more than one, so a single-width
+      // call — every caller that existed before variants did — emits byte-for-byte what it did.
+      const suffix = widths.length === 1 ? "" : `-${containerWidth}`;
+      const idPrefix = `${options.idPrefix ?? "kg"}-${theme.name}${suffix}`;
+      const svg = exportSvg(frame, { idPrefix });
+      const inlineSvg = exportSvg(frame, { idPrefix, destination: "inline" });
+      results.push({
+        theme: theme.name,
+        svg,
+        inlineSvg,
+        containerWidth,
+        width: frame.width,
+        height: frame.height,
+        needsRuntime: sceneNeedsRuntime(scene),
+      });
+    }
   }
   return results;
+}
+
+/**
+ * The container widths to draw, de-duplicated and drawn widest first.
+ *
+ * Widest first because that is the order a reader's fallback wants: an embedder that stacks the
+ * variants and picks one with a query still has a sensible first child if no query ever matches.
+ */
+function containerWidths(options: PrerenderOptions): readonly number[] {
+  const requested = options.widths ?? (options.width === undefined ? undefined : [options.width]);
+  const widths = [...new Set(requested ?? [960])].sort((a, b) => b - a);
+  for (const width of widths)
+    if (!Number.isFinite(width) || width <= 0)
+      throw new KineglyphExportError(
+        "invalid-scene",
+        `prerender widths must be positive, finite numbers (received ${width})`,
+      );
+  return widths;
 }

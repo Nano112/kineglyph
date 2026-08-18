@@ -286,6 +286,29 @@ describe("mountKineglyph", () => {
     controller.destroy();
   });
 
+  it("leaves a drawn stage free to be as tall as its drawing", () => {
+    // The reported defect, from the other end. The stage is `overflow-y: hidden`, and it used to
+    // be pinned to `aspect-ratio: width / height` the moment a drawing was put in it. That is the
+    // drawing's height only while the drawing shrinks to fit; an embedder that holds the SVG to a
+    // minimum width — so labels stay legible on a phone instead of scaling to nothing — makes it
+    // wider than the stage and therefore taller than that ratio, and the pin then cut the bottom
+    // off the picture with no scrollbar to reach it. Half of a 128px figure, in the real case.
+    //
+    // The reservation belongs to the *empty* stage, so it is carried as custom properties that
+    // `.kg-figure__stage:empty` reads, and a stage with a drawing in it is sized by the drawing.
+    const element = host(1000);
+    const controller = mountKineglyph(element, { scene, autoplay: false });
+    const stage = element.querySelector<HTMLElement>(".kg-figure__stage");
+    expect(stage?.querySelector("svg")).not.toBeNull();
+    expect(stage?.style.aspectRatio).toBe("");
+    expect(Number(stage?.style.getPropertyValue("--kg-stage-width"))).toBeGreaterThan(0);
+    expect(Number(stage?.style.getPropertyValue("--kg-stage-height"))).toBeGreaterThan(0);
+    // Still true after a re-render, which is where the pin was being re-applied.
+    controller.resize(390);
+    expect(stage?.style.aspectRatio).toBe("");
+    controller.destroy();
+  });
+
   it("clears aria-busy on mount and removes it on destroy", () => {
     const element = host();
     element.setAttribute("aria-busy", "true");

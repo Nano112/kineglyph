@@ -191,7 +191,14 @@ describe("sceneFromSpec", () => {
       "n:pipeline:children",
     ]);
     const children = findNode(scene.root, "n:pipeline:children");
-    expect(children?.type === "group" ? children.layout : undefined).toBe("row");
+    // A row is emitted as a responsive arrangement, not a bare `"row"`: it stays a row where there
+    // is room and becomes a column below the narrow breakpoint. `stackWhenNarrow: false` is what
+    // brings the plain string back — see "a row that has run out of room" below.
+    expect(children?.type === "group" ? children.layout : undefined).toEqual({
+      wide: "row",
+      compact: "row",
+      narrow: "stack",
+    });
     expect(childIds(children as SceneNode)).toEqual(["n:parse", "n:emit"]);
 
     const resolved = resolveFigure(scene, { width: 800, theme: defaultTheme });
@@ -268,6 +275,99 @@ describe("sceneFromSpec", () => {
       expect(Number(match?.[3])).toBeGreaterThan(Number(match?.[1]));
     }
     for (const edge of scene.edges ?? []) expect(edge.start.y).toBe(edge.end.y);
+  });
+
+  describe("a row that has run out of room", () => {
+    const row: SimpleSceneSpec = {
+      version: 1,
+      id: "reflow",
+      title: "Read, plan, store",
+      layout: "row",
+      timeline: "none",
+      nodes: [
+        { id: "read", kind: "box", title: "Read", body: "Where the bytes come from." },
+        { id: "plan", kind: "box", title: "Plan", body: "What is going to happen to them." },
+        { id: "store", kind: "box", title: "Store", body: "Where they end up afterwards." },
+      ],
+      edges: [
+        { from: "read", to: "plan", label: "then" },
+        { from: "plan", to: "store", label: "then" },
+      ],
+    };
+    const ids = ["n:read", "n:plan", "n:store"];
+    const boxesOf = (width: number, spec: SimpleSceneSpec = row) => {
+      const scene = resolveFigure(sceneFromSpec(spec), { width, theme: defaultTheme });
+      return {
+        boxes: (scene.nodes ?? []).filter((node) => ids.includes(node.id)),
+        edges: scene.edges ?? [],
+        scene,
+      };
+    };
+
+    it("is a row where there is room for one", () => {
+      const { boxes } = boxesOf(960);
+      expect(boxes).toHaveLength(3);
+      // Side by side: one shared y, three different x.
+      expect(new Set(boxes.map((b) => b.y)).size).toBe(1);
+      expect(new Set(boxes.map((b) => b.x)).size).toBe(3);
+    });
+
+    it("becomes a column when it is narrow, and the connectors turn with it", () => {
+      const { boxes, edges } = boxesOf(390);
+      expect(boxes).toHaveLength(3);
+      // Stacked: one shared x, three different y — and each box now has the column's full width.
+      expect(new Set(boxes.map((b) => b.x)).size).toBe(1);
+      expect(new Set(boxes.map((b) => b.y)).size).toBe(3);
+      expect(new Set(boxes.map((b) => b.width)).size).toBe(1);
+
+      // The part most likely to look wrong: a connector drawn for a row is horizontal, and left
+      // alone it would run *across* a column instead of down it. Every run is now vertical — one
+      // shared x at both ends, and an end below the start.
+      expect(edges).toHaveLength(2);
+      for (const edge of edges) {
+        expect(edge.start.x).toBe(edge.end.x);
+        expect(edge.end.y).toBeGreaterThan(edge.start.y);
+      }
+    });
+
+    it("keeps its row at every width when the row is the meaning", () => {
+      const { boxes } = boxesOf(390, { ...row, stackWhenNarrow: false });
+      expect(new Set(boxes.map((b) => b.y)).size).toBe(1);
+      expect(new Set(boxes.map((b) => b.x)).size).toBe(3);
+    });
+
+    it("reflows a box's own row of children too", () => {
+      const nested: SimpleSceneSpec = {
+        version: 1,
+        id: "reflow-children",
+        title: "Nested",
+        layout: "stack",
+        timeline: "none",
+        nodes: [
+          {
+            id: "outer",
+            kind: "box",
+            title: "Outer",
+            layout: "row",
+            children: [
+              { id: "a", kind: "caption", text: "A caption long enough to need its own room." },
+              { id: "b", kind: "caption", text: "Another caption of about the same length." },
+            ],
+          },
+        ],
+      };
+      const at = (width: number) =>
+        (resolveFigure(sceneFromSpec(nested), { width, theme: defaultTheme }).nodes ?? []).filter(
+          (node) => node.id === "n:a" || node.id === "n:b",
+        );
+      expect(new Set(at(960).map((n) => n.y)).size).toBe(1);
+      expect(new Set(at(390).map((n) => n.y)).size).toBe(2);
+    });
+
+    it("rejects a stackWhenNarrow that is not a boolean", () => {
+      const bad = { ...row, stackWhenNarrow: "yes" } as unknown as SimpleSceneSpec;
+      expect(validateSpec(bad).errors).toContain("stackWhenNarrow: expected a boolean");
+    });
   });
 
   it("throws with the same path-named messages as validateSpec", () => {

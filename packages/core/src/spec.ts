@@ -21,9 +21,11 @@ import type { AnimationTimeline, TimelineTrack } from "./resolved.js";
 import { defineScene } from "./scene.js";
 import type {
   EdgeDefinition,
+  GroupLayout,
   GroupNode,
   Insets,
   Paint,
+  Responsive,
   SceneDefinition,
   SceneNode,
 } from "./scene.js";
@@ -56,6 +58,11 @@ export interface SimpleBoxNode {
   tone?: string;
   children?: SimpleNode[];
   layout?: SimpleLayout;
+  /**
+   * Whether this box's `row` of children becomes a column in the narrow layout. Defaults to
+   * `true`; see `SimpleSceneSpec.stackWhenNarrow`. Ignored when the layout is already a stack.
+   */
+  stackWhenNarrow?: boolean;
 }
 
 export type SimpleNode = SimpleTextNode | SimpleBoxNode;
@@ -78,6 +85,23 @@ export interface SimpleSceneSpec {
   gap?: number;
   padding?: number;
   background?: SimpleBackground;
+  /**
+   * Whether a `row` becomes a column in the narrow layout. Defaults to `true`.
+   *
+   * A row is a row until there is no room for one. Three boxes that are 260px wide at a 960px
+   * container are three 80px columns at a 390px one, and a column that narrow turns every label
+   * into a word ladder — the picture technically fits and stops being readable. The narrow
+   * arrangement of a row is a column, which is the same answer `flex-wrap` gives in CSS and the
+   * one a reader already expects from every other responsive layout they have met.
+   *
+   * Set it to `false` when the row *is* the meaning — a timeline, a spectrum, a before/after pair
+   * — and a column would say something the diagram does not. Such a figure keeps its row at every
+   * width and scrolls instead, which is the honest trade when the arrangement carries the point.
+   *
+   * The breakpoint itself is the scene's (`chooseLayout`: narrow below 560px by default), so a
+   * figure re-arranges on the same boundary as everything else drawn at that width.
+   */
+  stackWhenNarrow?: boolean;
   /** Rendered in order. */
   nodes: SimpleNode[];
   edges?: SimpleEdge[];
@@ -159,6 +183,11 @@ function checkSize(value: unknown, path: string, errors: string[]): void {
     errors.push(`${path}: expected a finite number of pixels >= 0`);
 }
 
+function checkBoolean(value: unknown, path: string, errors: string[]): void {
+  if (value === undefined) return;
+  if (typeof value !== "boolean") errors.push(`${path}: expected a boolean`);
+}
+
 function checkNode(value: unknown, path: string, ids: Set<string>, errors: string[]): void {
   if (!isRecord(value)) {
     errors.push(`${path}: expected an object`);
@@ -180,6 +209,7 @@ function checkNode(value: unknown, path: string, ids: Set<string>, errors: strin
     checkText(value.title, `${path}.title`, errors);
     checkText(value.body, `${path}.body`, errors);
     checkEnum(value.layout, `${path}.layout`, LAYOUTS, errors);
+    checkBoolean(value.stackWhenNarrow, `${path}.stackWhenNarrow`, errors);
     const children: unknown = value.children;
     if (children !== undefined) {
       if (!Array.isArray(children)) errors.push(`${path}.children: expected an array`);
@@ -222,6 +252,7 @@ export function validateSpec(spec: unknown): SimpleSpecValidation {
   checkText(spec.title, "title", errors, { required: true });
   checkText(spec.description, "description", errors);
   checkEnum(spec.layout, "layout", LAYOUTS, errors, { required: true });
+  checkBoolean(spec.stackWhenNarrow, "stackWhenNarrow", errors);
   checkSize(spec.gap, "gap", errors);
   checkSize(spec.padding, "padding", errors);
   checkEnum(spec.background, "background", BACKGROUNDS, errors);
@@ -316,6 +347,40 @@ function connectorGap(
   return Math.max(fallback, required);
 }
 
+/**
+ * The arrangement a container is given, which is one arrangement or one per layout.
+ *
+ * A stack is a stack at every width — there is nothing narrower for it to become — so it is passed
+ * through as the plain string it was written as, and a scene that never had a row is byte-for-byte
+ * the scene it was before this existed. A row that is allowed to reflow becomes a *responsive*
+ * value instead: still a row where there is room for one, a column where there is not.
+ */
+function arrangement(layout: SimpleLayout, stackWhenNarrow: boolean): Responsive<GroupLayout> {
+  if (layout !== "row" || !stackWhenNarrow) return layout;
+  return { wide: "row", compact: "row", narrow: "stack" };
+}
+
+/**
+ * The gap that arrangement needs, per layout.
+ *
+ * `connectorGap` already answers a different question for a row than for a stack — a label across
+ * a horizontal run asks for its width, a label beside a vertical one asks for its height — so a
+ * container that changes arrangement has to change gap with it, or the column it becomes keeps
+ * paying for the widest label it used to carry.
+ */
+function arrangementGap(
+  siblings: readonly SimpleNode[],
+  layout: SimpleLayout,
+  stackWhenNarrow: boolean,
+  fallback: number,
+  context: SpacingContext,
+): Responsive<number> {
+  const row = connectorGap(siblings, layout, fallback, context);
+  if (layout !== "row" || !stackWhenNarrow) return row;
+  const narrow = connectorGap(siblings, "stack", fallback, context);
+  return narrow === row ? row : { wide: row, compact: row, narrow };
+}
+
 function buildNode(node: SimpleNode, context: SpacingContext): SceneNode {
   const id = nodeId(node.id);
   if (node.kind === "box") return buildBox(node, id, context);
@@ -336,18 +401,21 @@ function buildBox(node: SimpleBoxNode, id: string, context: SpacingContext): Gro
   const children: SceneNode[] = [];
   if (node.title !== undefined) children.push(heading(`${id}:title`, node.title));
   if (node.body !== undefined) children.push(caption(`${id}:body`, node.body));
-  if (node.children !== undefined && node.children.length > 0)
+  if (node.children !== undefined && node.children.length > 0) {
+    const layout = node.layout ?? "stack";
+    const stackWhenNarrow = node.stackWhenNarrow ?? true;
     children.push(
       container(
         `${id}:children`,
-        node.layout ?? "stack",
+        arrangement(layout, stackWhenNarrow),
         node.children.map((child) => buildNode(child, context)),
         {
-          gap: connectorGap(node.children, node.layout ?? "stack", 12, context),
+          gap: arrangementGap(node.children, layout, stackWhenNarrow, 12, context),
           width: "fill",
         },
       ),
     );
+  }
   return stack(id, children, {
     gap: 8,
     padding: 16,
@@ -444,12 +512,13 @@ export function sceneFromSpec(
     strokeWidth: theme.strokes.regular,
   };
 
+  const stackWhenNarrow = spec.stackWhenNarrow ?? true;
   const root = container(
     ROOT_ID,
-    spec.layout,
+    arrangement(spec.layout, stackWhenNarrow),
     spec.nodes.map((node) => buildNode(node, spacing)),
     {
-      gap: spec.gap ?? connectorGap(spec.nodes, spec.layout, 16, spacing),
+      gap: spec.gap ?? arrangementGap(spec.nodes, spec.layout, stackWhenNarrow, 16, spacing),
     },
   );
   const edges = (spec.edges ?? []).map(buildEdge);

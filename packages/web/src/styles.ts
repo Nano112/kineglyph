@@ -16,7 +16,7 @@ export const FIGURE_STYLES = `
 /* Only while there is nothing to show. Applied unconditionally this floor inflates every figure
    shorter than 120px to 120px — which for a short, wide diagram is padding the embedder did not
    ask for and, again, a height its pre-rendered form does not have. */
-.kg-figure__stage:empty{min-height:120px}
+.kg-figure__stage:empty{min-height:120px;aspect-ratio:var(--kg-stage-width) / var(--kg-stage-height)}
 .kg-figure__stage svg{display:block;width:100%;height:auto;overflow:visible}
 .kg-figure__stage [data-node-id]{transition:filter 160ms ease}
 .kg-figure__stage [data-node-id][data-inspected=true]>.kg-node-shape,.kg-figure__stage [data-node-id][data-selected=true]>.kg-node-shape{stroke:var(--kg-shell-accent);stroke-width:2}

@@ -499,7 +499,16 @@ class FigureRuntime implements KineglyphController {
       role: "group",
       effects: "enhanced",
     });
-    this.stage.style.aspectRatio = `${this.#resolved.width} / ${this.#resolved.height}`;
+    // The stage reserves the drawing's box only while it is *empty* (see `.kg-figure__stage:empty`
+    // in `styles.ts`); once a drawing is in it, the drawing's own height is the honest one.
+    //
+    // Pinning `aspect-ratio` on a *full* stage makes its height follow its own width, which is the
+    // drawing's height only while the drawing shrinks to fit. An embedder that holds the SVG to a
+    // minimum width — so labels stay legible on a narrow screen instead of scaling to nothing —
+    // makes it wider than the stage and therefore taller than that ratio, and the pin then cut the
+    // bottom off the picture against `overflow-y: hidden`, with no way to scroll to what was lost.
+    this.stage.style.setProperty("--kg-stage-width", String(this.#resolved.width));
+    this.stage.style.setProperty("--kg-stage-height", String(this.#resolved.height));
     this.#shaders = mountShaderSurfaces(this.stage, initialTime);
     this.#liveSurfaces = new LiveSurfaceManager(this.stage, this.#resolved, {
       ...(this.#options.liveSurfaces === undefined
