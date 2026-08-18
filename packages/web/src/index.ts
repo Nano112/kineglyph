@@ -9,8 +9,10 @@ import { KineglyphSceneAnimator } from "@kineglyph/anime";
 import {
   MachineController,
   createMachineState,
+  declaredColorRoles,
   defaultTheme,
   evaluateCondition,
+  inheritTheme,
   resolveFigure,
   seekTimeline,
   type FigureSource,
@@ -243,6 +245,8 @@ class FigureRuntime implements KineglyphController {
   #reducedMotion: boolean;
   #inspected: InspectTarget | undefined;
   #destroyed = false;
+  /** `--kg-color-*` this figure has pinned on its shell, so a later theme can unpin them. */
+  #pinnedColorVars: readonly string[] = [];
   #time = 0;
   #playing = false;
   readonly #emitter = new Emitter();
@@ -596,6 +600,27 @@ class FigureRuntime implements KineglyphController {
     const tokens = this.#theme;
     const style = this.#shell.style;
     const ref = (role: string, value: string): string => `var(--kg-color-${role}, ${value})`;
+    /*
+     * A declared theme is an override, and this is where it is scoped.
+     *
+     * The drawing pins its own claimed roles on the `<svg>` root (see `buildPalette`), but the
+     * chrome around it is not inside that root, so it would still be reading the page's tokens and
+     * a figure given a dark theme on a light page ended up as a dark diagram in a light box. Pinning
+     * on the shell covers both — the stage is a descendant — and covers neither of the neighbours,
+     * because a custom property set on an element reaches exactly its own subtree.
+     *
+     * Stale pins are removed rather than left: `setTheme` can hand back a theme that claims less
+     * than the last one, and a pin nobody cleared is an override the author has deleted.
+     */
+    const pinned = new Map<string, string>();
+    for (const role of declaredColorRoles(tokens)) {
+      const value = tokens.colors[role];
+      if (typeof value === "string" && value.length > 0)
+        pinned.set(`--kg-color-${cssRole(role)}`, value);
+    }
+    for (const name of this.#pinnedColorVars) if (!pinned.has(name)) style.removeProperty(name);
+    for (const [name, value] of pinned) style.setProperty(name, value);
+    this.#pinnedColorVars = [...pinned.keys()];
     style.setProperty("--kg-shell-background", ref("canvas", tokens.colors.canvas));
     style.setProperty("--kg-shell-surface", ref("surface-raised", tokens.colors.surfaceRaised));
     style.setProperty("--kg-shell-text", ref("text", tokens.colors.text));
@@ -1030,6 +1055,36 @@ export function getRegisteredTheme(name: string): ThemeTokens | undefined {
   return themeRegistry.get(name);
 }
 
+/**
+ * The reserved theme name for "take the page's colours".
+ *
+ * It exists because a host whose theme arrives as configuration — an article's front matter, a CMS
+ * field, a `data-theme` attribute written by a template — needs a way to *say* inherit. Without a
+ * name for it the only way to express the default is to leave the field out, which is a different
+ * statement: an omission is silence, and silence is not a decision an author can point at.
+ */
+export const INHERIT_THEME = "inherit";
+
+/**
+ * Resolves a `data-theme` name to a theme. `"inherit"` is reserved and wins over the registry, so
+ * it means the same thing on every host. An unknown name inherits too, by returning `undefined`.
+ */
+export function themeByName(
+  name: string,
+  themes?: Readonly<Record<string, ThemeTokens>>,
+): ThemeTokens | undefined {
+  if (name === INHERIT_THEME) return inheritTheme();
+  return themes?.[name] ?? themeRegistry.get(name);
+}
+
+/** `--kg-color-` suffix for a semantic role: `surfaceRaised` → `surface-raised`. */
+function cssRole(role: string): string {
+  return role
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-");
+}
+
 export interface AutoMountOptions {
   readonly root?: ParentNode;
   readonly selector?: string;
@@ -1064,10 +1119,7 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
       continue;
     }
     const themeName = element.dataset.theme;
-    const theme =
-      themeName === undefined
-        ? undefined
-        : (options.themes?.[themeName] ?? themeRegistry.get(themeName));
+    const theme = themeName === undefined ? undefined : themeByName(themeName, options.themes);
     const layout = element.dataset.layout as FigureLayoutRequest | undefined;
     const width = element.dataset.width === undefined ? undefined : Number(element.dataset.width);
     const additional = options.mountOptions?.(element, sceneId) ?? {};

@@ -106,6 +106,46 @@ them distinct values, and then there is no tie to break.
 A colour the theme does not name — one mixed or derived during resolution — stays a literal. It
 cannot be re-tinted, because there is no role to name it by.
 
+## Inheriting, and overriding
+
+A figure inherits its page. That is the default and it is not a fallback: `--kg-color-*` are read,
+never written, so a diagram takes the colours of the article it sits in and looks like it belongs
+there. A theme handed to `resolveFigure` supplies the literals that draw the figure where the page
+supplies nothing — it is the picture's floor, not its ceiling.
+
+Sometimes a figure has to hold its palette against the page: a screenshot of another product's UI, a
+before-and-after pair where the whole point is that the two differ, a brand mark. That is an
+_override_, and a theme declares one by naming the colour:
+
+```ts
+import { createTheme, inheritTheme, overrideTheme } from "@kineglyph/core";
+
+createTheme({ colors: { accent: "#67cbbb" } }); // overrides accent, inherits the other nineteen
+overrideTheme(midnightTheme); // overrides all twenty
+inheritTheme(midnightTheme); // overrides none: midnight's literals, the page's colours
+```
+
+Three things follow, and they are the whole model:
+
+**Naming a colour is claiming it.** `createTheme` records the roles an override actually names, so a
+theme that names three colours overrides three and inherits the seventeen it left alone. A partial
+theme is partial; it does not blank what it did not mention.
+
+**A claim is scoped to what made it.** The renderer pins a claimed role on the drawing's own root —
+the `<svg>` element for a rendered figure, the figure's shell for a live one — and never on the
+document, a shared stylesheet, or `:root`. A custom property redefined on an element wins for that
+element's subtree and reaches nothing outside it, so the figure beside a declared one keeps whatever
+the page gave it. This is why the declaration goes on the element rather than in the SVG's embedded
+`<style>`: an inlined SVG's stylesheet is document-wide.
+
+**Inheriting is expressible, not only omitted.** `inheritTheme` writes it down, and a host reading a
+theme name out of configuration can write `"inherit"` — `data-theme="inherit"`, or the name passed
+to `themeByName` — which is reserved and means the same thing everywhere. An author needs a way to
+_say_ "follow the page", because an omission is silence and silence is not a decision.
+
+Nothing here teaches Kineglyph what your tokens are called. It owns `--kg-color-*`; mapping your own
+design tokens onto them is the host's half, and stays a stylesheet.
+
 ## What is deliberately _not_ re-themable
 
 **The font.** `--kg-font-family` is written as a literal, and text carries `textLength`. The reason
@@ -133,6 +173,13 @@ whenever the renderer is running inside the page that will show the result — a
 most of all.
 
 **Radii.** `--kg-radius-*` are pinned on the root element for the same reason: they are geometry.
+
+**Derived colours.** A colour computed during resolution — `mixColor` blending a highlight toward
+the accent, `withAlpha` fading a shadow — is baked as the literal it worked out to. It has no role,
+so `paintTokeniser` cannot name it and the page cannot move it. Inheritance therefore reaches the
+palette, not everything downstream of the palette: on a page that re-tints `accent`, the accent
+moves and a colour mixed 40% toward it does not. Where that matters, name the shade as a role in
+your theme instead of deriving it, and it becomes re-tintable like any other.
 
 ## Inlining a figure into a page
 

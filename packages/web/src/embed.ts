@@ -3,7 +3,7 @@ import {
   chromeAttr,
   mountKineglyph,
   getRegisteredScene,
-  getRegisteredTheme,
+  themeByName,
   type KineglyphController,
   type MountOptions,
 } from "./index.js";
@@ -133,7 +133,7 @@ function resolveTheme(options: MountAllOptions, element: HTMLElement): ThemeToke
   if (typeof options.theme === "function") return options.theme(element);
   if (options.theme !== undefined) return options.theme;
   const name = element.dataset.theme;
-  return name === undefined ? undefined : getRegisteredTheme(name);
+  return name === undefined ? undefined : themeByName(name);
 }
 
 /** Appends a cache-busting query param so a re-`import()` of the same URL bypasses the module cache. */
