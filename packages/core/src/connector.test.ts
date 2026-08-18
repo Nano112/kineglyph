@@ -94,9 +94,20 @@ describe("a layout gap satisfies its connectors", () => {
     expect(firstOf(withoutEdges)).toBeLessThan(firstOf(withEdges));
   });
 
-  it("honours an explicit gap even when it is tighter than a connector wants", () => {
-    const spec = { ...specWith("row", [{ from: "a", to: "b" }]), gap: 8 };
-    expect(runLength(spec)).toBeCloseTo(8, 3);
+  it("treats an explicit gap as a minimum when a connector needs more room", () => {
+    const connected = { ...specWith("row", [{ from: "a", to: "b" }]), gap: 8 };
+    expect(runLength(connected)).toBeGreaterThanOrEqual(
+      minimumConnectorRun(defaultTheme.strokes.regular),
+    );
+
+    const unconnected = resolveScene(sceneFromSpec({ ...specWith("row", undefined), gap: 8 }), {
+      width: 720,
+      theme: defaultTheme,
+    });
+    const [a, b] = unconnected.nodes.filter((node) => node.id === "n:a" || node.id === "n:b");
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    expect((b?.x ?? 0) - ((a?.x ?? 0) + (a?.width ?? 0))).toBeCloseTo(8, 3);
   });
 });
 

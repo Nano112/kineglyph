@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CONNECTOR_LABEL_CLEARANCE } from "./connector.js";
 import { resolveFigure } from "./resolve.js";
 import { validateScene, type GroupNode, type SceneNode } from "./scene.js";
 import { seekTimeline } from "./seek.js";
@@ -310,6 +311,24 @@ describe("sceneFromSpec", () => {
       // Side by side: one shared y, three different x.
       expect(new Set(boxes.map((b) => b.y)).size).toBe(1);
       expect(new Set(boxes.map((b) => b.x)).size).toBe(3);
+    });
+
+    it("treats an authored gap as a minimum when a connector label needs more room", () => {
+      const { boxes, edges } = boxesOf(960, {
+        ...row,
+        gap: 4,
+        edges: [
+          { from: "read", to: "plan", label: "measure" },
+          { from: "plan", to: "store", label: "draw" },
+        ],
+      });
+      const [read, plan] = boxes;
+      const label = edges[0]?.labels[0];
+      expect(read).toBeDefined();
+      expect(plan).toBeDefined();
+      expect(label).toBeDefined();
+      const gap = (plan?.x ?? 0) - ((read?.x ?? 0) + (read?.width ?? 0));
+      expect(gap).toBeGreaterThanOrEqual((label?.width ?? 0) + CONNECTOR_LABEL_CLEARANCE * 2);
     });
 
     it("becomes a column when it is narrow, and the connectors turn with it", () => {

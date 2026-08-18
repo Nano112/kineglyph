@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { defineScene, heading, stack, type FigureSource } from "@kineglyph/core";
+import { createTheme, defineScene, heading, stack, type FigureSource } from "@kineglyph/core";
 import { mountAllKineglyphLabs, mountKineglyphLab } from "../src/lab.js";
 
 const scene = (title: string): FigureSource =>
@@ -44,6 +44,12 @@ describe("mountKineglyphLab", () => {
     expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
       ".kg-lab[data-view=preview] .kg-lab__bar",
     );
+    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
+      ".kg-lab[data-view=preview] .kg-lab__workspace",
+    );
+    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
+      ".kg-lab[data-view=preview] .kg-canvas{fill:transparent}",
+    );
   });
 
   it("keeps the last good preview visible and reports a bad edit", async () => {
@@ -66,6 +72,35 @@ describe("mountKineglyphLab", () => {
     expect(lab.figure?.scene.id).toBe("lab-good");
     expect(host.dataset.kineglyphError).toBe("Unexpected token");
     expect(host.querySelector(".kg-lab__status")?.textContent).toContain("Unexpected token");
+  });
+
+  it("applies an optional theme exported beside the scene", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    const themed = defineScene({
+      schemaVersion: 2,
+      id: "themed",
+      title: "Themed",
+      root: stack("root", [heading("title", "Themed")], { padding: 12, width: "fill" }),
+    });
+    const lab = mountKineglyphLab(host, {
+      source: "themed",
+      view: "preview",
+      load: () =>
+        Promise.resolve({
+          scene: themed,
+          theme: createTheme({ name: "editorial-test", colors: { canvas: "#010101" } }),
+        }),
+    });
+    expect(await lab.ready).toBe(true);
+    expect(
+      host.querySelector<SVGElement>("svg")?.style.getPropertyValue("--kg-background"),
+    ).toContain("#010101");
+    expect(
+      host
+        .querySelector<HTMLElement>(".kg-lab__preview-host")
+        ?.style.getPropertyValue("--kg-color-canvas"),
+    ).toBe("#010101");
   });
 
   it("restores its authored source and static fallback", async () => {

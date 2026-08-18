@@ -61,6 +61,8 @@ export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
  * under the reader.
  */
 export type ChromeSetting = boolean | "auto";
+/** `true` starts immediately, `false` rests on the final frame, and `"in-view"` starts on entry. */
+export type AutoplaySetting = boolean | "in-view";
 
 export interface MountOptions {
   /** A general scene definition or a legacy pipeline definition. */
@@ -69,7 +71,10 @@ export interface MountOptions {
   readonly layout?: FigureLayoutRequest;
   /** Fixed container width in CSS pixels; when omitted the host element is measured and observed. */
   readonly width?: number;
-  readonly autoplay?: boolean;
+  /** Defaults to `"in-view"`, so an article figure waits until the reader reaches it. */
+  readonly autoplay?: AutoplaySetting;
+  /** Viewport trigger tuning used when `autoplay` is `"in-view"`. Default delay: 180 ms. */
+  readonly inView?: StartWhenVisibleOptions;
   /**
    * Render the compact play/restart/scrubber transport. Defaults to true.
    *
@@ -198,6 +203,11 @@ export function chromeAttr(value: string | undefined): ChromeSetting {
   return value === "false" ? false : value === "auto" ? "auto" : true;
 }
 
+/** Reads `data-autoplay`; an absent or explicit `in-view` value gets the viewport-aware default. */
+export function autoplayAttr(value: string | undefined): AutoplaySetting {
+  return value === "false" ? false : value === "true" ? true : "in-view";
+}
+
 let mountCounter = 0;
 
 /** Mounts a Kineglyph figure into `element` and returns a disposable controller. */
@@ -257,6 +267,7 @@ class FigureRuntime implements KineglyphController {
   #timeOutput: HTMLOutputElement | undefined;
   #live: HTMLElement | undefined;
   #observer: ResizeObserver | undefined;
+  #inViewStarted = false;
 
   constructor(element: HTMLElement, options: MountOptions) {
     this.element = element;
@@ -322,6 +333,20 @@ class FigureRuntime implements KineglyphController {
     this.#bindInteractions(doc);
     this.#observeMedia(element);
     if (options.width === undefined) this.#observeSize(element);
+    if ((options.autoplay ?? "in-view") === "in-view") {
+      this.#cleanups.push(
+        startWhenVisible(
+          element,
+          () => {
+            if (this.#destroyed) return;
+            const shouldRestart = !this.#inViewStarted || options.inView?.once === false;
+            this.#inViewStarted = true;
+            if (shouldRestart && !this.#reducedMotion && this.#duration > 0) this.restart(true);
+          },
+          { ...options.inView, delay: options.inView?.delay ?? 180 },
+        ),
+      );
+    }
     // Hosts often advertise aria-busy="true" while waiting for the runtime; the figure is ready now.
     element.setAttribute("aria-busy", "false");
   }
@@ -479,6 +504,11 @@ class FigureRuntime implements KineglyphController {
     });
   }
 
+  #shouldAutoplay(): boolean {
+    const setting = this.#options.autoplay ?? "in-view";
+    return setting === true || (setting === "in-view" && this.#inViewStarted);
+  }
+
   /** Renders the SVG for the current resolution and (re)creates the animator. */
   #render(resetTime: boolean): void {
     const previousTime = this.#animator?.time ?? 0;
@@ -489,11 +519,12 @@ class FigureRuntime implements KineglyphController {
     this.#shaders = undefined;
     this.#liveSurfaces?.dispose();
     this.#liveSurfaces = undefined;
-    // Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts.
-    const restFrame = this.#reducedMotion || !(this.#options.autoplay ?? true);
+    // Disabled and reduced-motion figures present their terminal frame. In-view figures wait at
+    // frame zero, so the reader sees the authored entrance rather than a flash of the ending.
+    const restFrame = this.#reducedMotion || (this.#options.autoplay ?? "in-view") === false;
     const initialTime = resetTime ? (restFrame ? this.#duration : 0) : previousTime;
     const initialPlaying = resetTime
-      ? (this.#options.autoplay ?? true) && !this.#reducedMotion && this.#duration > 0
+      ? this.#shouldAutoplay() && !this.#reducedMotion && this.#duration > 0
       : wasPlaying && !this.#reducedMotion;
     const frame = seekTimeline(this.#resolved, initialTime);
     this.stage.innerHTML = renderSvg(frame, {
@@ -555,7 +586,7 @@ class FigureRuntime implements KineglyphController {
     this.#refreshReadout();
     this.#emitter.emit("render", this.#resolved);
     if (resetTime) {
-      if ((this.#options.autoplay ?? true) && !this.#reducedMotion && this.#duration > 0)
+      if (this.#shouldAutoplay() && !this.#reducedMotion && this.#duration > 0)
         this.#animator.play();
     } else if (wasPlaying && !this.#reducedMotion) this.#animator.play();
     if (focusedId !== undefined) this.#restoreFocus(focusedId);
@@ -1044,7 +1075,8 @@ export interface AutoMountOptions {
 
 /**
  * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
- * `data-layout`, `data-autoplay="false"`, `data-controls="false"|"auto"`,
+ * `data-layout`, `data-autoplay="true"|"false"|"in-view"`, `data-autoplay-delay="180"`,
+ * `data-controls="false"|"auto"`,
  * `data-readout="false"|"auto"`, `data-reduced-motion="true"`, `data-width`. Returns the
  * controllers in document order.
  */
@@ -1070,13 +1102,15 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
         : (options.themes?.[themeName] ?? themeRegistry.get(themeName));
     const layout = element.dataset.layout as FigureLayoutRequest | undefined;
     const width = element.dataset.width === undefined ? undefined : Number(element.dataset.width);
+    const autoplayDelay = numberAttr(element.dataset.autoplayDelay);
     const additional = options.mountOptions?.(element, sceneId) ?? {};
     const controller = mountKineglyph(element, {
       scene,
       ...(theme === undefined ? {} : { theme }),
       ...(layout === undefined ? {} : { layout }),
       ...(width === undefined || !Number.isFinite(width) ? {} : { width }),
-      autoplay: element.dataset.autoplay !== "false",
+      autoplay: autoplayAttr(element.dataset.autoplay),
+      ...(autoplayDelay === undefined ? {} : { inView: { delay: autoplayDelay } }),
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
       ...(element.dataset.reducedMotion === undefined
@@ -1130,6 +1164,8 @@ export interface StartWhenVisibleOptions {
   readonly threshold?: number;
   /** Extra margin around the viewport; defaults to starting slightly before the figure scrolls in. */
   readonly rootMargin?: string;
+  /** Wait after entry before starting. Defaults to 0; in-view autoplay supplies 180 ms. */
+  readonly delay?: number;
   /** Fire once (default) or on every entry. */
   readonly once?: boolean;
   /** Called immediately when IntersectionObserver is unavailable. Defaults to true. */
@@ -1147,25 +1183,48 @@ export function startWhenVisible(
 ): () => void {
   const view = element.ownerDocument.defaultView;
   const Observer = view?.IntersectionObserver;
-  if (typeof Observer !== "function") {
-    if (options.fallbackImmediately !== false) start();
-    return () => undefined;
-  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let fired = false;
+  const observerRef: { disconnect?: () => void } = {};
+  const cancelPending = (): void => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const invoke = (): void => {
+    timer = undefined;
+    if (options.once !== false) {
+      if (fired) return;
+      fired = true;
+      observerRef.disconnect?.();
+    }
+    start();
+  };
+  const schedule = (): void => {
+    if (fired || timer !== undefined) return;
+    const delay = Math.max(0, options.delay ?? 0);
+    if (delay === 0) invoke();
+    else timer = setTimeout(invoke, delay);
+  };
+  if (typeof Observer !== "function") {
+    if (options.fallbackImmediately !== false) schedule();
+    return cancelPending;
+  }
   const observer = new Observer(
     (entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      if (options.once !== false) {
-        if (fired) return;
-        fired = true;
-        observer.disconnect();
+      if (!entries.some((entry) => entry.isIntersecting)) {
+        cancelPending();
+        return;
       }
-      start();
+      schedule();
     },
     { threshold: options.threshold ?? 0.06, rootMargin: options.rootMargin ?? "0px 0px -10% 0px" },
   );
+  observerRef.disconnect = () => observer.disconnect();
   observer.observe(element);
-  return () => observer.disconnect();
+  return () => {
+    cancelPending();
+    observer?.disconnect();
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1184,6 +1243,12 @@ function measureWidth(element: HTMLElement): number {
   const parent = element.parentElement;
   const parentWidth = parent === null ? 0 : parent.getBoundingClientRect().width;
   return parentWidth > 0 ? parentWidth : 960;
+}
+
+function numberAttr(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
 
 function prefersReducedMotion(element: HTMLElement): boolean {

@@ -11,7 +11,7 @@ import {
   startWhenVisible,
   STYLE_ID,
 } from "../src/index.js";
-import { STYLE_ID as STYLE_ID_EXPORT } from "../src/styles.js";
+import { FIGURE_STYLES, STYLE_ID as STYLE_ID_EXPORT } from "../src/styles.js";
 
 const scene: SceneDefinition = defineScene({
   schemaVersion: 2,
@@ -171,6 +171,10 @@ function host(width = 900): HTMLDivElement {
 }
 
 describe("mountKineglyph", () => {
+  it("does not imply passive edges are clickable with a hover effect", () => {
+    expect(FIGURE_STYLES).not.toContain(".kg-edge-group[role=img]:hover");
+  });
+
   it("mounts two independent figures without id, marker, or style collisions and disposes cleanly", () => {
     const first = mountKineglyph(host(), { scene, theme: createTheme(), autoplay: false });
     const second = mountKineglyph(host(600), { scene, theme: createTheme(), autoplay: false });
@@ -502,12 +506,87 @@ describe("mountKineglyph", () => {
     );
     expect(starts).toBe(1);
     stop();
+    let repeats = 0;
+    startWhenVisible(
+      element,
+      () => {
+        repeats += 1;
+      },
+      { once: false },
+    );
+    callback?.(
+      [
+        {
+          isIntersecting: true,
+          target: element,
+        } as unknown as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+    callback?.(
+      [
+        {
+          isIntersecting: false,
+          target: element,
+        } as unknown as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+    callback?.(
+      [
+        {
+          isIntersecting: true,
+          target: element,
+        } as unknown as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+    expect(repeats).toBe(2);
     vi.stubGlobal("IntersectionObserver", undefined);
     let immediate = 0;
     startWhenVisible(element, () => {
       immediate += 1;
     });
     expect(immediate).toBe(1);
+  });
+
+  it("defaults to a delayed in-view start and cancels the delay when the figure leaves", () => {
+    vi.useFakeTimers();
+    let callback: IntersectionObserverCallback | undefined;
+    class FakeObserver {
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+      observe(): void {}
+      disconnect(): void {}
+      unobserve(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [];
+    }
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+    const element = host();
+    const controller = mountKineglyph(element, { scene });
+    const entry = (isIntersecting: boolean): IntersectionObserverEntry =>
+      ({ isIntersecting, target: element }) as unknown as IntersectionObserverEntry;
+
+    expect(controller.state.time).toBe(0);
+    expect(controller.state.playing).toBe(false);
+    callback?.([entry(true)], {} as IntersectionObserver);
+    vi.advanceTimersByTime(179);
+    expect(controller.state.playing).toBe(false);
+    callback?.([entry(false)], {} as IntersectionObserver);
+    vi.advanceTimersByTime(1);
+    expect(controller.state.playing).toBe(false);
+    callback?.([entry(true)], {} as IntersectionObserver);
+    vi.advanceTimersByTime(180);
+    expect(controller.state.playing).toBe(true);
+
+    controller.destroy();
+    vi.useRealTimers();
   });
 
   it("auto-mounts registered scenes from data attributes", () => {

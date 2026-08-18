@@ -26,7 +26,8 @@ const theme = createTheme({ colors: { accent: "#237f74" } });
 const controller = mountKineglyph(document.querySelector("#figure"), {
   scene,
   theme,
-  autoplay: true,
+  autoplay: "in-view",
+  inView: { delay: 180 },
 });
 
 controller.play();
@@ -164,35 +165,36 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 - Mounting sets `aria-busy="false"` on the host (hosts may advertise `aria-busy="true"` while
   waiting for the script); `destroy()` removes the attribute, the DOM, listeners, observers, and
   animations, and the controller then throws on use.
-- Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts
-  from the beginning. `setReducedMotion(true)` also stops flow strokes and disables playback
-  controls; the `prefers-reduced-motion` media query is followed live unless overridden.
+- Figures default to their first frame until they enter the viewport, then play after 180ms.
+  `autoplay: true` starts immediately; `false` presents the complete terminal frame. Reduced-motion
+  figures also present the terminal frame, stop flow strokes, and disable playback controls.
 - `setScene(scene, { initialState? })` re-mounts a different figure in place: a fresh machine
   (optionally started in `initialState`), rebuilt machine controls (never a stale handler even when
   ids and labels repeat), and a reset timeline. `setTheme` and `resize` keep time and state.
 - Stage listeners are attached once per mount; re-renders replace SVG markup only, so no duplicate
   listeners accumulate. Ids are prefixed per mount (`kineglyph-<n>` or your `idPrefix`), so
   markers, clip paths, and titles never collide between figures.
-- `startWhenVisible(element, start, { threshold, rootMargin, once })` starts a figure when it
+- `startWhenVisible(element, start, { delay, threshold, rootMargin, once })` starts a figure when it
   scrolls into view (low default threshold so very tall narrow figures still start).
 
 ### Options
 
-| Option            | Default         | Purpose                                                           |
-| ----------------- | --------------- | ----------------------------------------------------------------- |
-| `scene`           | —               | `SceneDefinition` or `PipelineDefinition`                         |
-| `theme`           | `defaultTheme`  | Semantic theme tokens                                             |
-| `layout`          | `"auto"`        | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines)  |
-| `width`           | measured        | Fixed width; otherwise the host is observed with ResizeObserver   |
-| `autoplay`        | `true`          | Start playback on mount (never under reduced motion)              |
-| `controls`        | `true`          | Compact play / restart / scrubber controls; `"auto"` if animated  |
-| `readout`         | `true`          | Inspection readout below the stage; `"auto"` if inspectable       |
-| `machineControls` | `true`          | Buttons for `scene.controls`; `"auto"` if the scene has a machine |
-| `reducedMotion`   | media query     | Force the terminal frame and disable playback                     |
-| `idPrefix`        | generated       | Stable DOM id prefix                                              |
-| `initialState`    | machine initial | Start a machine in a specific `MachineState`                      |
-| `liveSurfaces`    | —               | HTML/WebGL renderers keyed by live image node id                  |
-| callbacks         | —               | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`       |
+| Option            | Default          | Purpose                                                             |
+| ----------------- | ---------------- | ------------------------------------------------------------------- |
+| `scene`           | —                | `SceneDefinition` or `PipelineDefinition`                           |
+| `theme`           | `defaultTheme`   | Semantic theme tokens                                               |
+| `layout`          | `"auto"`         | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines)    |
+| `width`           | measured         | Fixed width; otherwise the host is observed with ResizeObserver     |
+| `autoplay`        | `"in-view"`      | Viewport start; `true` is immediate and `false` is a finished still |
+| `inView`          | `{ delay: 180 }` | Delay, threshold, root margin, and once/replay policy               |
+| `controls`        | `true`           | Compact play / restart / scrubber controls; `"auto"` if animated    |
+| `readout`         | `true`           | Inspection readout below the stage; `"auto"` if inspectable         |
+| `machineControls` | `true`           | Buttons for `scene.controls`; `"auto"` if the scene has a machine   |
+| `reducedMotion`   | media query      | Force the terminal frame and disable playback                       |
+| `idPrefix`        | generated        | Stable DOM id prefix                                                |
+| `initialState`    | machine initial  | Start a machine in a specific `MachineState`                        |
+| `liveSurfaces`    | —                | HTML/WebGL renderers keyed by live image node id                    |
+| callbacks         | —                | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`         |
 
 ### Keyboard and accessibility
 
@@ -265,8 +267,8 @@ Mounting hides the fallback and sets `data-kineglyph-mounted="true"`; a failed m
 fallback visible and records the message in `data-kineglyph-error`. Destroying a figure's
 controller restores the fallback and clears the mounted flag, so mounting is reversible.
 
-Per-element attributes `data-theme`, `data-autoplay`, `data-controls`, and `data-readout` feed the
-mount; `options.theme`, `options.load`, and `options.mountOptions` accept functions of the element
+Per-element attributes `data-theme`, `data-autoplay`, `data-autoplay-delay`, `data-controls`, and
+`data-readout` feed the mount; `options.theme`, `options.load`, and `options.mountOptions` accept functions of the element
 when the host needs to override per figure. Elements already carrying
 `data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
 arrives.
@@ -345,7 +347,9 @@ for (const lab of labs) lab.setTheme(nextTheme);
 ```
 
 The default loader evaluates a browser ESM blob, so bare imports such as `"kineglyph"` are owned
-by the host page's import map. `load` is injectable for a restricted compiler or sandboxed runner.
+by the host page's import map. A module may also `export const theme = myTheme`; the lab scopes its
+colour tokens to that preview, leaving the surrounding page alone. `load` is injectable for a
+restricted compiler or sandboxed runner.
 Auto-run is debounced by 220ms, `Cmd/Ctrl+Enter` runs immediately, and `data-height="…"` accepts a
 240–1200px editor height. The authoring surface is container-responsive and stacks vertically
 below 760px.

@@ -16,7 +16,7 @@ geometry.
 The example is preview-first. Choose **Edit figure** underneath to change a card or switch `f.flow`
 to `f.stack`.
 
-```kineglyph live id=getting-started-figure view=preview height=390 autoplay=true
+```kineglyph live id=getting-started-figure view=preview height=390
 import { figure } from "kineglyph";
 
 export default figure("first-figure", { title: "First figure" }, (f) => {

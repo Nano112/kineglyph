@@ -12,10 +12,11 @@ exported reproducibly to PNG and GIF.
 [Install Kineglyph](./getting-started.md), browse the [visual gallery](./gallery.md), or edit the
 example below directly in your browser.
 
-Every live example opens on its finished preview. Choose **Edit figure** underneath when you want
-to change labels, tones, layout, data, or motion; the result updates without reloading the page.
+Every live example waits until it enters the viewport, then plays after a short settle delay.
+Choose **Edit figure** underneath when you want to change labels, tones, layout, data, or motion;
+the result updates without reloading the page.
 
-```kineglyph live id=first-live-figure view=preview height=440 autoplay=true
+```kineglyph live id=first-live-figure view=preview height=440
 import { sceneFromSpec } from "kineglyph";
 
 export default sceneFromSpec({

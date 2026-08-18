@@ -1,5 +1,6 @@
 import type { FigureSource, ThemeTokens } from "@kineglyph/core";
 import {
+  autoplayAttr,
   chromeAttr,
   mountKineglyph,
   getRegisteredScene,
@@ -136,6 +137,13 @@ function resolveTheme(options: MountAllOptions, element: HTMLElement): ThemeToke
   return name === undefined ? undefined : getRegisteredTheme(name);
 }
 
+function autoplayDelay(element: HTMLElement): number | undefined {
+  const value = element.dataset.autoplayDelay;
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 /** Appends a cache-busting query param so a re-`import()` of the same URL bypasses the module cache. */
 function cacheBust(url: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`;
@@ -171,10 +179,12 @@ async function mountOne(
   try {
     const scene = await load(source, element);
     const theme = resolveTheme(options, element);
+    const delay = autoplayDelay(element);
     const controller = mountKineglyph(stageOf(element), {
       scene,
       ...(theme === undefined ? {} : { theme }),
-      autoplay: element.dataset.autoplay !== "false",
+      autoplay: autoplayAttr(element.dataset.autoplay),
+      ...(delay === undefined ? {} : { inView: { delay } }),
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
       ...(chosen ?? {}),

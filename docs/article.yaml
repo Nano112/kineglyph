@@ -4,20 +4,21 @@ form: docs
 status: published
 visibility: public
 category: developer tools
-tags: [typescript, svg, animation, data-visualization, documentation]
-description: >-
-  Build deterministic, responsive technical illustrations and quantitative graphics from concise,
-  typed scene definitions—with motion, interaction, theming, and reproducible export.
+tags: [ typescript, svg, animation, data-visualization, documentation ]
+description: Build deterministic, responsive technical illustrations and
+  quantitative graphics from concise, typed scene definitions—with motion,
+  interaction, theming, and reproducible export.
 author: Kineglyph contributors
 site_url: https://nano112.github.io/kineglyph/
 published: 2026-08-18
 updated: 2026-08-18
+cover: media/cover-2x.gif
 
 kineglyph:
-  widths: [960, 640, 440, 320]
+  widths: [ 960, 640, 440, 320 ]
 
 snippets:
-  roots: [".", ".."]
+  roots: [ ".", ".." ]
 
 exclude:
   - assets/fonts/

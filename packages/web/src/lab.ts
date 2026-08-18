@@ -5,25 +5,35 @@
  * replaceable loader, and successful scenes are swapped through the normal Kineglyph controller.
  * The default loader uses a blob module, so the page's import map continues to own `kineglyph`.
  */
-import type { FigureSource, ThemeTokens } from "@kineglyph/core";
+import { defaultTheme, type FigureSource, type ThemeTokens } from "@kineglyph/core";
 import {
+  autoplayAttr,
   chromeAttr,
-  defaultLoader,
   mountKineglyph,
   type ChromeSetting,
+  type AutoplaySetting,
   type KineglyphController,
+  type StartWhenVisibleOptions,
 } from "./index.js";
 import type { LabEditor } from "./lab-editor.js";
 
 export type KineglyphLabView = "source" | "split" | "preview";
-export type KineglyphLabLoader = (source: string, element: HTMLElement) => Promise<FigureSource>;
+export interface KineglyphLabModuleResult {
+  readonly scene: FigureSource;
+  readonly theme?: ThemeTokens;
+}
+export type KineglyphLabLoader = (
+  source: string,
+  element: HTMLElement,
+) => Promise<FigureSource | KineglyphLabModuleResult>;
 
 export interface MountKineglyphLabOptions {
   readonly source?: string;
   readonly view?: KineglyphLabView;
   readonly theme?: ThemeTokens;
   readonly debounceMs?: number;
-  readonly autoplay?: boolean;
+  readonly autoplay?: AutoplaySetting;
+  readonly inView?: StartWhenVisibleOptions;
   readonly controls?: ChromeSetting;
   readonly readout?: ChromeSetting;
   readonly machineControls?: ChromeSetting;
@@ -69,7 +79,7 @@ const LAB_STYLES = `
 .kg-lab__workspace{display:grid;min-width:0;min-height:var(--kg-lab-height,420px);grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kg-lab__editor,.kg-lab__preview{min-width:0;min-height:0}.kg-lab__editor{height:var(--kg-lab-height,420px);overflow:hidden;border-right:1px solid var(--kg-lab-border);background:var(--kg-lab-code-bg)}.kg-lab__preview{display:grid;align-content:center;overflow:auto;padding:16px;background:var(--kg-lab-bg)}.kg-lab__preview-host{width:100%;min-width:0}.kg-lab__loading{display:grid;height:100%;place-items:center;color:var(--kg-lab-muted);font:12px/1.5 var(--kg-lab-font)}
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
 .kg-lab__preview-actions{display:none}.kg-lab__edit{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
-.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;justify-content:flex-end;padding:6px 0 0;background:transparent}
+.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-canvas{fill:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;justify-content:flex-end;padding:6px 0 0;background:transparent}
 @container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
 `;
@@ -122,10 +132,28 @@ function explicitChromeAttr(value: string | undefined): ChromeSetting | undefine
 /** Evaluates an ESM scene in the browser. Bare imports are resolved by the page's import map. */
 export async function loadKineglyphLabModule(
   source: string,
-  element: HTMLElement,
-): Promise<FigureSource> {
-  const embedded = { kind: "inline" as const, source };
-  return await defaultLoader(embedded, element);
+  _element: HTMLElement,
+): Promise<KineglyphLabModuleResult> {
+  void _element;
+  const blob = new Blob([source], { type: "text/javascript" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const mod = (await import(/* @vite-ignore */ url)) as { default?: unknown; theme?: unknown };
+    if (mod.default === null || typeof mod.default !== "object")
+      throw new Error("inline scene: no default export");
+    const theme =
+      mod.theme !== null && typeof mod.theme === "object" ? (mod.theme as ThemeTokens) : undefined;
+    return {
+      scene: mod.default as FigureSource,
+      ...(theme === undefined ? {} : { theme }),
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function loadedModule(value: FigureSource | KineglyphLabModuleResult): KineglyphLabModuleResult {
+  return "scene" in value ? value : { scene: value };
 }
 
 class LabRuntime implements KineglyphLabController {
@@ -134,6 +162,9 @@ class LabRuntime implements KineglyphLabController {
   #source: string;
   readonly #initialSource: string;
   #view: KineglyphLabView;
+  #hostTheme: ThemeTokens | undefined;
+  #moduleTheme: ThemeTokens | undefined;
+  readonly #moduleColorVars = new Set<string>();
   #theme: ThemeTokens | undefined;
   #figure: KineglyphController | undefined;
   #editor: LabEditor | undefined;
@@ -156,6 +187,7 @@ class LabRuntime implements KineglyphLabController {
     this.#source = options.source ?? this.#script?.textContent?.trim() ?? "";
     this.#initialSource = this.#source;
     this.#view = options.view ?? (isView(element.dataset.view) ? element.dataset.view : "split");
+    this.#hostTheme = options.theme;
     this.#theme = options.theme;
     ensureLabStyles(element);
     element.classList.add("kg-lab");
@@ -271,6 +303,8 @@ class LabRuntime implements KineglyphLabController {
 
   setTheme(theme: ThemeTokens): void {
     this.#assertLive();
+    this.#hostTheme = theme;
+    if (this.#moduleTheme !== undefined) return;
     this.#theme = theme;
     this.#figure?.setTheme(theme);
   }
@@ -282,16 +316,21 @@ class LabRuntime implements KineglyphLabController {
     const generation = ++this.#generation;
     this.#setStatus("Rendering…", "pending");
     try {
-      const scene = await (this.#options.load ?? loadKineglyphLabModule)(
-        this.#source,
-        this.element,
+      const loaded = loadedModule(
+        await (this.#options.load ?? loadKineglyphLabModule)(this.#source, this.element),
       );
+      const scene = loaded.scene;
+      this.#moduleTheme = loaded.theme;
+      this.#applyModuleTheme(loaded.theme);
+      const nextTheme = loaded.theme ?? this.#hostTheme ?? defaultTheme;
       if (this.#destroyed || generation !== this.#generation) return false;
       if (this.#figure === undefined) {
+        this.#theme = nextTheme;
         this.#figure = mountKineglyph(this.#previewHost, {
           scene,
           ...(this.#theme === undefined ? {} : { theme: this.#theme }),
-          autoplay: this.#options.autoplay ?? false,
+          autoplay: this.#options.autoplay ?? "in-view",
+          ...(this.#options.inView === undefined ? {} : { inView: this.#options.inView }),
           controls: this.#options.controls ?? false,
           readout: this.#options.readout ?? false,
           machineControls: this.#options.machineControls ?? "auto",
@@ -299,6 +338,8 @@ class LabRuntime implements KineglyphLabController {
       } else {
         const { playing, time, duration } = this.#figure.state;
         const position = duration === 0 ? 0 : time / duration;
+        if (nextTheme !== this.#theme) this.#figure.setTheme(nextTheme);
+        this.#theme = nextTheme;
         this.#figure.setScene(scene);
         if (position > 0) this.#figure.seek(position * this.#figure.state.duration);
         if (playing) this.#figure.play();
@@ -374,6 +415,18 @@ class LabRuntime implements KineglyphLabController {
     this.#status.dataset.kind = kind;
   }
 
+  #applyModuleTheme(theme: ThemeTokens | undefined): void {
+    for (const property of this.#moduleColorVars) this.#previewHost.style.removeProperty(property);
+    this.#moduleColorVars.clear();
+    if (theme === undefined) return;
+    for (const [name, value] of Object.entries(theme.colors)) {
+      const role = name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+      const property = `--kg-color-${role}`;
+      this.#previewHost.style.setProperty(property, value);
+      this.#moduleColorVars.add(property);
+    }
+  }
+
   #assertLive(): void {
     if (this.#destroyed) throw new Error("Kineglyph lab controller is destroyed");
   }
@@ -412,7 +465,14 @@ export async function mountAllKineglyphLabs(
     const theme = typeof themeOption === "function" ? themeOption(element) : themeOption;
     const view = isView(element.dataset.view) ? element.dataset.view : undefined;
     const autoplay =
-      element.dataset.autoplay === "true" ? true : (local.autoplay ?? shared.autoplay);
+      element.dataset.autoplay === undefined
+        ? (local.autoplay ?? shared.autoplay ?? "in-view")
+        : autoplayAttr(element.dataset.autoplay);
+    const autoplayDelay = Number(element.dataset.autoplayDelay);
+    const inView =
+      Number.isFinite(autoplayDelay) && autoplayDelay >= 0
+        ? { ...(shared.inView ?? {}), ...(local.inView ?? {}), delay: autoplayDelay }
+        : (local.inView ?? shared.inView);
     const controls =
       quietChrome(
         local.controls ?? explicitChromeAttr(element.dataset.controls) ?? shared.controls,
@@ -427,6 +487,7 @@ export async function mountAllKineglyphLabs(
       ...(view === undefined ? {} : { view }),
       ...(theme === undefined ? {} : { theme }),
       ...(autoplay === undefined ? {} : { autoplay }),
+      ...(inView === undefined ? {} : { inView }),
       controls,
       readout,
       machineControls:

@@ -82,6 +82,7 @@ export interface SimpleSceneSpec {
   description?: string;
   /** Root arrangement. */
   layout: SimpleLayout;
+  /** Minimum spacing. Connected siblings may need more room for arrowheads and labels. */
   gap?: number;
   padding?: number;
   background?: SimpleBackground;
@@ -518,7 +519,7 @@ export function sceneFromSpec(
     arrangement(spec.layout, stackWhenNarrow),
     spec.nodes.map((node) => buildNode(node, spacing)),
     {
-      gap: spec.gap ?? arrangementGap(spec.nodes, spec.layout, stackWhenNarrow, 16, spacing),
+      gap: arrangementGap(spec.nodes, spec.layout, stackWhenNarrow, spec.gap ?? 16, spacing),
     },
   );
   const edges = (spec.edges ?? []).map(buildEdge);

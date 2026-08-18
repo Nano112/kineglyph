@@ -11,9 +11,11 @@ import type {
 } from "@kineglyph/core";
 import {
   mountKineglyph,
+  type AutoplaySetting,
   type FigureLayoutRequest,
   type InspectTarget,
   type KineglyphController,
+  type StartWhenVisibleOptions,
 } from "@kineglyph/web";
 
 export type { InspectTarget, KineglyphController } from "@kineglyph/web";
@@ -39,7 +41,8 @@ export interface KineglyphFigureProps {
   readonly controls?: boolean;
   readonly readout?: boolean;
   readonly machineControls?: boolean;
-  readonly autoplay?: boolean;
+  readonly autoplay?: AutoplaySetting;
+  readonly inView?: StartWhenVisibleOptions;
   readonly layout?: FigureLayoutRequest;
   /** Fixed width; when omitted the figure follows its container. */
   readonly width?: number;
@@ -68,7 +71,8 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       controls = true,
       readout = true,
       machineControls = true,
-      autoplay = true,
+      autoplay = "in-view",
+      inView,
       layout,
       width,
       reducedMotion,
@@ -98,6 +102,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         readout,
         machineControls,
         autoplay,
+        ...(inView === undefined ? {} : { inView }),
         ...(layout === undefined ? {} : { layout }),
         ...(width === undefined ? {} : { width }),
         ...(reducedMotion === undefined ? {} : { reducedMotion }),
@@ -123,6 +128,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       readout,
       machineControls,
       autoplay,
+      inView,
       layout,
       width,
       idPrefix,
