@@ -129,6 +129,51 @@ describe("figure(): ids", () => {
   });
 });
 
+describe("figure(): positioned text", () => {
+  it("keeps responsive placement and base-node controls on text helpers", () => {
+    const scene = figure("positioned-text", { title: "Positioned text" }, (f) => {
+      const value = f.labelAt(
+        "3,610",
+        {
+          wide: { x: 0.42, y: 0.2, anchor: "bottom" },
+          compact: { x: 0.5, y: 0.28, anchor: "bottom" },
+          narrow: { x: 0.5, y: 0.34, anchor: "bottom" },
+        },
+        {
+          id: "value",
+          width: { wide: "18%", compact: "28%", narrow: "42%" },
+          tone: "accent",
+          opacity: 0.9,
+          z: 2,
+        },
+      );
+      const note = f.textAt("never", { x: 0.1, y: 0.8, anchor: "bottom" }, { textStyle: "code" });
+      f.root(f.coordinates([value, note], { height: 240 }));
+    });
+
+    const value = scene.root.children.find((node) => node.id === "value");
+    expect(value).toMatchObject({
+      type: "text",
+      textStyle: "bodyStrong",
+      color: "accent",
+      opacity: 0.9,
+      z: 2,
+      width: { wide: "18%", compact: "28%", narrow: "42%" },
+    });
+    expect(value?.position).toMatchObject({
+      wide: { x: 0.42, y: 0.2 },
+      compact: { x: 0.5, y: 0.28 },
+      narrow: { x: 0.5, y: 0.34 },
+    });
+
+    const wide = resolveScene(scene, { width: 1200 });
+    const narrow = resolveScene(scene, { width: 390 });
+    expect(wide.nodes.find((node) => node.id === "value")?.x).not.toBe(
+      narrow.nodes.find((node) => node.id === "value")?.x,
+    );
+  });
+});
+
 describe("figure(): root inference", () => {
   it("defaults to a stack of top-level nodes in creation order", () => {
     const scene = figure("root", { title: "Root" }, (f) => {

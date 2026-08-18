@@ -84,4 +84,15 @@ export function resolveScene(context = {}) {
 /** Theme tokens export used by `--theme`. */
 export const darkTheme = createTheme({ colors: { canvas: "#0b0d10", surface: "#161a20" } });
 
+/** Relative paths deliberately prove that preset assets resolve from this module. */
+export const gifPreset = {
+  format: "gif",
+  scene: "./pipeline.mjs#resolveScene",
+  theme: "./pipeline.mjs#darkTheme",
+  width: 240,
+  fps: 5,
+  holdLast: 0,
+  loop: false,
+};
+
 export default pipeline;

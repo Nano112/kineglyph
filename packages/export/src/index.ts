@@ -17,3 +17,5 @@ export type { GifInfo, PngInfo } from "./formats.js";
 export { exportFile } from "./file.js";
 export { prerender, rewriteImports } from "./prerender.js";
 export type { PrerenderOptions, PrerenderResult, PrerenderTheme } from "./prerender.js";
+export { defineExportPreset } from "./preset.js";
+export type { ExportPreset } from "./preset.js";

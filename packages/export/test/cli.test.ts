@@ -132,6 +132,25 @@ describe("kineglyph-export CLI", () => {
     expect(result.stdout).toContain("3 frames");
   });
 
+  it("loads reusable export presets and lets explicit flags override them", () => {
+    const out = join(outDir, "preset.gif");
+    const result = cli(
+      "--preset",
+      `${fixture}#gifPreset`,
+      "--out",
+      out,
+      "--fps",
+      "10",
+      ...fontArgs,
+    );
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    const info = gifInfo(new Uint8Array(readFileSync(out)));
+    expect(info.width).toBe(240);
+    expect(info.frameCount).toBe(5);
+    expect(info.loop).toBe(false);
+  });
+
   it("reports export errors with exit code 1", () => {
     const result = cli("gif", "--scene", fixture, "--out", join(outDir, "x.gif"), "--fps", "0");
     expect(result.status).toBe(1);

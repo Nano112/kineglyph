@@ -280,6 +280,10 @@ export function inferSpec(rows: readonly object[], options: PlotOptions): Inferr
   const cartesianOptions = options as CartesianPlotOptions;
   const shared = {
     ...(options.title === undefined ? {} : { title: options.title }),
+    ...(options.subtitle === undefined ? {} : { subtitle: options.subtitle }),
+    ...(options.titleStyle === undefined ? {} : { titleStyle: options.titleStyle }),
+    ...(options.subtitleStyle === undefined ? {} : { subtitleStyle: options.subtitleStyle }),
+    ...(options.headingAlign === undefined ? {} : { headingAlign: options.headingAlign }),
     ...(options.description === undefined ? {} : { description: options.description }),
     ...(options.legend === undefined ? {} : { legend: options.legend }),
     ...(options.minimal === undefined ? {} : { minimal: options.minimal }),
@@ -395,6 +399,8 @@ export function inferSpec(rows: readonly object[], options: PlotOptions): Inferr
       ...(layer.tone === undefined ? {} : { tone: layer.tone }),
       ...(layer.fill === undefined ? {} : { fill: layer.fill }),
       ...(layer.fillOpacity === undefined ? {} : { fillOpacity: layer.fillOpacity }),
+      ...(layer.radius === undefined ? {} : { radius: layer.radius }),
+      ...(layer.material === undefined ? {} : { material: layer.material }),
       ...(layer.curve === undefined ? {} : { curve: layer.curve }),
       ...(layer.dash === undefined ? {} : { dash: layer.dash }),
       ...(layer.pointRadius === undefined ? {} : { pointRadius: layer.pointRadius }),

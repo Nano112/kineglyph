@@ -33,7 +33,6 @@ import {
   rule,
   spacer,
   stack,
-  text as textRecipe,
   type CardOptions,
   type ContainerOptions,
   type KeyValueOptions,
@@ -98,11 +97,13 @@ export type MarkOptions<M extends SceneNode, Primary extends keyof M = never> = 
   "type" | "id" | Primary
 > & { readonly id?: string };
 
-export interface FigureTextOptions extends TextOptions {
-  readonly id?: string;
-  /** Overrides the helper's default text style (mostly useful with `f.text`). */
-  readonly textStyle?: Responsive<SemanticTextStyle>;
-}
+export type FigureTextOptions = TextOptions &
+  Omit<MarkOptions<TextMark, "text">, keyof TextOptions | "color" | "textStyle"> & {
+    readonly id?: string;
+    /** Overrides the helper's default text style (mostly useful with `f.text`). */
+    readonly textStyle?: Responsive<SemanticTextStyle>;
+  };
+export type FigureTextPosition = NonNullable<TextMark["position"]>;
 export type FigureBadgeOptions = MarkOptions<BadgeMark, "text">;
 export type FigureIconOptions = MarkOptions<IconMark, "icon">;
 export type FigureRectOptions = MarkOptions<RectMark>;
@@ -202,6 +203,10 @@ export type FigureControl = Omit<SceneControl, "id"> & { readonly id?: string };
 export interface FigureBuilder {
   // Text
   text(text: string, options?: FigureTextOptions): TextMark;
+  /** Text positioned inside `coordinates` / `absolute`; position may vary by layout. */
+  textAt(text: string, position: FigureTextPosition, options?: FigureTextOptions): TextMark;
+  /** Strong coordinate label shorthand (for values, callouts, and direct annotations). */
+  labelAt(text: string, position: FigureTextPosition, options?: FigureTextOptions): TextMark;
   eyebrow(text: string, options?: FigureTextOptions): TextMark;
   heading(text: string, options?: FigureTextOptions): TextMark;
   title(text: string, options?: FigureTextOptions): TextMark;
@@ -594,14 +599,18 @@ function createBuilder(
     text: string,
     options: FigureTextOptions = {},
   ): TextMark => {
-    const { id: explicit, textStyle, ...rest } = options;
+    const { id: explicit, textStyle, tone, ...rest } = options;
     const id = inferId(kind, text, explicit);
     const resolvedStyle = textStyle ?? style;
     return commit(
-      textRecipe(id, text, {
+      {
+        id,
+        type: "text",
+        text,
         ...rest,
         ...(resolvedStyle === undefined ? {} : { textStyle: resolvedStyle }),
-      }),
+        ...(tone === undefined ? {} : { color: tone }),
+      },
       where(kind, text),
     );
   };
@@ -643,6 +652,10 @@ function createBuilder(
 
   const builder: FigureBuilder = {
     text: (text, options) => textNode("text", undefined, text, options),
+    textAt: (text, position, options) =>
+      textNode("text-at", undefined, text, { ...options, position }),
+    labelAt: (text, position, options) =>
+      textNode("label-at", "bodyStrong", text, { ...options, position }),
     eyebrow: (text, options) => textNode("eyebrow", "label", text, options),
     heading: (text, options) => textNode("heading", "bodyStrong", text, options),
     title: (text, options) => textNode("title", "title", text, options),

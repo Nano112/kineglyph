@@ -11,9 +11,11 @@ import type {
   Easing,
   FillPaint,
   LayoutName,
+  MaterialRef,
   Paint,
   Responsive,
   SceneFragment,
+  SemanticTextStyle,
 } from "@kineglyph/core";
 
 // ---------------------------------------------------------------------------------------------
@@ -110,6 +112,10 @@ export interface SeriesSpec {
   readonly fill?: FillPaint;
   /** Opacity applied to bar/area fill. Areas default to 0.25 for solid fills and 1 for gradients. */
   readonly fillOpacity?: number;
+  /** Corner radius for bars. */
+  readonly radius?: number;
+  /** Optional semantic material/effects applied to bars. */
+  readonly material?: MaterialRef;
   /** Line/area interpolation (default "linear"). */
   readonly curve?: "linear" | "monotone" | "step";
   readonly dash?: "solid" | "dashed" | "dotted";
@@ -201,7 +207,26 @@ interface PlotSpecBase {
   readonly description?: string;
   /** Title used as the chart's accessible name and inspection heading. */
   readonly title?: string;
+  /** Supporting line rendered immediately below the title. */
+  readonly subtitle?: string;
+  readonly titleStyle?: Responsive<SemanticTextStyle>;
+  readonly subtitleStyle?: Responsive<SemanticTextStyle>;
+  readonly headingAlign?: Responsive<"start" | "center" | "end">;
 }
+
+export interface ValueLabelOptions {
+  /** Per-layout visibility. `auto` hides labels when the chart is crowded. Defaults to true. */
+  readonly show?: Responsive<boolean | "auto">;
+  /** Replacement for an exact zero, useful for labels such as "never" or "none". */
+  readonly zero?: string;
+  readonly format?: NumberFormatSpec;
+  readonly textStyle?: Responsive<SemanticTextStyle>;
+  readonly tone?: Paint;
+  /** Pixel gap between a mark and its label. */
+  readonly gap?: number;
+}
+
+export type ValueLabels = boolean | "auto" | ValueLabelOptions;
 
 export interface CartesianPlotSpec extends PlotSpecBase {
   readonly series?: readonly SeriesSpec[];
@@ -215,7 +240,7 @@ export interface CartesianPlotSpec extends PlotSpecBase {
   readonly grid?: "none" | "x" | "y" | "both";
   readonly annotations?: readonly AnnotationSpec[];
   /** Value labels above bars / beside points: always, never, or when there is room (per layout). */
-  readonly valueLabels?: boolean | "auto";
+  readonly valueLabels?: ValueLabels;
 }
 
 export interface HeatmapPlotSpec extends PlotSpecBase {
@@ -309,6 +334,8 @@ export interface MarkStyle {
   readonly tone?: Paint;
   readonly fill?: FillPaint;
   readonly fillOpacity?: number;
+  readonly radius?: number;
+  readonly material?: MaterialRef;
   readonly curve?: "linear" | "monotone" | "step";
   readonly dash?: "solid" | "dashed" | "dotted";
   readonly pointRadius?: number;
@@ -362,6 +389,10 @@ export interface AxisOptions extends AxisSpec {
 /** Chart-level options shared by cartesian and heatmap plots. */
 export interface ChartOptions {
   readonly title?: string;
+  readonly subtitle?: string;
+  readonly titleStyle?: Responsive<SemanticTextStyle>;
+  readonly subtitleStyle?: Responsive<SemanticTextStyle>;
+  readonly headingAlign?: Responsive<"start" | "center" | "end">;
   readonly description?: string;
   readonly axes?: { readonly x?: AxisOptions | false; readonly y?: AxisOptions | false };
   readonly legend?: false | { readonly position?: "top" | "bottom" };
@@ -390,7 +421,7 @@ export interface CartesianPlotOptions<
   readonly seriesBindings?: Partial<Record<SeriesKeys<Y, S>, SeriesBindings>>;
   readonly annotations?: readonly AnnotationSpec[];
   readonly grid?: "none" | "x" | "y" | "both";
-  readonly valueLabels?: boolean | "auto";
+  readonly valueLabels?: ValueLabels;
   readonly orientation?: "vertical" | "horizontal";
   /** Stack bar/area series (equivalent to `marks: stackedBar()`). */
   readonly stack?: boolean;
@@ -421,6 +452,26 @@ export type PlotOptions<
   Y extends YChannel<Row> = YChannel<Row>,
   S extends SeriesFieldName<Row> | undefined = SeriesFieldName<Row> | undefined,
 > = CartesianPlotOptions<Row, Y, S> | HeatmapPlotOptions<Row>;
+
+/** Opinionated but fully overridable single-series editorial bar chart. */
+export type EditorialBarChartOptions<
+  Row extends object,
+  X extends CategoryFieldName<Row> = CategoryFieldName<Row>,
+  Y extends NumericFieldName<Row> = NumericFieldName<Row>,
+> = Omit<CartesianPlotOptions<Row, Y, undefined>, "x" | "y" | "marks" | "series" | "tone"> & {
+  readonly x: X;
+  readonly y: Y;
+  /** Bottom-axis title. */
+  readonly axisLabel?: string;
+  /** Exact-zero label. Defaults to "never". Set false to render numeric zero. */
+  readonly zeroLabel?: string | false;
+  readonly fill?: FillPaint;
+  readonly tone?: Paint;
+  readonly radius?: number;
+  readonly material?: MaterialRef;
+  /** Fraction of each category band reserved as gutter. Defaults responsively via 0.38. */
+  readonly barPadding?: number;
+};
 
 /** Series keys inferred from the `y`/`series` channels of the generic form. */
 export type SeriesKeys<Y, S> = S extends string

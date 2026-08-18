@@ -1,9 +1,14 @@
+import { linearGradient, material, shadow } from "@kineglyph/core";
 import { compilePlot } from "./compile.js";
 import { inferSpec } from "./data.js";
+import { bar } from "./marks.js";
 import type {
+  CategoryFieldName,
   CartesianPlotOptions,
   CompileOptions,
+  EditorialBarChartOptions,
   HeatmapPlotOptions,
+  NumericFieldName,
   PlotOptions,
   PlotResult,
   PlotSpec,
@@ -14,6 +19,7 @@ import type {
 } from "./types.js";
 
 export * from "./marks.js";
+export * from "./editorial.js";
 export * from "./scales.js";
 export * from "./types.js";
 export { compilePlot } from "./compile.js";
@@ -70,4 +76,80 @@ export function plot(
     },
     diagnostics,
   };
+}
+
+/**
+ * A polished, responsive single-series bar chart in one call. Defaults are editorial rather than
+ * dashboard-like: display heading, optional subtitle, no y axis/grid/legend, prominent values,
+ * generous band spacing, gradient bars, a soft glow, and automatic rise motion. Every default can
+ * still be overridden through the ordinary plot options or the explicit visual knobs below.
+ */
+export function editorialBarChart<
+  Row extends object,
+  const X extends CategoryFieldName<Row>,
+  const Y extends NumericFieldName<Row>,
+>(
+  rows: readonly Row[],
+  options: EditorialBarChartOptions<Row, X, Y>,
+): PlotResult<SeriesKeys<Y, undefined>> {
+  const {
+    x,
+    y,
+    axisLabel,
+    zeroLabel = "never",
+    fill = linearGradient(
+      [
+        { at: 0, color: "chart1" },
+        { at: 0.55, color: "chart2" },
+        { at: 1, color: "chart3" },
+      ],
+      { angle: 90 },
+    ),
+    tone = "chart1",
+    radius = 8,
+    material: barMaterial = material("flat", {
+      effects: [shadow({ color: "chart1", opacity: 0.32, blur: 16, spread: 1 })],
+    }),
+    barPadding = 0.38,
+    axes,
+    valueLabels,
+    ...rest
+  } = options;
+  const xAxis =
+    axes?.x === false
+      ? false
+      : {
+          ...(axes?.x ?? {}),
+          padding: axes?.x?.padding ?? barPadding,
+          ...(axisLabel === undefined ? {} : { label: axisLabel }),
+        };
+  const defaultLabels = {
+    show: { wide: true, compact: true, narrow: "auto" as const },
+    ...(zeroLabel === false ? {} : { zero: zeroLabel }),
+    format: { thousands: true },
+    textStyle: "bodyStrong" as const,
+    gap: 8,
+  };
+  const labels =
+    valueLabels === undefined
+      ? defaultLabels
+      : typeof valueLabels === "object"
+        ? { ...defaultLabels, ...valueLabels }
+        : valueLabels;
+  return plot<Row, Y, undefined>(rows, {
+    ...rest,
+    x,
+    y,
+    marks: bar({ tone, fill, radius, material: barMaterial, padding: barPadding }),
+    axes: { x: xAxis, y: axes?.y ?? false },
+    grid: rest.grid ?? "none",
+    legend: rest.legend ?? false,
+    height: rest.height ?? { wide: 520, compact: 390, narrow: 280 },
+    titleStyle: rest.titleStyle ?? "display",
+    subtitleStyle: rest.subtitleStyle ?? "title",
+    headingAlign: rest.headingAlign ?? "center",
+    valueLabels: labels,
+    motion: rest.motion ?? "auto",
+    duration: rest.duration ?? 1_100,
+  });
 }

@@ -1,5 +1,15 @@
 import { describe, expectTypeOf, it } from "vitest";
-import { area, dot, heatmap, line, plot, range, rule, type PlotResult } from "../src/index.js";
+import {
+  area,
+  dot,
+  editorialBarChart,
+  heatmap,
+  line,
+  plot,
+  range,
+  rule,
+  type PlotResult,
+} from "../src/index.js";
 
 interface Row {
   category: string;
@@ -13,6 +23,13 @@ interface Row {
 const rows: readonly Row[] = [];
 
 describe("typed plot channels", () => {
+  it("keeps editorial bar channels and handles typed", () => {
+    const result = editorialBarChart(rows, { x: "category", y: "dense", title: "Dense" });
+    expectTypeOf(result).toEqualTypeOf<PlotResult<"dense">>();
+    // @ts-expect-error editorial y must name a numeric field
+    editorialBarChart(rows, { x: "category", y: "note" });
+  });
+
   it("retains literal wide-data handle keys and accepts layers", () => {
     const result = plot(rows, {
       x: "category",

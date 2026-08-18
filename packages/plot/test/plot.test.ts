@@ -13,6 +13,7 @@ import {
   bar,
   calloutAt,
   dot,
+  editorialBarChart,
   heatmap,
   line,
   plot,
@@ -45,6 +46,59 @@ function allNodes(root: SceneNode): SceneNode[] {
 }
 
 describe("plot compiler", () => {
+  it("builds a polished responsive editorial bar chart with one concise recipe", () => {
+    const result = editorialBarChart(
+      [
+        { eclipses: "0", years: 0 },
+        { eclipses: "1", years: 0 },
+        { eclipses: "2", years: 3610 },
+        { eclipses: "3", years: 894 },
+      ],
+      {
+        id: "eclipses",
+        x: "eclipses",
+        y: "years",
+        title: "Solar eclipses in a year",
+        subtitle: "2000 BCE – 3000 CE",
+        axisLabel: "number of solar eclipses in the year",
+      },
+    );
+
+    expect(findNode(result.fragment.nodes, "eclipses:title")).toMatchObject({
+      type: "text",
+      textStyle: "display",
+      align: "center",
+      width: "fill",
+    });
+    expect(findNode(result.fragment.nodes, "eclipses:subtitle")).toMatchObject({
+      textStyle: "title",
+      color: "textMuted",
+    });
+    expect(findNode(result.fragment.nodes, "eclipses:bar:years:2")).toMatchObject({
+      type: "rect",
+      radius: 8,
+      revealAnchor: "bottom",
+      material: { material: "flat" },
+    });
+    expect(findNode(result.fragment.nodes, "eclipses:label:years:0:text")).toMatchObject({
+      type: "text",
+      text: "never",
+      textStyle: "bodyStrong",
+    });
+    expect(result.handles.axes.y).toBeUndefined();
+    expect(result.fragment.tracks?.some((entry) => entry.property === "revealY")).toBe(true);
+
+    const scene = figure("editorial", { title: "Editorial" }, (f) => f.add(result));
+    const wide = resolveScene(scene, { width: 1200 });
+    const narrow = resolveScene(scene, { width: 390 });
+    const wideArea = wide.nodes.find((node) => node.id === "eclipses:area");
+    const narrowArea = narrow.nodes.find((node) => node.id === "eclipses:area");
+    expect(wideArea?.height).toBeGreaterThan(narrowArea?.height ?? Number.POSITIVE_INFINITY);
+    expect([...(wide.diagnostics ?? []), ...(narrow.diagnostics ?? [])]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ severity: "error" })]),
+    );
+  });
+
   it("applies a serializable easing to every generated plot track", () => {
     const easing = cubicBezier(0.16, 1, 0.3, 1);
     const result = plot(

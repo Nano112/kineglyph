@@ -139,6 +139,24 @@ export const streamCard = figure("stream-card", { title: "Active chunks" }, (f) 
 Bars, stacked bars, lines, areas, dots, heatmaps, and sparklines share the same theme, interaction,
 and export path.
 
+For an art-directed data story, `editorialBarChart` supplies responsive sizing and label density,
+display typography, gradient/glow bars, zero labels, and rise motion in one typed call:
+
+```ts
+import { editorialBarChart, editorialDarkTheme } from "@kineglyph/plot";
+
+const eclipses = editorialBarChart(data, {
+  x: "eclipses",
+  y: "years",
+  title: "Solar eclipses in a year",
+  subtitle: "2000 BCE – 3000 CE",
+  axisLabel: "number of solar eclipses in the year",
+});
+```
+
+The defaults remain ordinary plot options: override the fill, material, radius, axes, labels,
+height, or motion without leaving the recipe.
+
 ## Visual direction belongs to the theme
 
 A scene asks for semantic materials such as `raised`, `inset`, `floating`, or `glass`. The theme

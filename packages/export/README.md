@@ -125,11 +125,41 @@ diagnostics of severity `error` raise `invalid-scene` rather than emitting a bro
 ## CLI
 
 ```
-kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file>
+kineglyph-export [svg|png|gif] [--preset <module>#<export>] --out <file>
+    [--scene <module>[#export]]
     [--theme <module>#<export>] [--width N] [--height N] [--scale N] [--time MS]
-    [--fps N] [--hold-last MS] [--no-loop] [--background transparent|theme|<color>]
+    [--fps N] [--hold-last MS] [--loop|--no-loop] [--background transparent|theme|<color>]
     [--layout auto|wide|compact|narrow] [--state <machine state>] [--width-container N]
-    [--font <path>]... [--shape-font <family=path>]... [--no-system-fonts]
+    [--font <path>]... [--shape-font <family=path>]... [--system-fonts|--no-system-fonts]
+```
+
+### Export presets
+
+Keep the theme, responsive container width, output size, animation settings, and font shaping next
+to the figure, then override only what changes at the command line. Paths inside a preset resolve
+relative to the preset module:
+
+```ts
+import { defineExportPreset } from "@kineglyph/export";
+
+export const socialGif = defineExportPreset({
+  format: "gif",
+  scene: "./eclipses.js#eclipses",
+  theme: "./eclipses.js#theme",
+  containerWidth: 1200,
+  width: 1120,
+  fps: 10,
+  holdLast: 1000,
+  shapeFonts: [{ family: "Georgia", file: "./fonts/Georgia.ttf" }],
+  loadSystemFonts: false,
+  defaultFamily: "Georgia",
+});
+```
+
+```sh
+kineglyph-export --preset ./eclipses.js#socialGif --out eclipses.gif
+# Explicit flags win over preset values:
+kineglyph-export --preset ./eclipses.js#socialGif --fps 15 --width 1400 --out eclipses-hq.gif
 ```
 
 `--scene` is imported dynamically. The chosen export (default export, then `scene`, then

@@ -60,6 +60,7 @@ import {
   type SeriesHandle,
   type SeriesBindings,
   type SeriesSpec,
+  type ValueLabelOptions,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------------------------
@@ -559,7 +560,16 @@ function compileCartesian(context: Context): PlotResult {
   const anyBars = allLayers.some((layer) => layer.mark === "bar");
   const xKind: "linear" | "band" = xSpec?.type ?? (anyStringX || anyBars ? "band" : "linear");
   const stacked = spec.stack === true;
-  const valueLabelsMode: boolean | "auto" = context.minimal ? false : (spec.valueLabels ?? false);
+  const valueLabelOptions: ValueLabelOptions | undefined =
+    typeof spec.valueLabels === "object" ? spec.valueLabels : undefined;
+  const valueLabelsAt = (layout: LayoutName): boolean | "auto" =>
+    context.minimal
+      ? false
+      : valueLabelOptions === undefined
+        ? typeof spec.valueLabels === "object"
+          ? false
+          : (spec.valueLabels ?? false)
+        : pickOr(valueLabelOptions.show, layout, true);
   const anyPoints = allLayers.some((layer) => layer.mark === "point" || layer.pointRadius > 0);
   const maxRadius = Math.max(0, ...allLayers.map((layer) => layer.pointRadius));
 
@@ -613,22 +623,21 @@ function compileCartesian(context: Context): PlotResult {
         if (segment !== null) yValues.push(segment.start, segment.end);
     } else for (const point of layer.points) yValues.push(point.y);
   }
-  const labelsOnNarrow = valueLabelsMode === true;
+  const labelsOnNarrow = valueLabelsAt("narrow") !== false;
   const headroomHeight = context.heights[labelsOnNarrow ? "narrow" : "compact"];
-  const headroom =
-    valueLabelsMode === false
-      ? 0
-      : horizontal
-        ? Math.min(
-            0.4,
-            (Math.max(
-              0,
-              ...yValues.map((value) => (value === null ? 0 : estimateTextWidth(String(value)))),
-            ) +
-              12) /
-              PLOT_WIDTH_ESTIMATE[labelsOnNarrow ? "narrow" : "compact"],
-          )
-        : Math.min(0.4, (LINE_HEIGHT + (anyPoints ? maxRadius + 4 : 4)) / headroomHeight);
+  const headroom = !anyLayout(byLayout((layout) => valueLabelsAt(layout) !== false))
+    ? 0
+    : horizontal
+      ? Math.min(
+          0.4,
+          (Math.max(
+            0,
+            ...yValues.map((value) => (value === null ? 0 : estimateTextWidth(String(value)))),
+          ) +
+            12) /
+            PLOT_WIDTH_ESTIMATE[labelsOnNarrow ? "narrow" : "compact"],
+        )
+      : Math.min(0.4, (LINE_HEIGHT + (anyPoints ? maxRadius + 4 : 4)) / headroomHeight);
   const yAxis = setupLinearAxis(yValues, yLinearSpec, headroom);
   const yFormatSpec: NumberFormatSpec = {
     ...(yLinearSpec?.format ?? {}),
@@ -636,7 +645,14 @@ function compileCartesian(context: Context): PlotResult {
   };
   const yTickFormat = (value: number): string =>
     formatNumber(value, { ...yFormatSpec, step: yAxis.step });
-  const valueFormat = (value: number): string => formatNumber(value, yFormatSpec);
+  const valueFormatSpec: NumberFormatSpec = {
+    ...yFormatSpec,
+    ...(valueLabelOptions?.format ?? {}),
+  };
+  const valueFormat = (value: number): string =>
+    value === 0 && valueLabelOptions?.zero !== undefined
+      ? valueLabelOptions.zero
+      : formatNumber(value, valueFormatSpec);
 
   // ---- position (x) axis when linear -----------------------------------------------------------
   const xLinearSpec = xSpec?.type === "linear" ? xSpec : undefined;
@@ -847,8 +863,9 @@ function compileCartesian(context: Context): PlotResult {
       : undefined;
   const totalBars = barLayerCount * categories.length;
   const labelVisible = (marks: number, layout: LayoutName): boolean => {
-    if (valueLabelsMode === true) return true;
-    if (valueLabelsMode !== "auto") return false;
+    const mode = valueLabelsAt(layout);
+    if (mode === true) return true;
+    if (mode !== "auto") return false;
     if (layout === "narrow") return false;
     const budget = layout === "wide" ? 12 : 8;
     const total = layout === "wide" ? 24 : 12;
@@ -931,9 +948,7 @@ function compileCartesian(context: Context): PlotResult {
           : { highlight: layer.spec.bind.highlight };
       const markCount =
         layer.mark === "bar" && xKind === "band" ? categories.length : layer.points.length;
-      const labelsShown = byLayout(
-        (layout) => valueLabelsMode !== false && labelVisible(markCount, layout),
-      );
+      const labelsShown = byLayout((layout) => labelVisible(markCount, layout));
       const labelsHidden = hiddenFlag(byLayout((layout) => !labelsShown[layout]));
       const anyLabels = anyLayout(labelsShown);
 
@@ -968,7 +983,8 @@ function compileCartesian(context: Context): PlotResult {
             height: pct(rect.h),
             fill: point.tone ?? layer.fill ?? layer.tone,
             stroke: "none",
-            radius: 2,
+            radius: layer.spec.radius ?? 2,
+            ...(layer.spec.material === undefined ? {} : { material: layer.spec.material }),
             ...(layer.fillOpacity === undefined ? {} : { opacity: layer.fillOpacity }),
             revealAnchor: horizontal ? (negative ? "right" : "left") : negative ? "top" : "bottom",
             ...(visualBind === undefined ? {} : { bind: visualBind }),
@@ -978,7 +994,15 @@ function compileCartesian(context: Context): PlotResult {
           if (anyLabels && !stacked) {
             const labelId = `${p}:label:${entry.id}:${categoryIndex}`;
             children.push(
-              valueLabelNode(labelId, valueText, rect, negative, horizontal, labelsHidden),
+              valueLabelNode(
+                labelId,
+                valueText,
+                rect,
+                negative,
+                horizontal,
+                labelsHidden,
+                valueLabelOptions,
+              ),
             );
             labelIds.push(labelId);
           }
@@ -1002,7 +1026,8 @@ function compileCartesian(context: Context): PlotResult {
             height: pct(rect.h),
             fill: point.tone ?? layer.fill ?? layer.tone,
             stroke: "none",
-            radius: 2,
+            radius: layer.spec.radius ?? 2,
+            ...(layer.spec.material === undefined ? {} : { material: layer.spec.material }),
             ...(layer.fillOpacity === undefined ? {} : { opacity: layer.fillOpacity }),
             revealAnchor: horizontal ? (negative ? "right" : "left") : negative ? "top" : "bottom",
             ...(visualBind === undefined ? {} : { bind: visualBind }),
@@ -1012,7 +1037,15 @@ function compileCartesian(context: Context): PlotResult {
           if (anyLabels) {
             const labelId = `${p}:label:${entry.id}:${index}`;
             children.push(
-              valueLabelNode(labelId, valueText, rect, negative, horizontal, labelsHidden),
+              valueLabelNode(
+                labelId,
+                valueText,
+                rect,
+                negative,
+                horizontal,
+                labelsHidden,
+                valueLabelOptions,
+              ),
             );
             labelIds.push(labelId);
           }
@@ -1153,6 +1186,7 @@ function compileCartesian(context: Context): PlotResult {
                   false,
                   false,
                   labelsHidden,
+                  valueLabelOptions,
                   radius + 2,
                 ),
               );
@@ -1207,7 +1241,12 @@ function compileCartesian(context: Context): PlotResult {
   }
 
   // stacked totals as value labels
-  if (stacked && valueLabelsMode !== false && xBand !== undefined && barLayerCount > 0) {
+  if (
+    stacked &&
+    anyLayout(byLayout((layout) => valueLabelsAt(layout) !== false)) &&
+    xBand !== undefined &&
+    barLayerCount > 0
+  ) {
     const labelsShown = byLayout((layout) => labelVisible(categories.length, layout));
     if (anyLayout(labelsShown)) {
       const labelsHidden = hiddenFlag(byLayout((layout) => !labelsShown[layout]));
@@ -1240,6 +1279,7 @@ function compileCartesian(context: Context): PlotResult {
             negativeOnly,
             horizontal,
             labelsHidden,
+            valueLabelOptions,
           ),
         );
         valueLabelIds.push(labelId);
@@ -1446,7 +1486,28 @@ function compileCartesian(context: Context): PlotResult {
   let titleId: string | undefined;
   if (spec.title !== undefined && !context.minimal) {
     titleId = `${p}:title`;
-    rootChildren.push({ id: titleId, type: "text", text: spec.title, textStyle: "bodyStrong" });
+    rootChildren.push({
+      id: titleId,
+      type: "text",
+      text: spec.title,
+      textStyle: spec.titleStyle ?? "bodyStrong",
+      ...(spec.headingAlign === undefined
+        ? {}
+        : { align: spec.headingAlign, width: "fill" as const }),
+    });
+  }
+  if (spec.subtitle !== undefined && !context.minimal) {
+    rootChildren.push({
+      id: `${p}:subtitle`,
+      type: "text",
+      text: spec.subtitle,
+      textStyle: spec.subtitleStyle ?? "caption",
+      color: "textMuted",
+      maxLines: 3,
+      ...(spec.headingAlign === undefined
+        ? {}
+        : { align: spec.headingAlign, width: "fill" as const }),
+    });
   }
   const legendItems: LegendItem[] = series.map((entry) => {
     const primary = entry.layers.find((layer) => layer.mark === "bar") ?? entry.layers[0];
@@ -1536,14 +1597,16 @@ function valueLabelNode(
   negative: boolean,
   horizontal: boolean,
   hidden: Responsive<boolean> | undefined,
-  gapPx = 0,
+  options?: ValueLabelOptions,
+  gapPx = options?.gap ?? 0,
 ): SceneNode {
   const wrapped = gapPx > 0 || horizontal;
   const textNode: TextMark = {
     id: wrapped ? `${id}:text` : id,
     type: "text",
     text,
-    textStyle: "caption",
+    textStyle: options?.textStyle ?? "caption",
+    ...(options?.tone === undefined ? {} : { color: options.tone }),
     align: "center",
   };
   if (horizontal) {

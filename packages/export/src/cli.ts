@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   LayoutName,
@@ -11,7 +11,7 @@ import type {
 } from "@kineglyph/core";
 import { resolveMachineState, resolvePipeline, resolveScene } from "@kineglyph/core";
 import { KineglyphExportError } from "./errors.js";
-import { createEmbeddedFontMeasurer } from "./font-shaping.js";
+import { createEmbeddedFontMeasurer, type EmbeddedFontSource } from "./font-shaping.js";
 import { exportFile } from "./file.js";
 import { gifInfo, pngInfo } from "./formats.js";
 import type { GifExportOptions } from "./gif.js";
@@ -19,12 +19,15 @@ import { exportGif } from "./gif.js";
 import type { PngExportOptions } from "./png.js";
 import { exportPng } from "./png.js";
 import type { FontOptions } from "./raster.js";
+import type { ExportPreset } from "./preset.js";
 import type { SvgExportOptions } from "./svg.js";
 import { exportSvg, resolveOutputSize, sceneDimensions } from "./svg.js";
 
-const USAGE = `Usage: kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file> [options]
+const USAGE = `Usage: kineglyph-export [svg|png|gif] [--preset <module>#<export>] --out <file> [options]
 
 Options:
+  --preset <module>#<export> Reusable export defaults; explicit CLI flags override them
+  --scene <module>#<export>  Scene export (required unless supplied by --preset)
   --theme <module>#<export>   Theme tokens module (object, factory, or dotted path like #themes.paper)
   --width <px>                Output width (height follows the scene aspect ratio)
   --height <px>               Output height (width follows the scene aspect ratio)
@@ -32,22 +35,23 @@ Options:
   --time <ms>                 Timeline time for svg/png (default: final frame)
   --fps <n>                   GIF sampling rate, 1-60 (default: 12)
   --hold-last <ms>            Extra hold on the final GIF frame (default: 800)
-  --no-loop                   Play the GIF once instead of looping
+  --loop / --no-loop          Override GIF looping (default: loop)
   --background <mode>         transparent | theme | <css color> (default: theme)
   --layout <mode>             auto | wide | compact | narrow (stacked for pipelines)
   --state <id>                Machine state to resolve (scene definitions with a machine)
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
   --font <path>               Font file for png/gif (repeatable)
   --shape-font <family=path>  HarfBuzz font for layout and png/gif (repeatable)
-  --no-system-fonts           Do not load fonts installed on this machine
+  --system-fonts / --no-system-fonts  Override loading fonts installed on this machine
   --default-font <family>     Fallback font family for png/gif
   -h, --help                  Show this help
 `;
 
 interface CliArgs {
-  readonly format: "svg" | "png" | "gif";
-  readonly scene: string;
-  readonly out: string;
+  readonly format?: "svg" | "png" | "gif";
+  readonly preset?: string;
+  readonly scene?: string;
+  readonly out?: string;
   readonly theme?: string;
   readonly width?: number;
   readonly height?: number;
@@ -55,14 +59,14 @@ interface CliArgs {
   readonly time?: number;
   readonly fps?: number;
   readonly holdLast?: number;
-  readonly loop: boolean;
+  readonly loop?: boolean;
   readonly background?: string;
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly state?: string;
   readonly containerWidth?: number;
   readonly fonts: readonly string[];
   readonly shapeFonts: readonly string[];
-  readonly loadSystemFonts: boolean;
+  readonly loadSystemFonts?: boolean;
   readonly defaultFamily?: string;
 }
 
@@ -73,10 +77,11 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
   const values = new Map<string, string>();
   const fonts: string[] = [];
   const shapeFonts: string[] = [];
-  let loop = true;
-  let loadSystemFonts = true;
+  let loop: boolean | undefined;
+  let loadSystemFonts: boolean | undefined;
   const valueFlags = new Set([
     "scene",
+    "preset",
     "out",
     "theme",
     "width",
@@ -100,8 +105,16 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
       loop = false;
       continue;
     }
+    if (arg === "--loop") {
+      loop = true;
+      continue;
+    }
     if (arg === "--no-system-fonts") {
       loadSystemFonts = false;
+      continue;
+    }
+    if (arg === "--system-fonts") {
+      loadSystemFonts = true;
       continue;
     }
     if (arg.startsWith("--")) {
@@ -122,21 +135,26 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     }
     positional.push(arg);
   }
-  const format = positional[0];
-  if (format !== "svg" && format !== "png" && format !== "gif") {
+  const rawFormat = positional[0];
+  const format: CliArgs["format"] =
+    rawFormat === "svg" || rawFormat === "png" || rawFormat === "gif" ? rawFormat : undefined;
+  if (rawFormat !== undefined && format === undefined)
     throw new UsageError("first argument must be one of: svg, png, gif");
-  }
   if (positional.length > 1) throw new UsageError(`unexpected argument ${positional[1] ?? ""}`);
   const scene = values.get("scene");
   const out = values.get("out");
-  if (scene === undefined) throw new UsageError("--scene is required");
-  if (out === undefined) throw new UsageError("--out is required");
+  const preset = values.get("preset");
+  if (preset === undefined && format === undefined)
+    throw new UsageError("choose a format or supply --preset");
+  if (preset === undefined && scene === undefined) throw new UsageError("--scene is required");
+  if (preset === undefined && out === undefined) throw new UsageError("--out is required");
   const layout = parseLayout(values.get("layout"));
   const state = values.get("state");
   return {
-    format,
-    scene,
-    out,
+    ...optional("format", format),
+    ...optional("preset", preset),
+    ...optional("scene", scene),
+    ...optional("out", out),
     ...optional("theme", values.get("theme")),
     ...optional("width", numeric("width", values.get("width"))),
     ...optional("height", numeric("height", values.get("height"))),
@@ -144,14 +162,14 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     ...optional("time", numeric("time", values.get("time"))),
     ...optional("fps", numeric("fps", values.get("fps"))),
     ...optional("holdLast", numeric("hold-last", values.get("hold-last"))),
-    loop,
+    ...optional("loop", loop),
     ...optional("background", values.get("background")),
     ...optional("layout", layout),
     ...optional("state", state),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
     fonts,
     shapeFonts,
-    loadSystemFonts,
+    ...optional("loadSystemFonts", loadSystemFonts),
     ...optional("defaultFamily", values.get("default-font")),
   };
 }
@@ -233,6 +251,61 @@ async function loadTheme(spec: string | undefined): Promise<ThemeTokens | undefi
   return value as unknown as ThemeTokens;
 }
 
+function presetRelative(spec: string, base: string): string {
+  const hash = spec.lastIndexOf("#");
+  const modulePath = hash === -1 ? spec : spec.slice(0, hash);
+  const suffix = hash === -1 ? "" : spec.slice(hash);
+  return `${isAbsolute(modulePath) ? modulePath : resolvePath(base, modulePath)}${suffix}`;
+}
+
+async function loadPreset(spec: string | undefined): Promise<ExportPreset> {
+  if (spec === undefined) return {};
+  let value = await loadExport(spec);
+  if (typeof value === "function") value = await (value as () => unknown)();
+  if (!isRecord(value)) throw new UsageError(`${spec} does not export an export preset object`);
+  if (
+    value.format !== undefined &&
+    value.format !== "svg" &&
+    value.format !== "png" &&
+    value.format !== "gif"
+  )
+    throw new UsageError(`${spec}: preset format must be svg, png, or gif`);
+  for (const key of ["scene", "out", "theme"] as const)
+    if (value[key] !== undefined && typeof value[key] !== "string")
+      throw new UsageError(`${spec}: preset ${key} must be a string`);
+  if (value.fonts !== undefined && !Array.isArray(value.fonts))
+    throw new UsageError(`${spec}: preset fonts must be an array of paths`);
+  if (Array.isArray(value.fonts) && value.fonts.some((file) => typeof file !== "string"))
+    throw new UsageError(`${spec}: every preset font must be a path string`);
+  if (value.shapeFonts !== undefined && !Array.isArray(value.shapeFonts))
+    throw new UsageError(`${spec}: preset shapeFonts must be an array of font sources`);
+  if (
+    Array.isArray(value.shapeFonts) &&
+    value.shapeFonts.some((source) => !isRecord(source) || typeof source.file !== "string")
+  )
+    throw new UsageError(`${spec}: every preset shape font needs a file path`);
+  const preset = value as unknown as ExportPreset;
+  const hash = spec.lastIndexOf("#");
+  const modulePath = hash === -1 ? spec : spec.slice(0, hash);
+  const base = dirname(resolvePath(process.cwd(), modulePath));
+  return {
+    ...preset,
+    ...(preset.scene === undefined ? {} : { scene: presetRelative(preset.scene, base) }),
+    ...(preset.theme === undefined ? {} : { theme: presetRelative(preset.theme, base) }),
+    ...(preset.fonts === undefined
+      ? {}
+      : { fonts: preset.fonts.map((file) => (isAbsolute(file) ? file : resolvePath(base, file))) }),
+    ...(preset.shapeFonts === undefined
+      ? {}
+      : {
+          shapeFonts: preset.shapeFonts.map((source) => ({
+            ...source,
+            file: isAbsolute(source.file) ? source.file : resolvePath(base, source.file),
+          })),
+        }),
+  };
+}
+
 interface ResolveContext {
   readonly width: number;
   readonly layout: LayoutName | "auto" | "stacked" | undefined;
@@ -305,65 +378,88 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function run(argv: readonly string[]): Promise<number> {
-  const args = parseArgs(argv);
-  if (args === "help") {
+  const parsed = parseArgs(argv);
+  if (parsed === "help") {
     process.stdout.write(USAGE);
     return 0;
   }
-  const theme = await loadTheme(args.theme);
+  const preset = await loadPreset(parsed.preset);
+  const format = parsed.format ?? preset.format;
+  if (format !== "svg" && format !== "png" && format !== "gif")
+    throw new UsageError("format is required (svg, png, or gif)");
+  const sceneSpec = parsed.scene ?? preset.scene;
+  if (sceneSpec === undefined) throw new UsageError("--scene is required (directly or in preset)");
+  const out = parsed.out ?? preset.out;
+  if (out === undefined) throw new UsageError("--out is required (directly or in preset)");
+  const themeSpec = parsed.theme ?? preset.theme;
+  const theme = await loadTheme(themeSpec);
+  const shapeSources: EmbeddedFontSource[] = [
+    ...(preset.shapeFonts ?? []),
+    ...parsed.shapeFonts.map(parseShapeFont),
+  ];
   const shapedFonts =
-    args.shapeFonts.length === 0
-      ? undefined
-      : await createEmbeddedFontMeasurer(args.shapeFonts.map(parseShapeFont));
-  const scene = await loadScene(args.scene, {
-    width: args.containerWidth ?? 960,
-    layout: args.layout,
-    state: args.state,
+    shapeSources.length === 0 ? undefined : await createEmbeddedFontMeasurer(shapeSources);
+  const containerWidth = parsed.containerWidth ?? preset.containerWidth ?? 960;
+  const layout = parsed.layout ?? preset.layout;
+  const state = parsed.state ?? preset.state;
+  const scene = await loadScene(sceneSpec, {
+    width: containerWidth,
+    layout,
+    state,
     theme,
     textMeasurer: shapedFonts,
   });
+  const width = parsed.width ?? preset.width;
+  const height = parsed.height ?? preset.height;
+  const scale = parsed.scale ?? preset.scale;
+  const background = parsed.background ?? preset.background;
+  const time = parsed.time ?? preset.time;
   const frameOptions: Omit<SvgExportOptions, "time"> = {
-    ...(args.width === undefined ? {} : { width: args.width }),
-    ...(args.height === undefined ? {} : { height: args.height }),
-    ...(args.scale === undefined ? {} : { scale: args.scale }),
-    ...(args.background === undefined ? {} : { background: args.background }),
+    ...(width === undefined ? {} : { width }),
+    ...(height === undefined ? {} : { height }),
+    ...(scale === undefined ? {} : { scale }),
+    ...(background === undefined ? {} : { background }),
   };
   const timeOptions: SvgExportOptions = {
     ...frameOptions,
-    ...(args.time === undefined ? {} : { time: args.time }),
+    ...(time === undefined ? {} : { time }),
   };
+  const loadSystemFonts = parsed.loadSystemFonts ?? preset.loadSystemFonts ?? true;
+  const defaultFamily = parsed.defaultFamily ?? preset.defaultFamily;
   const fonts: FontOptions = {
-    files: [...new Set([...args.fonts, ...(shapedFonts?.files ?? [])])],
-    loadSystemFonts: args.loadSystemFonts,
-    ...(args.defaultFamily === undefined ? {} : { defaultFamily: args.defaultFamily }),
+    files: [...new Set([...(preset.fonts ?? []), ...parsed.fonts, ...(shapedFonts?.files ?? [])])],
+    loadSystemFonts,
+    ...(defaultFamily === undefined ? {} : { defaultFamily }),
   };
 
   let summary: string;
-  if (args.format === "svg") {
+  if (format === "svg") {
     const svg = exportSvg(scene, timeOptions);
-    await exportFile(args.out, svg);
+    await exportFile(out, svg);
     const size = resolveOutputSize(sceneDimensions(scene), timeOptions, false);
     summary = `${size.width}x${size.height}, ${svg.length} chars`;
-  } else if (args.format === "png") {
+  } else if (format === "png") {
     const pngOptions: PngExportOptions = { ...timeOptions, fonts };
     const png = await exportPng(scene, pngOptions);
-    await exportFile(args.out, png);
+    await exportFile(out, png);
     const info = pngInfo(png);
     summary = `${info.width}x${info.height}, ${png.length} bytes`;
   } else {
     const gifOptions: GifExportOptions = {
       ...frameOptions,
       fonts,
-      loop: args.loop,
-      ...(args.fps === undefined ? {} : { fps: args.fps }),
-      ...(args.holdLast === undefined ? {} : { holdLast: args.holdLast }),
+      loop: parsed.loop ?? preset.loop ?? true,
+      ...((parsed.fps ?? preset.fps) === undefined ? {} : { fps: parsed.fps ?? preset.fps }),
+      ...((parsed.holdLast ?? preset.holdLast) === undefined
+        ? {}
+        : { holdLast: parsed.holdLast ?? preset.holdLast }),
     };
     const gif = await exportGif(scene, gifOptions);
-    await exportFile(args.out, gif);
+    await exportFile(out, gif);
     const info = gifInfo(gif);
     summary = `${info.width}x${info.height}, ${info.frameCount} frame${info.frameCount === 1 ? "" : "s"}, ${gif.length} bytes`;
   }
-  process.stdout.write(`wrote ${args.out} (${args.format}, ${summary})\n`);
+  process.stdout.write(`wrote ${out} (${format}, ${summary})\n`);
   return 0;
 }
 

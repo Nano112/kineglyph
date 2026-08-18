@@ -68,7 +68,8 @@ the builder path in the message.
 
 | Helper                                                                                                                                                                                                                     | Returns                         | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                 | `TextMark`                      | `opts`: `id, tone, align, maxLines, bind, hidden, width, transform`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                 | `TextMark`                      | Text plus every ordinary node placement/material option; `position` and `width` may be responsive                                                                                                                                                                                                                                                                                                                                                       |
+| `f.textAt(text, position, opts)`, `f.labelAt(text, position, opts)`                                                                                                                                                        | `TextMark`                      | Coordinate/absolute text without `f.raw`; `labelAt` defaults to `bodyStrong`, and `position` may provide `wide` / `compact` / `narrow` values                                                                                                                                                                                                                                                                                                           |
 | `f.badge(text, opts)`                                                                                                                                                                                                      | `BadgeMark`                     | `tone, variant, bind`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `f.icon(name, opts)`                                                                                                                                                                                                       | `IconMark`                      | motif name from `@kineglyph/svg`                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `f.rect(opts)`, `f.circle(opts)`, `f.polyline(points, opts)`, `f.path(d, viewBox, opts)`, `f.image(src, alt, opts)`, `f.legend(items, opts)`, `f.callout(text, opts)`                                                      | marks                           | thin typed wrappers over the schema                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -181,6 +182,35 @@ Implementation notes (`packages/core/src/figure.ts`; the cookbook is `cookbook.m
 
 ## `plot()`
 
+For a publication-style single-series bar chart, start with the opinionated recipe. It supplies
+responsive heights and label density, display typography, a hidden y axis, gradient/glow bars,
+zero labels, and rise motion; every choice remains overridable through normal plot options:
+
+```ts
+import { editorialBarChart, editorialDarkTheme } from "@kineglyph/plot";
+
+const chart = editorialBarChart(
+  [
+    { eclipses: "0", years: 0 },
+    { eclipses: "1", years: 0 },
+    { eclipses: "2", years: 3610 },
+    { eclipses: "3", years: 894 },
+  ],
+  {
+    x: "eclipses",
+    y: "years",
+    title: "Solar eclipses in a year",
+    subtitle: "2000 BCE – 3000 CE",
+    axisLabel: "number of solar eclipses in the year",
+  },
+);
+```
+
+Use `editorialDarkTheme` directly or derive a branded variant with
+`createTheme(overrides, editorialDarkTheme)`. `editorialBarChart` also accepts `fill`, `material`,
+`radius`, `barPadding`, `zeroLabel`, responsive `height`, ordinary axis/grid options, and the full
+`valueLabels` object (`show`, `format`, `textStyle`, `tone`, `gap`).
+
 The primary entry point is generic and inferred from data:
 
 `plot<Row>(rows, options)` where channels are typed field names of `Row` (`x`, `y` or
@@ -202,7 +232,8 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
   diverge below the baseline), `line`, `area`, `scatter`/`dot`; `heatmap` (sequential or
   diverging ramp); `sparkline` (minimal mode). Bar and area helpers accept `fill` and
   `fillOpacity`; line and point color remains `tone`.
-- Axes, gridlines, derived legends, value labels (`auto` uses layout-aware rules), annotations:
+- Axes, gridlines, derived legends, value labels (`auto` uses layout-aware rules; the object form
+  adds responsive `show`, zero replacement, formatting, style, tone, and gap), annotations:
   reference lines/bands, point labels, datum callouts.
 - Output: a root group `${id}` containing an optional title/legend and `${id}:area` — a
   `coordinates` group with percent-sized rects, fractional polylines, circles, tick texts — plus a
