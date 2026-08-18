@@ -13,8 +13,8 @@ npm install @kineglyph/core @kineglyph/svg
 for the container width, measures text, and routes connectors; the SVG renderer draws that resolved
 geometry.
 
-The example is preview-first. Open **Editor + preview** to change a card or switch `f.flow` to
-`f.stack`.
+The example is preview-first. Choose **Edit figure** underneath to change a card or switch `f.flow`
+to `f.stack`.
 
 ```kineglyph live id=getting-started-figure view=preview height=390 autoplay=true
 import { figure } from "kineglyph";

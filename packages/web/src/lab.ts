@@ -68,7 +68,8 @@ const LAB_STYLES = `
 .kg-lab__tabs,.kg-lab__actions{display:flex;align-items:center;gap:4px}.kg-lab button{appearance:none;border:1px solid transparent;border-radius:7px;padding:8px 10px;background:transparent;color:var(--kg-lab-muted);font:650 12px/1 var(--kg-lab-font);cursor:pointer}.kg-lab button:hover{color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab button:focus-visible{outline:2px solid var(--kg-lab-accent);outline-offset:1px}.kg-lab__tabs button[aria-selected=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 35%,var(--kg-lab-border));background:color-mix(in srgb,var(--kg-lab-accent) 10%,transparent);color:var(--kg-lab-text)}.kg-lab__run{color:var(--kg-lab-text)!important}.kg-lab__shortcut{margin-left:4px;color:var(--kg-lab-muted);font:10px/1 var(--kg-lab-mono)}
 .kg-lab__workspace{display:grid;min-width:0;min-height:var(--kg-lab-height,420px);grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kg-lab__editor,.kg-lab__preview{min-width:0;min-height:0}.kg-lab__editor{height:var(--kg-lab-height,420px);overflow:hidden;border-right:1px solid var(--kg-lab-border);background:var(--kg-lab-code-bg)}.kg-lab__preview{display:grid;align-content:center;overflow:auto;padding:16px;background:var(--kg-lab-bg)}.kg-lab__preview-host{width:100%;min-width:0}.kg-lab__loading{display:grid;height:100%;place-items:center;color:var(--kg-lab-muted);font:12px/1.5 var(--kg-lab-font)}
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
-.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
+.kg-lab__preview-actions{display:none}.kg-lab__edit{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
+.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;justify-content:flex-end;padding:6px 0 0;background:transparent}
 @container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
 `;
@@ -107,6 +108,12 @@ function showStatic(element: HTMLElement, show: boolean): void {
 function message(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/** In a lab, `auto` is deliberately quiet; only `true` opts into persistent figure chrome. */
+function explicitChromeAttr(value: string | undefined): ChromeSetting | undefined {
+  const parsed = chromeAttr(value);
+  return parsed === "auto" ? undefined : parsed;
 }
 
 /** Evaluates an ESM scene in the browser. Bare imports are resolved by the page's import map. */
@@ -207,7 +214,15 @@ class LabRuntime implements KineglyphLabController {
     this.#status.setAttribute("role", "status");
     this.#status.setAttribute("aria-live", "polite");
     this.#status.textContent = "Preparing preview…";
-    this.#shell.append(bar, workspace, this.#status);
+    const previewActions = doc.createElement("div");
+    previewActions.className = "kg-lab__preview-actions";
+    const edit = doc.createElement("button");
+    edit.type = "button";
+    edit.className = "kg-lab__edit";
+    edit.textContent = "Edit figure";
+    edit.addEventListener("click", () => this.focus());
+    previewActions.append(edit);
+    this.#shell.append(bar, workspace, previewActions, this.#status);
     const height = Number(element.dataset.height);
     if (Number.isFinite(height) && height >= 240 && height <= 1200)
       this.#shell.style.setProperty("--kg-lab-height", `${Math.round(height)}px`);
@@ -274,8 +289,8 @@ class LabRuntime implements KineglyphLabController {
           scene,
           ...(this.#theme === undefined ? {} : { theme: this.#theme }),
           autoplay: this.#options.autoplay ?? false,
-          controls: this.#options.controls ?? "auto",
-          readout: this.#options.readout ?? "auto",
+          controls: this.#options.controls ?? false,
+          readout: this.#options.readout ?? false,
           machineControls: this.#options.machineControls ?? "auto",
         });
       } else {
@@ -395,6 +410,9 @@ export async function mountAllKineglyphLabs(
     const view = isView(element.dataset.view) ? element.dataset.view : undefined;
     const autoplay =
       element.dataset.autoplay === "true" ? true : (local.autoplay ?? shared.autoplay);
+    const controls =
+      local.controls ?? shared.controls ?? explicitChromeAttr(element.dataset.controls);
+    const readout = local.readout ?? shared.readout ?? explicitChromeAttr(element.dataset.readout);
     const controller = mountKineglyphLab(element, {
       ...shared,
       ...local,
@@ -402,8 +420,8 @@ export async function mountAllKineglyphLabs(
       ...(view === undefined ? {} : { view }),
       ...(theme === undefined ? {} : { theme }),
       ...(autoplay === undefined ? {} : { autoplay }),
-      controls: local.controls ?? shared.controls ?? chromeAttr(element.dataset.controls),
-      readout: local.readout ?? shared.readout ?? chromeAttr(element.dataset.readout),
+      ...(controls === undefined ? {} : { controls }),
+      ...(readout === undefined ? {} : { readout }),
       machineControls:
         local.machineControls ??
         shared.machineControls ??

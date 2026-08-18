@@ -26,6 +26,12 @@ describe("mountKineglyphLab", () => {
     expect(await lab.ready).toBe(true);
     expect(lab.figure?.scene.id).toBe("lab-first");
     expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+    expect(host.querySelector(".kg-figure__controls")).toBeNull();
+    expect(host.querySelector(".kg-figure__readout")).toBeNull();
+    const edit = host.querySelector<HTMLButtonElement>(".kg-lab__edit");
+    expect(edit?.textContent).toBe("Edit figure");
+    edit?.click();
+    expect(lab.view).toBe("split");
 
     lab.setSource("second", { run: false });
     expect(await lab.run()).toBe(true);
@@ -34,6 +40,9 @@ describe("mountKineglyphLab", () => {
     expect(host.querySelector(".kg-lab__preview-host")).not.toBeNull();
     expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
       "@container kg-lab (max-width:640px)",
+    );
+    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
+      ".kg-lab[data-view=preview] .kg-lab__bar",
     );
   });
 
@@ -90,5 +99,16 @@ describe("mountAllKineglyphLabs", () => {
     expect(first).toHaveLength(1);
     expect(first[0]?.source).toBe("one");
     expect(second).toEqual([]);
+  });
+
+  it('keeps "auto" transport and readout chrome quiet, but honours an explicit opt-in', async () => {
+    document.body.innerHTML = `
+      <figure id="quiet" data-kineglyph-lab data-view="preview" data-controls="auto" data-readout="auto"><script type="text/kineglyph">quiet</script></figure>
+      <figure id="explicit" data-kineglyph-lab data-view="preview" data-controls="true" data-readout="true"><script type="text/kineglyph">explicit</script></figure>`;
+    await mountAllKineglyphLabs({ load: (source: string) => Promise.resolve(scene(source)) });
+    expect(document.querySelector("#quiet .kg-figure__controls")).toBeNull();
+    expect(document.querySelector("#quiet .kg-figure__readout")).toBeNull();
+    expect(document.querySelector("#explicit .kg-figure__controls")).not.toBeNull();
+    expect(document.querySelector("#explicit .kg-figure__readout")).not.toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 # Visual gallery
 
-These are working Kineglyph scenes, not screenshots. Each one starts in **Preview** so the page
-stays calm; choose **Editor + preview** in its toolbar to change the source, then press **Run** (or
+These are working Kineglyph scenes, not screenshots. Each one starts as only the finished glyph
+with a quiet **Edit figure** button underneath. Open it to change the source, then press **Run** (or
 <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd>). Everything runs locally in the browser, and this
 Gerrymander-hosted page refreshes as the documentation changes on disk.
 
