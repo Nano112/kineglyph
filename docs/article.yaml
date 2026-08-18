@@ -9,6 +9,9 @@ description: >-
   Build deterministic, responsive technical illustrations and quantitative graphics from concise,
   typed scene definitions—with motion, interaction, theming, and reproducible export.
 author: Kineglyph contributors
+site_url: https://nano112.github.io/kineglyph/
+published: 2026-08-18
+updated: 2026-08-18
 
 kineglyph:
   widths: [960, 640, 440, 320]
@@ -17,10 +20,12 @@ snippets:
   roots: [".", ".."]
 
 exclude:
-  - assets/
+  - assets/fonts/
+  - assets/readme/
 
 nav:
   - { title: Introduction, page: index.md }
+  - { title: Getting started, page: getting-started.md }
   - section: Authoring
     children:
       - { title: Authoring API, page: authoring-api.md }

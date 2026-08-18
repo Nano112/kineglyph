@@ -5,3 +5,5 @@ coverage/
 *.log
 apps/playground/.vite/
 .release/
+site/
+site.pgz

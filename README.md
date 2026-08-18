@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://nano112.github.io/kineglyph/">Documentation</a> ·
   <a href="./docs/cookbook.md">Cookbook</a> ·
   <a href="./docs/authoring-api.md">Authoring API</a> ·
   <a href="./docs/materials-and-effects.md">Materials</a> ·

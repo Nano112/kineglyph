@@ -1,6 +1,7 @@
 import type { SceneDefinition } from "@kineglyph/core";
 import { benchmarkBreakdownEntry } from "./scenes/benchmark-breakdown.js";
 import { bottleneckLensEntry } from "./scenes/bottleneck-lens.js";
+import { diplomatSurfacesEntry } from "./scenes/diplomat-surfaces.js";
 import { materialDirectionsScene } from "./scenes/material-directions.js";
 import { operationHeatmapEntry } from "./scenes/operation-heatmap.js";
 import { throughputOverTimeEntry } from "./scenes/throughput-over-time.js";
@@ -38,6 +39,7 @@ const materialDirectionsEntry: CatalogueEntry = {
 /** Generic examples shipped with Kineglyph. Product scenes belong to their consumers. */
 export const catalogue: readonly CatalogueEntry[] = [
   materialDirectionsEntry,
+  diplomatSurfacesEntry,
   benchmarkBreakdownEntry,
   throughputOverTimeEntry,
   operationHeatmapEntry,

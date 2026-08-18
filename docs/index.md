@@ -4,6 +4,8 @@ Kineglyph turns compact scene definitions into deterministic technical illustrat
 scene can be responsive, animated, interactive, themeable, rendered as SVG in a browser, or
 exported reproducibly to PNG and GIF.
 
+[Install Kineglyph](./getting-started.md) or edit the live example below directly in your browser.
+
 The example below is the documentation: edit its labels, tones, layout, or timeline and the
 preview updates without reloading this page.
 
@@ -30,6 +32,9 @@ export default sceneFromSpec({
 });
 ```
 
+The live editor uses Pagina's unified `kineglyph` browser module. Application code imports the
+published `@kineglyph/*` packages directly.
+
 ## Start with the authoring surface
 
 New figures normally begin with `figure()` for explanatory diagrams or `plot()` for quantitative
@@ -50,3 +55,14 @@ labels become unreadable.
 - [Embedding and theming](./embedding-and-theming.md) covers hydration and the CSS token contract.
 - [Architecture](./architecture.md) follows a scene through resolution, rendering, animation, and
   export.
+
+## A complete architecture figure
+
+This responsive binding diagram is authored entirely with `figure()`, semantic cards and
+materials, adaptive connector ports, inspection metadata, and one timeline. On a wide canvas the
+generator fans out into six explicit routes; compact layouts replace those routes with one clear
+group handoff.
+
+![A Rust core flowing through annotations and Diplomat into six generated language surfaces, with a direct Rust route.](./assets/examples/diplomat-surfaces.svg)
+
+The same scene also exports to PNG and animated GIF without maintaining a second drawing.

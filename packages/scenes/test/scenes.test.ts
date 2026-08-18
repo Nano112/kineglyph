@@ -24,6 +24,7 @@ describe("illustration catalogue", () => {
   it("lists the generic example scenes with authored copy", () => {
     expect(catalogue.map((entry) => entry.slug)).toEqual([
       "material-directions",
+      "diplomat-surfaces",
       "benchmark-breakdown",
       "throughput-over-time",
       "operation-heatmap",
