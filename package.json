@@ -33,7 +33,10 @@
     "audit": "npm audit --audit-level=moderate",
     "bootstrap": "npm run build --workspace @kineglyph/core && npm run build --workspace @kineglyph/svg && npm run build --workspace @kineglyph/export && npm run build --workspace @kineglyph/anime && npm run build --workspace @kineglyph/plot && npm run build --workspace @kineglyph/scenes && npm run build --workspace @kineglyph/web && npm run build --workspace @kineglyph/react",
     "clean": "node scripts/clean.mjs",
-    "check:clean": "npm run clean && npm run check"
+    "check:clean": "npm run clean && npm run check",
+    "release:check": "node scripts/release.mjs check",
+    "release:pack": "node scripts/release.mjs pack",
+    "release:publish": "node scripts/release.mjs publish"
   },
   "engines": {
     "node": ">=22.12"
@@ -47,5 +50,14 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.10"
+  },
+  "author": "Harrison (https://github.com/Nano112)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
   }
 }

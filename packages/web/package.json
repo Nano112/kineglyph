@@ -3,6 +3,24 @@
   "version": "0.1.0",
   "description": "Framework-neutral browser runtime for Kineglyph figures: mount, control, inspect, and dispose.",
   "license": "MIT",
+  "author": "Harrison (https://github.com/Nano112)",
+  "keywords": [
+    "diagram",
+    "svg",
+    "browser",
+    "runtime",
+    "interactive",
+    "kineglyph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/web"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/web#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -26,8 +44,19 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!**/__tests__",
+    "!**/*.tsbuildinfo"
   ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -36,10 +65,10 @@
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.5.2",
-    "@kineglyph/anime": "*",
-    "@kineglyph/core": "*",
-    "@kineglyph/plot": "*",
-    "@kineglyph/svg": "*",
+    "@kineglyph/anime": "^0.1.0",
+    "@kineglyph/core": "^0.1.0",
+    "@kineglyph/plot": "^0.1.0",
+    "@kineglyph/svg": "^0.1.0",
     "@lezer/highlight": "^1.2.3",
     "codemirror": "^6.0.2"
   },

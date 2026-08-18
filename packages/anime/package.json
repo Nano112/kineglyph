@@ -3,6 +3,23 @@
   "version": "0.1.0",
   "description": "Scoped Anime.js v4 runtime for Kineglyph scenes.",
   "license": "MIT",
+  "author": "Harrison (https://github.com/Nano112)",
+  "keywords": [
+    "animation",
+    "animejs",
+    "svg",
+    "diagram",
+    "kineglyph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/anime"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/anime#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -16,15 +33,26 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!**/__tests__",
+    "!**/*.tsbuildinfo"
   ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/core": "*",
-    "@kineglyph/svg": "*",
+    "@kineglyph/core": "^0.1.0",
+    "@kineglyph/svg": "^0.1.0",
     "animejs": "^4.5.0"
   }
 }

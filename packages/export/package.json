@@ -3,6 +3,24 @@
   "version": "0.2.0",
   "description": "Deterministic SVG, PNG (resvg), and GIF export for Kineglyph scenes.",
   "license": "MIT",
+  "author": "Harrison (https://github.com/Nano112)",
+  "keywords": [
+    "svg",
+    "png",
+    "gif",
+    "export",
+    "resvg",
+    "kineglyph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/export"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/export#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
+  },
   "type": "module",
   "sideEffects": [
     "./dist/cli.js"
@@ -21,16 +39,27 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!**/__tests__",
+    "!**/*.tsbuildinfo"
   ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node ./scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/core": "*",
-    "@kineglyph/svg": "*",
-    "@kineglyph/web": "*",
+    "@kineglyph/core": "^0.1.0",
+    "@kineglyph/svg": "^0.1.0",
+    "@kineglyph/web": "^0.1.0",
     "@resvg/resvg-js": "^2.6.2",
     "gifenc": "^1.0.3",
     "harfbuzzjs": "^1.6.0"

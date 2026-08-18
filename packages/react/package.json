@@ -3,6 +3,22 @@
   "version": "0.1.0",
   "description": "Responsive React bindings for Kineglyph.",
   "license": "MIT",
+  "author": "Harrison (https://github.com/Nano112)",
+  "keywords": [
+    "react",
+    "diagram",
+    "svg",
+    "kineglyph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/react#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -16,17 +32,28 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!**/__tests__",
+    "!**/*.tsbuildinfo"
   ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/anime": "*",
-    "@kineglyph/core": "*",
-    "@kineglyph/svg": "*",
-    "@kineglyph/web": "*"
+    "@kineglyph/anime": "^0.1.0",
+    "@kineglyph/core": "^0.1.0",
+    "@kineglyph/svg": "^0.1.0",
+    "@kineglyph/web": "^0.1.0"
   },
   "peerDependencies": {
     "react": ">=18",
