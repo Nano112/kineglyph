@@ -111,9 +111,12 @@ function message(error: unknown): string {
 }
 
 /** In a lab, `auto` is deliberately quiet; only `true` opts into persistent figure chrome. */
+function quietChrome(value: ChromeSetting | undefined): ChromeSetting | undefined {
+  return value === "auto" ? undefined : value;
+}
+
 function explicitChromeAttr(value: string | undefined): ChromeSetting | undefined {
-  const parsed = chromeAttr(value);
-  return parsed === "auto" ? undefined : parsed;
+  return quietChrome(chromeAttr(value));
 }
 
 /** Evaluates an ESM scene in the browser. Bare imports are resolved by the page's import map. */
@@ -411,8 +414,12 @@ export async function mountAllKineglyphLabs(
     const autoplay =
       element.dataset.autoplay === "true" ? true : (local.autoplay ?? shared.autoplay);
     const controls =
-      local.controls ?? shared.controls ?? explicitChromeAttr(element.dataset.controls);
-    const readout = local.readout ?? shared.readout ?? explicitChromeAttr(element.dataset.readout);
+      quietChrome(
+        local.controls ?? explicitChromeAttr(element.dataset.controls) ?? shared.controls,
+      ) ?? false;
+    const readout =
+      quietChrome(local.readout ?? explicitChromeAttr(element.dataset.readout) ?? shared.readout) ??
+      false;
     const controller = mountKineglyphLab(element, {
       ...shared,
       ...local,
@@ -420,8 +427,8 @@ export async function mountAllKineglyphLabs(
       ...(view === undefined ? {} : { view }),
       ...(theme === undefined ? {} : { theme }),
       ...(autoplay === undefined ? {} : { autoplay }),
-      ...(controls === undefined ? {} : { controls }),
-      ...(readout === undefined ? {} : { readout }),
+      controls,
+      readout,
       machineControls:
         local.machineControls ??
         shared.machineControls ??

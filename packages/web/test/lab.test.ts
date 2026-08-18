@@ -105,7 +105,11 @@ describe("mountAllKineglyphLabs", () => {
     document.body.innerHTML = `
       <figure id="quiet" data-kineglyph-lab data-view="preview" data-controls="auto" data-readout="auto"><script type="text/kineglyph">quiet</script></figure>
       <figure id="explicit" data-kineglyph-lab data-view="preview" data-controls="true" data-readout="true"><script type="text/kineglyph">explicit</script></figure>`;
-    await mountAllKineglyphLabs({ load: (source: string) => Promise.resolve(scene(source)) });
+    await mountAllKineglyphLabs({
+      load: (source: string) => Promise.resolve(scene(source)),
+      controls: "auto",
+      readout: "auto",
+    });
     expect(document.querySelector("#quiet .kg-figure__controls")).toBeNull();
     expect(document.querySelector("#quiet .kg-figure__readout")).toBeNull();
     expect(document.querySelector("#explicit .kg-figure__controls")).not.toBeNull();
