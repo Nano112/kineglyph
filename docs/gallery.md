@@ -1,9 +1,14 @@
 # Visual gallery
 
-These are working Kineglyph scenes, not screenshots. Each one starts as only the finished glyph
-with a quiet **Edit figure** button underneath. Open it to change the source, then press **Run** (or
+These are working Kineglyph scenes, not screenshots. Each one starts as the glyph alone with a
+quiet **Edit figure** button underneath. Static figures also get a compact **Export** menu for a
+transparent SVG or 2× PNG. Open the editor to change the source, then press **Run** (or
 <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd>). Everything runs locally in the browser, and this
 Gerrymander-hosted page refreshes as the documentation changes on disk.
+
+The mix is deliberate: some figures are static, some play an authored timeline, some respond to a
+reader, and a few are small deterministic simulations. Those are separate capabilities; a figure
+only pays for the behavior it actually uses.
 
 Animations now wait at their first frame until roughly 6% of the figure enters the viewport, then
 start after a 180 ms settle delay. The default is `autoplay: "in-view"`; use `autoplay: true` for an
@@ -18,6 +23,8 @@ mountKineglyph(host, {
 ```
 
 ## A responsive explanation
+
+_Animated · no reader controls_
 
 The same row becomes a readable stack in a narrow container. Change `layout`, `gap`, a tone, or an
 edge label and the preview is re-resolved immediately.
@@ -47,6 +54,8 @@ export default sceneFromSpec({
 ```
 
 ## Data that stays data
+
+_Animated data · marks remain inspectable_
 
 `plot()` compiles ordinary records into the same scene primitives. Try changing a value, adding a
 row, or switching `y` to a single series.
@@ -80,6 +89,8 @@ export default figure("gallery-build-times", { title: "Build time by operation" 
 ```
 
 ## Semantic materials
+
+_Static · no timeline or machine_
 
 The nodes ask for roles—not CSS filters or renderer callbacks. A theme decides what “raised”,
 “inset”, and “glass” mean, while SVG and raster exports retain deterministic fallbacks.
@@ -115,11 +126,12 @@ export default figure("gallery-materials", { title: "Material roles" }, (f) => {
 
   const row = f.flow([raised, inset, glass], { gap: 18, align: "stretch" });
   f.root(row);
-  f.sequence([f.reveal([raised, inset, glass], { stagger: 120, scale: 0.96 })]);
 });
 ```
 
 ## The connector is a sentence
+
+_Animated · no reader controls_
 
 Endpoints, route, marker, label, and packets are authored as data. Kineglyph measures the cards,
 chooses ports, and keeps the verbs clear of the nouns.
@@ -156,6 +168,8 @@ export default figure("gallery-connectors", { title: "Connector grammar" }, (f) 
 ```
 
 ## Interaction is part of the scene
+
+_Interactive state machine · no timeline_
 
 A small deterministic state machine changes bindings and controls without replacing the scene.
 Use the buttons inside the figure, then edit a label or add another state.
@@ -208,6 +222,8 @@ export default figure("gallery-machine", { title: "A stateful explanation" }, (f
 ```
 
 ## The eclipse voice, with toy data
+
+_Animated data story · no simulation_
 
 This is the same black canvas, serif display type, pink gradient, value-first hierarchy, glow, and
 rise motion as the eclipse chart. The live module exports its own theme beside the scene, so the
@@ -267,7 +283,99 @@ export default figure("dinosaurs-under-sofa", { title: "Toy dinosaurs recovered"
 });
 ```
 
+## Interactive simulation: binary counter automaton
+
+_Interactive simulation · no authored timeline_
+
+This is closer to a small instrument than a slide. **Step** advances a real machine variable,
+**Back** reverses it, and **Reset** reconstructs the initial state. The register and transition
+table are ordinary scene nodes bound to derived signals, so the same state remains serializable and
+exportable.
+
+```kineglyph live id=gallery-counter-automaton view=preview height=860
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const values = Array.from({ length: 16 }, (_, value) => value);
+const bitTones = ["chart1", "chart1", "chart2", "chart3", "chart4", "chart4", "chart5", "chart6"];
+const cases = (bit) => Object.fromEntries(values.map((value) => [value, (value >> (7 - bit)) & 1 ? 1 : 0.13]));
+
+export default figure("binary-counter-automaton", {
+  title: "Eight-bit counter automaton",
+  description: "A reversible finite-state counter with a live register and sixteen-state transition table.",
+}, (f) => {
+  const value = f.code("0", { id: "counter-value", textStyle: "display", bind: { text: "count" } });
+  const heading = f.stack([
+    f.eyebrow("8 BITS · 16 DISPLAYED STATES · DETERMINISTIC", { tone: "textMuted" }),
+    f.row([value, f.title("decimal state", { tone: "textMuted" })], { gap: 16, align: "end" }),
+  ], { gap: 6, width: "fill" });
+
+  const register = f.grid(bitTones.map((tone, bit) => f.stack([
+    f.code(`b${7 - bit}`, { tone: "textMuted" }),
+    f.rect({ id: `register-bit-${bit}`, width: "fill", height: 34, radius: 6, fill: tone, bind: { opacity: `bit${bit}` } }),
+  ], { gap: 5, align: "center", width: "fill" })), {
+    id: "live-register", columns: { wide: 8, compact: 8, narrow: 4 }, gap: 7, width: "fill",
+  });
+
+  const rows = values.map((state) => {
+    const cells = bitTones.map((tone, bit) => {
+      const on = (state >> (7 - bit)) & 1;
+      return f.rect({
+        id: `state-${state}-bit-${bit}`, width: "fill", height: 22, radius: 5,
+        fill: on ? tone : "surfaceMuted", opacity: on ? 1 : 0.72,
+      });
+    });
+    return f.row([
+      f.code(state.toString().padStart(2, "0"), { width: 26, tone: "textMuted" }),
+      f.grid(cells, { columns: 8, gap: 6, width: "fill" }),
+    ], {
+      id: `counter-state-${state}`, gap: 10, padding: [4, 7], width: "fill",
+      frame: { ...material("flat", { fill: "surface", stroke: "border" }), radius: 6 },
+      bind: { highlight: `state${state}` },
+    });
+  });
+
+  f.root(f.stack([
+    heading,
+    f.stack([f.eyebrow("LIVE REGISTER", { tone: "info" }), register], { gap: 9, width: "fill" }),
+    f.stack([
+      f.row([f.eyebrow("TRANSITION TABLE", { tone: "info" }), f.caption("0 dim · 1 active · MSB → LSB")], { justify: "between", width: "fill" }),
+      f.stack(rows, { gap: 5, width: "fill" }),
+    ], { gap: 9, width: "fill" }),
+  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+
+  f.machine({
+    initial: "counting",
+    variables: { count: 0 },
+    states: {
+      counting: { on: {
+        STEP: [
+          { target: "counting", guard: { var: "count", op: "lt", value: 15 }, actions: [{ type: "increment", var: "count" }] },
+          { target: "counting", actions: [{ type: "set", var: "count", value: 0 }] },
+        ],
+        BACK: [
+          { target: "counting", guard: { var: "count", op: "gt", value: 0 }, actions: [{ type: "increment", var: "count", by: -1 }] },
+          { target: "counting", actions: [{ type: "set", var: "count", value: 15 }] },
+        ],
+      } },
+    },
+    signals: Object.fromEntries([
+      ...values.map((state) => [`state${state}`, { when: { var: "count", op: "eq", value: state }, then: 1, else: 0 }]),
+      ...bitTones.map((_, bit) => [`bit${bit}`, { match: { var: "count" }, cases: cases(bit), default: 0.13 }]),
+    ]),
+  });
+  f.controls([
+    { label: "Back", event: "BACK", group: "counter" },
+    { label: "Step", event: "STEP", group: "counter" },
+    { label: "Reset", kind: "reset", group: "counter" },
+  ]);
+});
+```
+
 ## Interactive simulation: paper-plane wind tunnel
+
+_Interactive simulation · discrete model_
 
 The controls are authored in the scene, not bolted on by the page. Pick a launch angle and the
 deterministic model highlights the predicted flight profile.
@@ -320,6 +428,8 @@ export default figure("paper-plane-wind-tunnel", { title: "Paper-plane wind tunn
 
 ## Interactive simulation: marble sorter
 
+_Interactive simulation · discrete routing model_
+
 This version uses the same machine primitive as a tiny routing simulation. Change the sampled
 marble and the predicted chute updates without rebuilding the page or changing SVG by hand.
 
@@ -364,6 +474,8 @@ export default figure("marble-sorter", { title: "Pocket marble sorter" }, (f) =>
 ```
 
 ## A toy factory fan-out
+
+_Animated architecture · no reader controls_
 
 The Diplomat composition still works as a general visual grammar: one source moves through a short
 pipeline and fans into a family of outputs. Here it explains a completely fictional pocket-toy

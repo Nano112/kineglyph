@@ -20,8 +20,10 @@ into one document: without it, the second figure's gradients and markers would q
 
 ## What is in here
 
-- `renderToSvg(scene, options)` — the whole figure, root element included.
-- `renderSvg` — the same thing without the outer `<svg>`, for embedding into a shell you own.
+- `renderToSvg(scene, options)` / `renderSvg` — the whole figure, root element included.
+- `renderMicroSvg(values, options)` — a standalone 16-pixel line, area, bar, pie, or donut chart
+  with no scene runtime; useful for dense tables and status lists.
+- `parseMicroValues("5,3,9")` — the compact comma/slash-delimited input accepted by microcharts.
 - `wrapSvgText` — line breaking with the metrics the renderer actually uses, so a label you
   measure yourself lands where the renderer would have put it.
 - `MOTIFS` / `motifShapes` — the built-in glyph set.
@@ -31,6 +33,18 @@ into one document: without it, the second figure's gradients and markers would q
 Accessibility is not an option you switch on: the root carries `role`, an accessible name from the
 scene's title, and a description, and interactive scenes render as `role="group"` rather than
 `img`.
+
+Microcharts are decorative by default because a table often already writes the value. Pass
+`label` when the shape communicates information the surrounding text does not:
+
+```ts
+import { renderMicroSvg } from "@kineglyph/svg";
+
+cell.innerHTML = renderMicroSvg([31, 28, 35, 42, 39], {
+  type: "line",
+  label: "Five recent latency samples",
+});
+```
 
 ## Licence
 

@@ -30,6 +30,8 @@ nav:
   - { title: Introduction, page: index.md }
   - { title: Getting started, page: getting-started.md }
   - { title: Visual gallery, page: gallery.md }
+  - { title: Build a CPU from bits, page: cpu-from-bits.md }
+  - { title: Editorial infographic patterns, page: infographic-patterns.md }
   - section: Authoring
     children:
       - { title: Authoring API, page: authoring-api.md }
@@ -38,4 +40,5 @@ nav:
   - section: Integration
     children:
       - { title: Embedding and theming, page: embedding-and-theming.md }
+      - { title: Live data and microcharts, page: live-data-and-microcharts.md }
       - { title: Architecture, page: architecture.md }

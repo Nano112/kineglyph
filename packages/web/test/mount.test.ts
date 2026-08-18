@@ -182,6 +182,34 @@ describe("mountKineglyph", () => {
     expect(FIGURE_STYLES).not.toContain(".kg-edge-group[role=img]:hover");
   });
 
+  it("updates externally-driven signals without replacing the scene", () => {
+    const live = defineScene({
+      schemaVersion: 2,
+      id: "live-signals",
+      title: "Live signals",
+      signals: { value: "waiting", active: 0 },
+      root: {
+        id: "root",
+        type: "group",
+        layout: "stack",
+        children: [
+          { id: "value", type: "text", text: "waiting", bind: { text: "value" } },
+          { id: "bar", type: "rect", width: 40, height: 8, bind: { opacity: "active" } },
+        ],
+      },
+    });
+    const controller = mountKineglyph(host(), { scene: live, autoplay: false });
+    const updates: unknown[] = [];
+    controller.on("data", (signals) => updates.push(signals));
+    controller.setSignals({ value: "42", active: 1 });
+    expect(controller.element.querySelector('[data-node-id="value"] text')?.textContent).toBe("42");
+    expect(
+      controller.element.querySelector('[data-node-id="bar"]')?.getAttribute("opacity"),
+    ).not.toBe("0");
+    expect(controller.state.signals.value).toBe("42");
+    expect(updates).toEqual([{ value: "42", active: 1 }]);
+  });
+
   it("mounts two independent figures without id, marker, or style collisions and disposes cleanly", () => {
     const first = mountKineglyph(host(), { scene, theme: createTheme(), autoplay: false });
     const second = mountKineglyph(host(600), { scene, theme: createTheme(), autoplay: false });

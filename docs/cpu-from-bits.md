@@ -1,0 +1,830 @@
+# Build a CPU from bits
+
+A CPU is not one mysterious object. It is a ladder of small, deterministic ideas: a bit, a rule
+for combining bits, a place to remember them, and a loop that moves them at the right moment.
+
+This page builds that ladder visually. Every figure uses the high-contrast monospace language of
+the [binary counter automaton](./gallery.md#interactive-simulation-binary-counter-automaton): violet
+for low-order structure, warm colours for active data, dim cells for zero, and bright cells for one.
+Some figures simply reveal themselves, some animate signal flow, and the instruments with buttons
+are real state machines running entirely in the browser.
+
+## 1. One bit, two meanings
+
+_Animated · foundational_
+
+A bit answers one yes-or-no question. The voltage is physical; `0` and `1` are the names we give
+two safe ranges of that voltage. Everything later on this page is built by composing this choice.
+
+```kineglyph live id=cpu-bit-basics view=preview height=430
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("cpu-bit-basics", { title: "One bit, two stable ranges" }, (f) => {
+  const zero = f.stack([
+    f.eyebrow("LOW RANGE", { tone: "textMuted" }),
+    f.code("0", { textStyle: "display" }),
+    f.caption("off · false · no charge", { tone: "textMuted" }),
+  ], { gap: 8, padding: 20, width: "fill", align: "center", frame: material("raised") });
+  const one = f.stack([
+    f.eyebrow("HIGH RANGE", { tone: "warning" }),
+    f.code("1", { textStyle: "display", tone: "warning" }),
+    f.caption("on · true · charged", { tone: "textMuted" }),
+  ], { gap: 8, padding: 20, width: "fill", align: "center", frame: material("raised") });
+  const switchNode = f.card({
+    eyebrow: "ONE TRANSISTOR'S JOB",
+    title: "Keep the ranges apart",
+    body: "Noise may wobble the voltage, but the next gate still sees a clean 0 or 1.",
+    motif: "toggle",
+    tone: "info",
+    frame: material("raised"),
+  });
+
+  f.root(f.stack([
+    f.row([f.eyebrow("BIT", { tone: "info" }), f.caption("smallest addressable fact")], { justify: "between", width: "fill" }),
+    f.flow([zero, one, switchNode], { gap: 16, align: "stretch", width: "fill" }),
+  ], { gap: 18, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("flat") }));
+  f.sequence([f.reveal(zero), f.reveal(one), f.reveal(switchNode)]);
+});
+```
+
+## 2. A row of bits becomes a number
+
+_Interactive · toggle the bits directly_
+
+Position gives a bit its weight. From right to left those weights are `1`, `2`, `4`, and `8`.
+Click any bit to toggle it in place. The word, decimal value, and active-weight equation update
+together, so you can construct all sixteen combinations directly.
+
+```kineglyph live id=cpu-binary-place-value view=preview height=560
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const values = Array.from({ length: 16 }, (_, value) => value);
+const weights = [8, 4, 2, 1];
+const tones = ["chart1", "chart3", "chart4", "chart6"];
+const bitCases = (bit) => Object.fromEntries(values.map((value) => [value, (value >> (3 - bit)) & 1 ? 1 : 0.12]));
+const binary = Object.fromEntries(values.map((value) => [value, value.toString(2).padStart(4, "0")]));
+const formula = Object.fromEntries(values.map((value) => {
+  const terms = weights.filter((weight, bit) => (value >> (3 - bit)) & 1);
+  return [value, terms.length ? `${terms.join(" + ")} = ${value}` : "no active weights = 0"];
+}));
+const toggleTransitions = (weight) => values.map((value) => ({
+  target: "choosing",
+  guard: { var: "value", op: "eq", value },
+  actions: [{ type: "set", var: "value", value: value ^ weight }],
+}));
+
+export default figure("cpu-binary-place-value", {
+  title: "Four-bit place value",
+  description: "An interactive four-bit word showing decimal value, binary digits, and active positional weights.",
+}, (f) => {
+  const decimal = f.code("0", { textStyle: "display", bind: { text: "value" } });
+  const word = f.code("0000", { textStyle: "title", tone: "info", bind: { text: "binary" } });
+  const cells = weights.map((weight, bit) => f.stack([
+    f.code(`2^${3 - bit}`, { tone: "textMuted" }),
+    f.rect({
+      id: `place-bit-${weight}`,
+      label: `Toggle the ${weight} bit`,
+      description: `Turn the bit with positional weight ${weight} on or off.`,
+      interactive: true,
+      onActivate: `TOGGLE_${weight}`,
+      width: "fill", height: 48, radius: 7, fill: tones[bit], bind: { opacity: `bit${bit}` },
+    }),
+    f.caption(`weight ${weight}`, { tone: "textMuted" }),
+  ], { gap: 6, width: "fill", align: "center" }));
+  const equation = f.code("no active weights = 0", { tone: "warning", bind: { text: "formula" } });
+
+  f.root(f.stack([
+    f.row([
+      f.stack([f.eyebrow("DECIMAL", { tone: "textMuted" }), decimal], { gap: 3 }),
+      f.stack([f.eyebrow("BINARY WORD", { tone: "textMuted" }), word], { gap: 10, align: "end" }),
+    ], { justify: "between", align: "end", width: "fill" }),
+    f.grid(cells, { columns: { wide: 4, compact: 4, narrow: 2 }, gap: 10, width: "fill", focusGroup: true }),
+    f.stack([f.eyebrow("ACTIVE WEIGHTS", { tone: "info" }), equation], { gap: 7, width: "fill" }),
+  ], { gap: 22, padding: { wide: 24, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+
+  f.machine({
+    initial: "choosing",
+    variables: { value: 0 },
+    states: {
+      choosing: { on: Object.fromEntries(weights.map((weight) => [`TOGGLE_${weight}`, toggleTransitions(weight)])) },
+    },
+    signals: Object.fromEntries([
+      ["binary", { match: { var: "value" }, cases: binary, default: "0000" }],
+      ["formula", { match: { var: "value" }, cases: formula, default: "no active weights = 0" }],
+      ...tones.map((_, bit) => [`bit${bit}`, { match: { var: "value" }, cases: bitCases(bit), default: 0.12 }]),
+    ]),
+  });
+});
+```
+
+## 3. Gates turn bits into decisions
+
+_Interactive · the complete half-adder truth table_
+
+An **XOR** gate says “exactly one input is on.” An **AND** gate says “both inputs are on.” Put
+them beside each other and the same two inputs produce the two answers needed for addition: a
+sum bit and a carry bit.
+
+```kineglyph live id=cpu-half-adder view=preview height=760
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const states = [
+  ["q00", "0", "0", "0", "0"],
+  ["q01", "0", "1", "1", "0"],
+  ["q10", "1", "0", "1", "0"],
+  ["q11", "1", "1", "0", "1"],
+];
+const cases = (column) => Object.fromEntries(states.map((row) => [row[0], row[column]]));
+
+export default figure("cpu-half-adder", { title: "Two gates make a half adder" }, (f) => {
+  const inputA = f.card({ eyebrow: "INPUT", title: "A", body: "0", bodyBind: { text: "a" }, motif: "circle", tone: "accent" });
+  const inputB = f.card({ eyebrow: "INPUT", title: "B", body: "0", bodyBind: { text: "b" }, motif: "circle", tone: "info" });
+  const xor = f.card({ eyebrow: "EXACTLY ONE", title: "XOR", body: "A ⊕ B", motif: "spark", tone: "info", frame: material("raised") });
+  const and = f.card({ eyebrow: "BOTH", title: "AND", body: "A · B", motif: "grid", tone: "accent", frame: material("raised") });
+  const sum = f.card({ eyebrow: "LOW BIT", title: "SUM", body: "0", bodyBind: { text: "sum" }, motif: "circle", tone: "warning", bind: { highlight: "sumOn" } });
+  const carry = f.card({ eyebrow: "NEXT COLUMN", title: "CARRY", body: "0", bodyBind: { text: "carry" }, motif: "arrow-right", tone: "success", bind: { highlight: "carryOn" } });
+
+  const inputs = f.stack([inputA, inputB], { gap: 12, width: "fill" });
+  const gates = f.stack([xor, and], { gap: 12, width: "fill" });
+  const outputs = f.stack([sum, carry], { gap: 12, width: "fill" });
+  const circuit = f.flow([inputs, gates, outputs], { gap: 54, align: "center", width: "fill" });
+  const tableRows = states.map(([state, a, b, s, c]) => f.row([
+    f.code(a, { width: 26 }), f.code(b, { width: 26 }),
+    f.code(s, { width: 40, tone: "warning" }), f.code(c, { width: 48, tone: "success" }),
+  ], { gap: 18, padding: [6, 10], width: "fill", frame: material("flat"), bind: { highlight: state } }));
+
+  f.root(f.stack([
+    circuit,
+    f.stack([
+      f.row([f.eyebrow("A", { tone: "textMuted" }), f.eyebrow("B", { tone: "textMuted" }), f.eyebrow("SUM", { tone: "warning" }), f.eyebrow("CARRY", { tone: "success" })], { gap: 18, padding: [0, 10], width: "fill" }),
+      ...tableRows,
+    ], { gap: 6, width: "fill" }),
+  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+
+  for (const source of [inputA, inputB]) {
+    f.connect(source, xor, { route: "curve", head: "arrow" });
+    f.connect(source, and, { route: "curve", head: "arrow" });
+  }
+  f.connect(xor, sum, { head: "arrow" });
+  f.connect(and, carry, { head: "arrow" });
+
+  f.machine({
+    initial: "q00",
+    states: Object.fromEntries(states.map(([state]) => [state, { on: Object.fromEntries(states.filter(([other]) => other !== state).map(([other]) => [other.toUpperCase(), other])) }])),
+    signals: {
+      a: { match: { state: true }, cases: cases(1), default: "0" },
+      b: { match: { state: true }, cases: cases(2), default: "0" },
+      sum: { match: { state: true }, cases: cases(3), default: "0" },
+      carry: { match: { state: true }, cases: cases(4), default: "0" },
+      sumOn: { when: { state: ["q01", "q10"] }, then: 1, else: 0 },
+      carryOn: { when: { state: "q11" }, then: 1, else: 0 },
+      ...Object.fromEntries(states.map(([state]) => [state, { when: { state }, then: 1, else: 0 }])),
+    },
+  });
+  f.controls(states.map(([state, a, b]) => ({ label: `${a}${b}`, event: state.toUpperCase(), activeWhen: { state }, group: "inputs A B" })));
+});
+```
+
+## 4. A carry input completes the adder
+
+_Interactive circuit · toggle A, B, and carry-in directly_
+
+A half adder cannot accept a carry from the column on its right. A **full adder** solves that with
+two XOR stages, two AND stages, and an OR. Toggle the three input terminals: live signals light the
+gate outlines, junctions, and wires, while particles travel only along nets currently carrying a
+`1`. Each input lands on a distinct pin, and the whole schematic turns downward on a narrow screen.
+
+```kineglyph live id=cpu-full-adder view=preview height=360
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const on = (name) => ({ var: name, op: "truthy" });
+const off = (name) => ({ var: name, op: "falsy" });
+const all = (...conditions) => ({ all: conditions });
+const any = (...conditions) => ({ any: conditions });
+
+const aOn = on("a");
+const bOn = on("b");
+const cinOn = on("cin");
+const aOff = off("a");
+const bOff = off("b");
+const cinOff = off("cin");
+const xor1High = any(all(aOn, bOff), all(aOff, bOn));
+const and1High = all(aOn, bOn);
+const sumHigh = any(
+  all(aOn, bOff, cinOff),
+  all(aOff, bOn, cinOff),
+  all(aOff, bOff, cinOn),
+  all(aOn, bOn, cinOn),
+);
+const and2High = any(all(aOn, bOff, cinOn), all(aOff, bOn, cinOn));
+const carryHigh = any(all(aOn, bOn), all(aOn, cinOn), all(bOn, cinOn));
+const valueSignal = (condition) => ({ when: condition, then: "1", else: "0" });
+const activeSignal = (condition) => ({ when: condition, then: 1, else: 0 });
+const toneSignal = (condition, activeTone) => ({
+  when: condition,
+  then: activeTone,
+  else: "connector",
+});
+
+export default figure("cpu-full-adder", {
+  title: "Interactive one-bit full adder",
+  description: "Toggle A, B, and carry-in to animate live Boolean signals through two XOR gates, two AND gates, and an OR.",
+}, (f) => {
+  const input = (name, event, value, active, tone) => f.stack([
+    f.eyebrow("INPUT", { tone: "textMuted", hidden: { narrow: true } }),
+    f.row([
+      f.code(name, { textStyle: { wide: "bodyStrong", compact: "bodyStrong", narrow: "code" }, tone }),
+      f.code("0", { textStyle: "title", tone, bind: { text: value } }),
+    ], { justify: "between", align: "center", width: "fill" }),
+  ], {
+    id: `input-${name.toLowerCase()}`,
+    label: `Toggle input ${name}`,
+    description: `Set the ${name} input to zero or one.`,
+    interactive: true,
+    onActivate: event,
+    gap: 4,
+    padding: { wide: [8, 10], compact: [7, 9], narrow: [6, 8] },
+    width: { wide: 92, compact: 78, narrow: 70 },
+    height: { wide: 66, compact: 72, narrow: 50 },
+    justify: "center",
+    frame: material("flat"),
+    bind: { highlight: active },
+  });
+  const output = (name, value, active, tone) => f.stack([
+    f.eyebrow("OUTPUT", { tone: "textMuted", hidden: { narrow: true } }),
+    f.row([
+      f.code(name, { textStyle: { wide: "bodyStrong", compact: "bodyStrong", narrow: "code" }, tone }),
+      f.code("0", { textStyle: "title", tone, bind: { text: value } }),
+    ], { justify: "between", align: "center", width: "fill" }),
+  ], {
+    id: `output-${name.toLowerCase()}`,
+    gap: 4,
+    padding: { wide: [8, 10], compact: [7, 9], narrow: [6, 8] },
+    width: { wide: 104, compact: 96, narrow: 76 },
+    height: { wide: 66, compact: 72, narrow: 50 },
+    justify: "center",
+    frame: material("flat"),
+    bind: { highlight: active },
+  });
+  const a = input("A", "TOGGLE_A", "aValue", "aOn", "info");
+  const b = input("B", "TOGGLE_B", "bValue", "bOn", "accent");
+  const cin = input("CIN", "TOGGLE_CIN", "cinValue", "cinOn", "success");
+  const aBranch = f.junction({ id: "a-branch", tone: "info", label: "A fan-out", bind: { highlight: "aOn" } });
+  const bBranch = f.junction({ id: "b-branch", tone: "accent", label: "B fan-out", bind: { highlight: "bOn" } });
+  const cinBranch = f.junction({ id: "cin-branch", tone: "success", label: "carry-in fan-out", bind: { highlight: "cinOn" } });
+  const gateSize = {
+    width: { wide: 104, compact: 86, narrow: 72 },
+    height: { wide: 70, compact: 60, narrow: 50 },
+    showText: false,
+  };
+  const xor1 = f.gate("xor", { id: "xor-1", tone: "info", bind: { highlight: "xor1On" }, ...gateSize });
+  const and1 = f.gate("and", { id: "and-1", tone: "accent", bind: { highlight: "and1On" }, ...gateSize });
+  const xor2 = f.gate("xor", { id: "xor-2", tone: "warning", bind: { highlight: "sumOn" }, ...gateSize });
+  const and2 = f.gate("and", { id: "and-2", tone: "success", bind: { highlight: "and2On" }, ...gateSize });
+  const or = f.gate("or", { id: "carry-or", tone: "success", bind: { highlight: "carryOn" }, ...gateSize });
+  const sum = output("SUM", "sumValue", "sumOn", "warning");
+  const cout = output("COUT", "carryValue", "carryOn", "success");
+  const xorTap = f.junction({ id: "xor-tap", tone: "info", label: "first XOR fan-out", bind: { highlight: "xor1On" } });
+  const cinTap = f.junction({ id: "cin-tap", tone: "success", label: "carry-in second-stage fan-out", bind: { highlight: "cinOn" } });
+  const carryTap = f.junction({ id: "carry-tap", tone: "accent", label: "first carry route", bind: { highlight: "and1On" } });
+  const at = (node, wide, compact, narrow) => f.place(node, {
+      wide: { x: wide[0], y: wide[1], anchor: "center" },
+      compact: { x: compact[0], y: compact[1], anchor: "center" },
+      narrow: { x: narrow[0], y: narrow[1], anchor: "center" },
+  });
+
+  f.root(f.coordinates([
+    at(a, [0.06, 0.20], [0.06, 0.20], [0.18, 0.05]),
+    at(b, [0.06, 0.50], [0.06, 0.50], [0.50, 0.05]),
+    at(cin, [0.06, 0.80], [0.06, 0.80], [0.82, 0.05]),
+    at(aBranch, [0.18, 0.20], [0.18, 0.20], [0.18, 0.13]),
+    at(bBranch, [0.18, 0.50], [0.18, 0.50], [0.50, 0.13]),
+    at(cinBranch, [0.18, 0.80], [0.18, 0.80], [0.82, 0.13]),
+    at(xor1, [0.33, 0.30], [0.33, 0.30], [0.25, 0.27]),
+    at(and1, [0.33, 0.69], [0.33, 0.69], [0.75, 0.27]),
+    at(xorTap, [0.46, 0.30], [0.46, 0.30], [0.25, 0.38]),
+    at(cinTap, [0.46, 0.80], [0.46, 0.80], [0.50, 0.38]),
+    at(carryTap, [0.46, 0.94], [0.46, 0.94], [0.92, 0.38]),
+    at(xor2, [0.59, 0.30], [0.59, 0.30], [0.25, 0.50]),
+    at(and2, [0.59, 0.66], [0.59, 0.66], [0.72, 0.50]),
+    at(sum, [0.80, 0.28], [0.80, 0.28], [0.25, 0.69]),
+    at(or, [0.76, 0.72], [0.76, 0.72], [0.72, 0.69]),
+    at(cout, [0.94, 0.72], [0.92, 0.72], [0.72, 0.88]),
+  ], {
+    id: "full-adder-plane",
+    height: { wide: 300, compact: 270, narrow: 820 },
+    width: "fill",
+  }));
+
+  const sourceSide = { wide: "right", compact: "right", narrow: "bottom" };
+  const targetSide = { wide: "left", compact: "left", narrow: "top" };
+  const wire = (from, to, signal, input = 0.5) => f.wire(
+    { node: from, side: sourceSide },
+    { node: to, side: targetSide, offset: input },
+    {
+      tone: "connector",
+      head: "none",
+      packets: { count: 1, size: 3.5, period: 900 },
+      bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
+    },
+  );
+  const lead = (from, to, signal) => f.wire(
+    { node: from, side: sourceSide },
+    { node: to, side: targetSide },
+    {
+      tone: "connector",
+      head: "none",
+      route: "straight",
+      packets: { count: 1, size: 3.5, period: 900 },
+      bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
+    },
+  );
+
+  const inputs = [
+    lead(a, aBranch, "a"),
+    lead(b, bBranch, "b"),
+    lead(cin, cinBranch, "cin"),
+  ];
+  const first = [
+    wire(aBranch, xor1, "a", 0.34),
+    wire(bBranch, xor1, "b", 0.66),
+    wire(aBranch, and1, "a", 0.34),
+    wire(bBranch, and1, "b", 0.66),
+  ];
+  const bridge = [
+    wire(xor1, xorTap, "xor1"),
+    wire(cinBranch, cinTap, "cin"),
+    wire(and1, carryTap, "and1"),
+  ];
+  const second = [
+    wire(xorTap, xor2, "xor1", 0.34),
+    wire(cinTap, xor2, "cin", 0.66),
+    wire(xorTap, and2, "xor1", 0.34),
+    wire(cinTap, and2, "cin", 0.66),
+  ];
+  const finish = [
+    wire(carryTap, or, "and1", 0.34),
+    wire(and2, or, "and2", 0.66),
+    wire(xor2, sum, "sum"),
+    wire(or, cout, "carry"),
+  ];
+  f.sequence([
+    f.reveal([a, b, cin], { stagger: 70 }),
+    [f.draw(inputs, { stagger: 50 }), f.reveal([aBranch, bBranch, cinBranch], { stagger: 50 })],
+    [f.draw(first, { stagger: 50 }), f.reveal([xor1, and1])],
+    [f.draw(bridge, { stagger: 50 }), f.reveal([xorTap, cinTap, carryTap], { stagger: 45 })],
+    [f.draw(second, { stagger: 50 }), f.reveal([xor2, and2])],
+    [f.draw(finish, { stagger: 50 }), f.reveal([or, sum, cout], { stagger: 60 })],
+  ]);
+
+  f.machine({
+    initial: "ready",
+    variables: { a: false, b: false, cin: false },
+    states: {
+      ready: {
+        on: {
+          TOGGLE_A: { target: "ready", actions: [{ type: "toggle", var: "a" }] },
+          TOGGLE_B: { target: "ready", actions: [{ type: "toggle", var: "b" }] },
+          TOGGLE_CIN: { target: "ready", actions: [{ type: "toggle", var: "cin" }] },
+        },
+      },
+    },
+    signals: {
+      aValue: valueSignal(aOn),
+      bValue: valueSignal(bOn),
+      cinValue: valueSignal(cinOn),
+      sumValue: valueSignal(sumHigh),
+      carryValue: valueSignal(carryHigh),
+      aOn: activeSignal(aOn),
+      bOn: activeSignal(bOn),
+      cinOn: activeSignal(cinOn),
+      xor1On: activeSignal(xor1High),
+      and1On: activeSignal(and1High),
+      and2On: activeSignal(and2High),
+      sumOn: activeSignal(sumHigh),
+      carryOn: activeSignal(carryHigh),
+      aTone: toneSignal(aOn, "info"),
+      bTone: toneSignal(bOn, "accent"),
+      cinTone: toneSignal(cinOn, "success"),
+      xor1Tone: toneSignal(xor1High, "info"),
+      and1Tone: toneSignal(and1High, "accent"),
+      and2Tone: toneSignal(and2High, "success"),
+      sumTone: toneSignal(sumHigh, "warning"),
+      carryTone: toneSignal(carryHigh, "success"),
+    },
+  });
+});
+```
+
+## 5. Chain adders into a word
+
+_Animated · a carry ripples from right to left_
+
+Four full adders can add two four-bit words. Each slice owns one column. The sum appears locally;
+the carry travels to the next slice, which is why this simple design is called a **ripple-carry
+adder**.
+
+```kineglyph live id=cpu-ripple-adder view=preview height=600
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("cpu-ripple-adder", { title: "Four-bit ripple-carry adder" }, (f) => {
+  const bits = [0, 1, 2, 3].map((bit) => f.card({
+    id: `adder-${bit}`,
+    eyebrow: `BIT ${bit}`,
+    title: "FULL ADDER",
+    body: bit === 0 ? "A₀ + B₀ + 0" : `A${bit} + B${bit} + carry`,
+    motif: "circuit",
+    tone: bit === 3 ? "warning" : bit === 2 ? "success" : bit === 1 ? "info" : "accent",
+    frame: material("raised"),
+  }));
+  const inputs = f.row([
+    f.code("A  0101", { tone: "info" }),
+    f.code("B  0011", { tone: "success" }),
+  ], { gap: 24, justify: "center", width: "fill" });
+  const result = f.stack([
+    f.eyebrow("FINAL WORD", { tone: "warning" }),
+    f.code("1000", { textStyle: "display", tone: "warning" }),
+    f.caption("5 + 3 = 8", { tone: "textMuted" }),
+  ], { gap: 5, align: "center", width: "fill" });
+  const chain = f.flow(bits, { gap: 54, align: "stretch", width: "fill" });
+  f.root(f.stack([inputs, chain, result], { gap: 24, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+
+  const carries = bits.slice(0, -1).map((bit, index) => f.connect(
+    { node: bit, side: "right" }, { node: bits[index + 1], side: "left" },
+    { head: "arrow", style: "flow", packets: { count: 1 }, labels: [{ text: `carry ${index + 1}` }] },
+  ));
+  f.sequence([
+    f.reveal(inputs),
+    f.reveal(bits[0]),
+    ...bits.slice(1).map((bit, index) => [f.draw(carries[index]), f.reveal(bit), f.flow(carries[index])]),
+    f.reveal(result),
+  ]);
+});
+```
+
+## 6. The ALU chooses which rule to apply
+
+_Interactive · one datapath, four operations_
+
+An arithmetic logic unit is a bank of useful circuits behind a selector. The inputs do not move;
+the control word decides whether the output comes from addition, AND, OR, or XOR. Thick data buses
+carry words through the bank and multiplexer; the dashed control wire only chooses a lane. That
+separation keeps data flow and control flow visually distinct.
+
+```kineglyph live id=cpu-alu view=preview height=650
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const operations = [
+  ["add", "ADD", "1000", "Z=0 · C=0"],
+  ["and", "AND", "0001", "Z=0 · C=0"],
+  ["or", "OR", "0111", "Z=0 · C=0"],
+  ["xor", "XOR", "0110", "Z=0 · C=0"],
+];
+
+export default figure("cpu-alu", { title: "A four-operation ALU" }, (f) => {
+  const a = f.card({ eyebrow: "REGISTER A", title: "0101", body: "decimal 5", motif: "blocks", tone: "info", compact: true, frame: material("raised") });
+  const b = f.card({ eyebrow: "REGISTER B", title: "0011", body: "decimal 3", motif: "blocks", tone: "success", compact: true, frame: material("raised") });
+  const selector = f.card({
+    eyebrow: "CONTROL WORD",
+    title: "SELECT 00",
+    titleBind: { text: "selector" },
+    body: "opens one lane",
+    tone: "accent",
+    compact: true,
+    frame: material("flat"),
+  });
+  const units = operations.map(([state, label], index) => f.card({
+    id: `alu-${state}`,
+    eyebrow: `SELECT ${index.toString(2).padStart(2, "0")}`,
+    title: label,
+    motif: state === "add" ? "circuit" : "compare",
+    tone: state === "add" ? "warning" : state === "and" ? "accent" : state === "or" ? "success" : "info",
+    compact: true,
+    frame: material("flat"),
+    bind: { highlight: state },
+  }));
+  const bank = f.panel(units, {
+    id: "function-bank",
+    eyebrow: "ALL FOUR COMPUTE IN PARALLEL",
+    title: "FUNCTION BANK",
+    layout: "grid",
+    columns: { wide: 4, compact: 4, narrow: 2 },
+    gap: 10,
+    width: "fill",
+    tone: "info",
+  });
+  const mux = f.card({
+    eyebrow: "MULTIPLEXER",
+    title: "SELECTED LANE",
+    body: "one result continues",
+    tone: "warning",
+    compact: true,
+    frame: material("raised"),
+  });
+  const value = f.code("1000", { textStyle: "display", tone: "warning", bind: { text: "result" } });
+  const flags = f.code("Z=0 · C=0", { tone: "textMuted", bind: { text: "flags" } });
+  const output = f.stack([
+    f.eyebrow("RESULT BUS", { tone: "warning" }), value, flags,
+  ], { gap: 7, padding: 18, align: "center", width: "fill", frame: material("raised") });
+  const operands = f.stack([
+    f.row([
+      f.eyebrow("OPERAND BUS", { tone: "info" }),
+      f.code("A 0101  ·  B 0011", { tone: "textMuted" }),
+    ], { justify: "between", align: "center", width: "fill" }),
+    f.rect({ width: "fill", height: 9, radius: 4.5, fill: "chart3" }),
+  ], { id: "operand-bus", gap: 7, padding: [9, 12], width: "fill", frame: material("inset") });
+  f.root(f.graph([
+    [a, b],
+    operands,
+    bank,
+    { id: "selection-rank", nodes: [selector, mux], layout: "grid", columns: 2, gap: 16 },
+    output,
+  ], {
+    style: "circuit",
+    layerGap: { wide: 44, compact: 38, narrow: 34 },
+    nodeGap: 12,
+    padding: { wide: 18, compact: 14, narrow: 10 },
+    frame: material("flat"),
+  }));
+
+  f.wire({ node: a, side: "bottom" }, { node: operands, side: "top", offset: 0.32 }, { kind: "bus", tone: "info" });
+  f.wire({ node: b, side: "bottom" }, { node: operands, side: "top", offset: 0.68 }, { kind: "bus", tone: "success" });
+  f.wire({ node: operands, side: "bottom" }, { node: bank, side: "top" }, { kind: "bus", tone: "info" });
+  f.wire({ node: bank, side: "bottom" }, { node: mux, side: "top" }, { kind: "bus", tone: "warning", head: "arrow" });
+  f.wire({ node: selector, side: "right" }, { node: mux, side: "left" }, { kind: "control", tone: "accent", head: "arrow" });
+  f.wire({ node: mux, side: "bottom" }, { node: output, side: "top" }, { kind: "bus", tone: "warning", head: "arrow" });
+
+  f.machine({
+    initial: "add",
+    states: Object.fromEntries(operations.map(([state]) => [state, { on: Object.fromEntries(operations.filter(([other]) => other !== state).map(([other]) => [other.toUpperCase(), other])) }])),
+    signals: {
+      result: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , result]) => [state, result])), default: "0000" },
+      flags: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , , flags]) => [state, flags])), default: "Z=1 · C=0" },
+      selector: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , , ], index) => [state, `SELECT ${index.toString(2).padStart(2, "0")}`])), default: "SELECT 00" },
+      ...Object.fromEntries(operations.map(([state]) => [state, { when: { state }, then: 1, else: 0 }])),
+    },
+  });
+  f.controls(operations.map(([state, label]) => ({ label, event: state.toUpperCase(), activeWhen: { state }, group: "operation" })));
+});
+```
+
+## 7. A clock tells memory when to listen
+
+_Animated · the rising edge is the moment of commitment_
+
+Combinational logic keeps changing as signals travel through it. A register samples its input on a
+clock edge and holds that answer steady for the rest of the cycle. This rhythm turns a pile of gates
+into a sequence of dependable steps.
+
+```kineglyph live id=cpu-clocked-register view=preview height=520
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("cpu-clocked-register", { title: "A register captures on the rising edge" }, (f) => {
+  const samples = [0, 1, 0, 1, 0, 1, 0, 1].map((high, index) => f.stack([
+    f.rect({ id: `clock-${index}`, width: "fill", height: high ? 48 : 16, radius: 4, fill: high ? "chart6" : "surfaceMuted" }),
+    f.code(String(index), { tone: "textMuted" }),
+  ], { gap: 5, align: "center", justify: "end", width: "fill", minHeight: 74 }));
+  const clock = f.grid(samples, { columns: 8, gap: 7, width: "fill", align: "end" });
+  const before = f.card({ eyebrow: "D INPUT", title: "0110", body: "still settling", motif: "signal", tone: "info", frame: material("raised") });
+  const edge = f.card({ eyebrow: "↑ RISING EDGE", title: "CAPTURE", body: "sample once", motif: "clockTick", tone: "warning", frame: material("floating") });
+  const after = f.card({ eyebrow: "Q OUTPUT", title: "0110", body: "held for one cycle", motif: "blocks", tone: "success", frame: material("raised") });
+  const path = f.flow([before, edge, after], { gap: 56, align: "stretch", width: "fill" });
+  f.root(f.stack([
+    f.stack([f.eyebrow("CLOCK", { tone: "warning" }), clock], { gap: 8, width: "fill" }),
+    path,
+  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  const sample = f.connect(before, edge, { head: "arrow", labels: [{ text: "sample" }] });
+  const hold = f.connect(edge, after, { head: "arrow", style: "flow", packets: { count: 2 }, labels: [{ text: "hold" }] });
+  f.sequence([
+    f.reveal(samples, { stagger: 60 }),
+    f.reveal(before),
+    [f.draw(sample), f.reveal(edge), f.pulse(edge)],
+    [f.draw(hold), f.reveal(after), f.flow(hold)],
+  ]);
+});
+```
+
+## 8. Registers are the CPU's working memory
+
+_Interactive · load, copy, increment, and clear_
+
+Registers are tiny, fast words inside the CPU. This toy register file has only two locations, but
+it already demonstrates the essential operations: accept a value, move it, transform it, and reset.
+
+```kineglyph live id=cpu-register-file view=preview height=560
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const snapshots = {
+  empty: ["0000", "0000", "bus idle"],
+  loaded: ["0101", "0000", "5 → A"],
+  copied: ["0101", "0101", "A → B"],
+  incremented: ["0110", "0101", "A + 1"],
+};
+const snapshotCases = (index) => Object.fromEntries(Object.entries(snapshots).map(([state, values]) => [state, values[index]]));
+
+export default figure("cpu-register-file", { title: "A two-register scratchpad" }, (f) => {
+  const bus = f.stack([
+    f.eyebrow("SHARED DATA BUS", { tone: "info" }),
+    f.rect({ width: "fill", height: 12, radius: 6, fill: "chart3" }),
+    f.code("bus idle", { tone: "textMuted", bind: { text: "bus" } }),
+  ], { gap: 8, width: "fill", align: "center" });
+  const registerA = f.card({ eyebrow: "REGISTER A", title: "0000", titleBind: { text: "a" }, body: "accumulator", motif: "blocks", tone: "warning", frame: material("raised"), bind: { highlight: "aHot" } });
+  const registerB = f.card({ eyebrow: "REGISTER B", title: "0000", titleBind: { text: "b" }, body: "operand", motif: "blocks", tone: "info", frame: material("raised"), bind: { highlight: "bHot" } });
+  const incrementer = f.card({ eyebrow: "TINY ALU", title: "+ 1", body: "increment A", motif: "circuit", tone: "success", frame: material("raised"), bind: { highlight: "incHot" } });
+  f.root(f.stack([
+    bus,
+    f.flow([registerA, incrementer, registerB], { gap: 58, align: "stretch", width: "fill" }),
+  ], { gap: 24, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  f.connect(bus, registerA, { head: "arrow" });
+  f.connect(registerA, incrementer, { head: "arrow" });
+  f.connect(registerA, registerB, { route: "curve", head: "arrow" });
+
+  f.machine({
+    initial: "empty",
+    states: {
+      empty: { on: { LOAD: "loaded", COPY: "copied", INC: "incremented" } },
+      loaded: { on: { CLEAR: "empty", COPY: "copied", INC: "incremented" } },
+      copied: { on: { CLEAR: "empty", LOAD: "loaded", INC: "incremented" } },
+      incremented: { on: { CLEAR: "empty", LOAD: "loaded", COPY: "copied" } },
+    },
+    signals: {
+      a: { match: { state: true }, cases: snapshotCases(0), default: "0000" },
+      b: { match: { state: true }, cases: snapshotCases(1), default: "0000" },
+      bus: { match: { state: true }, cases: snapshotCases(2), default: "bus idle" },
+      aHot: { when: { state: ["loaded", "incremented"] }, then: 1, else: 0 },
+      bHot: { when: { state: "copied" }, then: 1, else: 0 },
+      incHot: { when: { state: "incremented" }, then: 1, else: 0 },
+    },
+  });
+  f.controls([
+    { label: "Load 5 → A", event: "LOAD", activeWhen: { state: "loaded" }, group: "registers" },
+    { label: "Copy A → B", event: "COPY", activeWhen: { state: "copied" }, group: "registers" },
+    { label: "Increment A", event: "INC", activeWhen: { state: "incremented" }, group: "registers" },
+    { label: "Clear", event: "CLEAR", activeWhen: { state: "empty" }, group: "registers" },
+  ]);
+});
+```
+
+## 9. Control turns hardware into a sequence
+
+_Animated · one instruction crosses four phases_
+
+The datapath can move and transform data, but it still needs an organizer. A control unit advances
+each instruction through **fetch**, **decode**, **execute**, and **write back**, opening the right
+paths on each clock edge.
+
+```kineglyph live id=cpu-instruction-cycle view=preview height=510
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("cpu-instruction-cycle", { title: "The four-phase instruction cycle" }, (f) => {
+  const fetch = f.card({ eyebrow: "01", title: "FETCH", body: "Memory[PC] → IR", motif: "file", tone: "accent", frame: material("raised") });
+  const decode = f.card({ eyebrow: "10", title: "DECODE", body: "bits → control lines", motif: "branch", tone: "info", frame: material("raised") });
+  const execute = f.card({ eyebrow: "11", title: "EXECUTE", body: "ALU applies the rule", motif: "circuit", tone: "warning", frame: material("raised") });
+  const writeback = f.card({ eyebrow: "00", title: "WRITE BACK", body: "result → register", motif: "blocks", tone: "success", frame: material("raised") });
+  const phases = [fetch, decode, execute, writeback];
+  f.root(f.stack([
+    f.row([f.eyebrow("ONE CLOCKED LOOP", { tone: "info" }), f.code("PC → IR → ALU → REG", { tone: "textMuted" })], { justify: "between", width: "fill" }),
+    f.flow(phases, { gap: 58, align: "stretch", width: "fill" }),
+  ], { gap: 20, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  const edges = phases.slice(0, -1).map((phase, index) => f.connect(phase, phases[index + 1], {
+    head: "arrow", style: "flow", packets: { count: 1 }, labels: [{ text: "clock" }],
+  }));
+  f.sequence([
+    f.reveal(fetch),
+    ...phases.slice(1).map((phase, index) => [f.draw(edges[index]), f.reveal(phase), f.flow(edges[index])]),
+    f.highlight(phases, { stagger: 90 }),
+  ]);
+});
+```
+
+## 10. Put it together: a tiny CPU data loop
+
+_Interactive simulation · two instructions, eight microsteps_
+
+This final instrument is deliberately small enough to read. Program memory contains `LOAD 3` and
+`ADD 2`. Each press of **Microstep** advances one clock phase. Watch the program counter select an
+instruction, the instruction register hold it, and the accumulator change only when the result is
+written back.
+
+```kineglyph live id=cpu-data-loop view=preview height=900
+import { counterTerminalTheme, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+const steps = Array.from({ length: 8 }, (_, step) => step);
+const table = {
+  phase: ["FETCH", "DECODE", "EXECUTE", "WRITE BACK", "FETCH", "DECODE", "EXECUTE", "WRITE BACK"],
+  pc:    ["00", "01", "01", "01", "01", "10", "10", "10"],
+  ir:    ["—", "LDI 3", "LDI 3", "LDI 3", "LDI 3", "ADD 2", "ADD 2", "ADD 2"],
+  acc:   ["0000", "0000", "0000", "0011", "0011", "0011", "0011", "0101"],
+  bus:   ["00 → memory", "LDI 3 → IR", "literal 3 → ALU", "0011 → ACC", "01 → memory", "ADD 2 → IR", "0011 + 0010", "0101 → ACC"],
+};
+const cases = (values) => Object.fromEntries(steps.map((step) => [step, values[step]]));
+const active = (...wanted) => Object.fromEntries(steps.map((step) => [step, wanted.includes(step) ? 1 : 0]));
+
+export default figure("cpu-data-loop", {
+  title: "A two-instruction accumulator CPU",
+  description: "Eight reversible microsteps across fetch, decode, execute, and write-back.",
+}, (f) => {
+  const phaseWord = f.code("FETCH", { textStyle: "title", tone: "warning", bind: { text: "phase" } });
+  const phaseCards = [
+    ["fetch", "FETCH", "file", "accent"],
+    ["decode", "DECODE", "branch", "info"],
+    ["execute", "EXECUTE", "circuit", "warning"],
+    ["write", "WRITE BACK", "blocks", "success"],
+  ].map(([id, title, , tone]) => f.card({
+    id: `phase-${id}`, title, tone, compact: true, frame: material("flat"), bind: { highlight: id },
+  }));
+
+  const memory0 = f.card({ id: "memory-0", eyebrow: "ADDRESS 00", title: "LDI 3", body: "load immediate", motif: "file", tone: "accent", compact: true, bind: { highlight: "memory0" } });
+  const memory1 = f.card({ id: "memory-1", eyebrow: "ADDRESS 01", title: "ADD 2", body: "add immediate", motif: "file", tone: "info", compact: true, bind: { highlight: "memory1" } });
+  const memory = f.stack([f.eyebrow("PROGRAM MEMORY", { tone: "textMuted" }), memory0, memory1], { gap: 9, width: "fill" });
+
+  const pc = f.card({ eyebrow: "PROGRAM COUNTER", title: "00", titleBind: { text: "pc" }, body: "next address", motif: "clock", tone: "accent", frame: material("raised") });
+  const ir = f.card({ eyebrow: "INSTRUCTION REG", title: "—", titleBind: { text: "ir" }, body: "current instruction", motif: "file", tone: "info", frame: material("raised"), bind: { highlight: "decode" } });
+  const acc = f.card({ eyebrow: "ACCUMULATOR", title: "0000", titleBind: { text: "acc" }, body: "working value", motif: "blocks", tone: "success", frame: material("raised"), bind: { highlight: "write" } });
+  const registers = f.grid([pc, ir, acc], { columns: { wide: 3, compact: 3, narrow: 1 }, gap: 10, width: "fill" });
+  const decoder = f.card({ eyebrow: "CONTROL", title: "DECODER", body: "opens one route", motif: "branch", tone: "info", frame: material("raised"), bind: { highlight: "decode" } });
+  const alu = f.card({ eyebrow: "DATAPATH", title: "ALU", body: "pass literal or add", motif: "circuit", tone: "warning", frame: material("raised"), bind: { highlight: "execute" } });
+  const bus = f.stack([
+    f.eyebrow("LIVE BUS", { tone: "warning" }),
+    f.rect({ width: "fill", height: 12, radius: 6, fill: "chart4" }),
+    f.code("00 → memory", { tone: "textMuted", bind: { text: "bus" } }),
+  ], { gap: 8, align: "center", width: "fill" });
+  const datapath = f.stack([registers, f.flow([decoder, alu], { gap: 44, align: "stretch", width: "fill" }), bus], { gap: 16, width: "fill" });
+
+  f.root(f.stack([
+    f.row([
+      f.stack([f.eyebrow("MICROSTEP", { tone: "textMuted" }), f.code("0", { bind: { text: "step" } })], { gap: 3 }),
+      f.stack([f.eyebrow("ACTIVE PHASE", { tone: "textMuted" }), phaseWord], { gap: 3, align: "end" }),
+    ], { justify: "between", align: "end", width: "fill" }),
+    f.grid(phaseCards, { columns: { wide: 4, compact: 4, narrow: 2 }, gap: 8, width: "fill" }),
+    f.flow([memory, datapath], { gap: 52, align: "center", width: "fill" }),
+  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+
+  f.connect(pc, memory, { route: "curve", head: "arrow" });
+  f.connect(memory, ir, { route: "curve", head: "arrow" });
+  f.connect(ir, decoder, { head: "arrow" });
+  f.connect(decoder, alu, { head: "arrow" });
+  f.connect(acc, alu, { route: "curve", head: "arrow" });
+  f.connect(alu, acc, { route: "curve", head: "arrow" });
+
+  f.machine({
+    initial: "running",
+    variables: { step: 0 },
+    states: {
+      running: { on: {
+        STEP: [
+          { target: "running", guard: { var: "step", op: "lt", value: 7 }, actions: [{ type: "increment", var: "step" }] },
+          { target: "running", actions: [{ type: "set", var: "step", value: 0 }] },
+        ],
+        BACK: [
+          { target: "running", guard: { var: "step", op: "gt", value: 0 }, actions: [{ type: "increment", var: "step", by: -1 }] },
+          { target: "running", actions: [{ type: "set", var: "step", value: 7 }] },
+        ],
+      } },
+    },
+    signals: {
+      phase: { match: { var: "step" }, cases: cases(table.phase), default: "FETCH" },
+      pc: { match: { var: "step" }, cases: cases(table.pc), default: "00" },
+      ir: { match: { var: "step" }, cases: cases(table.ir), default: "—" },
+      acc: { match: { var: "step" }, cases: cases(table.acc), default: "0000" },
+      bus: { match: { var: "step" }, cases: cases(table.bus), default: "bus idle" },
+      fetch: { match: { var: "step" }, cases: active(0, 4), default: 0 },
+      decode: { match: { var: "step" }, cases: active(1, 5), default: 0 },
+      execute: { match: { var: "step" }, cases: active(2, 6), default: 0 },
+      write: { match: { var: "step" }, cases: active(3, 7), default: 0 },
+      memory0: { match: { var: "step" }, cases: active(0, 1, 2, 3), default: 0 },
+      memory1: { match: { var: "step" }, cases: active(4, 5, 6, 7), default: 0 },
+    },
+  });
+  f.controls([
+    { label: "Back", event: "BACK", group: "clock" },
+    { label: "Microstep", event: "STEP", group: "clock" },
+    { label: "Reset", kind: "reset", group: "clock" },
+  ]);
+});
+```
+
+The complete loop is now visible: the program counter chooses an instruction, control selects a
+path, the ALU produces a value, and a clock edge commits that value to a register. Real processors
+repeat the pattern with wider words, many registers, parallel execution units, caches, prediction,
+and several instructions in flight—but the vocabulary remains bits, rules, memory, and motion.

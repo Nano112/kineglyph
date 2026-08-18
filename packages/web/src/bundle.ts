@@ -7,7 +7,8 @@ export * from "./index.js";
 export * from "./lab.js";
 export * from "@kineglyph/core";
 export * from "@kineglyph/plot";
-export { renderSvg } from "@kineglyph/svg";
+export { parseMicroValues, renderMicroSvg, renderSvg } from "@kineglyph/svg";
+export type { MicrochartOptions, MicrochartType } from "@kineglyph/svg";
 // `@kineglyph/core` and `@kineglyph/plot` both export `formatNumber` and `rule`, so the two
 // star re-exports above leave both names ambiguous (TS2308). Disambiguate without losing either:
 // the bare names are core's (`rule(id, tone)`, `formatNumber(value, precision)`), and plot's

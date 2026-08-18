@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createTheme, defineScene, heading, stack, type FigureSource } from "@kineglyph/core";
+import {
+  createTheme,
+  defineScene,
+  heading,
+  stack,
+  type FigureSource,
+  type SceneDefinition,
+} from "@kineglyph/core";
 import { mountAllKineglyphLabs, mountKineglyphLab } from "../src/lab.js";
 
 const scene = (title: string): FigureSource =>
@@ -10,6 +17,27 @@ const scene = (title: string): FigureSource =>
     title,
     root: stack("root", [heading("title", title)], { padding: 12, width: "fill" }),
   });
+
+const animatedScene: SceneDefinition = defineScene({
+  schemaVersion: 2,
+  id: "animated-lab",
+  title: "Animated lab",
+  root: stack("root", [heading("title", "Animated")], { padding: 12, width: "fill" }),
+  timeline: {
+    duration: 400,
+    tracks: [
+      {
+        id: "title-in",
+        target: "title",
+        property: "opacity",
+        keyframes: [
+          { time: 0, value: 0 },
+          { time: 400, value: 1 },
+        ],
+      },
+    ],
+  },
+});
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -30,6 +58,17 @@ describe("mountKineglyphLab", () => {
     expect(host.querySelector(".kg-figure__readout")).toBeNull();
     const edit = host.querySelector<HTMLButtonElement>(".kg-lab__edit");
     expect(edit?.textContent).toBe("Edit figure");
+    const exportToggle = host.querySelector<HTMLButtonElement>(".kg-lab__export-toggle");
+    expect(exportToggle?.textContent).toContain("Export");
+    expect(exportToggle?.closest<HTMLElement>(".kg-lab__export")?.hidden).toBe(false);
+    exportToggle?.click();
+    expect(exportToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector<HTMLElement>(".kg-lab__export-menu")?.hidden).toBe(false);
+    expect(
+      Array.from(host.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["Download SVGvector · transparent", "Download PNG2× · transparent"]);
     edit?.click();
     expect(lab.view).toBe("split");
 
@@ -49,6 +88,26 @@ describe("mountKineglyphLab", () => {
     );
     expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
       ".kg-lab[data-view=preview] .kg-canvas{fill:transparent}",
+    );
+  });
+
+  it("offers export for still figures and removes it when an edit adds animation", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    const lab = mountKineglyphLab(host, {
+      source: "still",
+      view: "preview",
+      load: (source) => Promise.resolve(source === "animated" ? animatedScene : scene(source)),
+    });
+    await lab.ready;
+    const exportGroup = host.querySelector<HTMLElement>(".kg-lab__export");
+    expect(exportGroup?.hidden).toBe(false);
+
+    lab.setSource("animated", { run: false });
+    expect(await lab.run()).toBe(true);
+    expect(exportGroup?.hidden).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>(".kg-lab__export-toggle")?.ariaExpanded).toBe(
+      "false",
     );
   });
 
@@ -101,6 +160,40 @@ describe("mountKineglyphLab", () => {
         .querySelector<HTMLElement>(".kg-lab__preview-host")
         ?.style.getPropertyValue("--kg-color-canvas"),
     ).toBe("#010101");
+  });
+
+  it("starts module setup after mount and disposes it before reruns and destroy", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    let setups = 0;
+    let cleanups = 0;
+    const lab = mountKineglyphLab(host, {
+      source: "first",
+      view: "preview",
+      load: (source) =>
+        Promise.resolve({
+          scene: scene(source),
+          setup: () => {
+            setups += 1;
+            return () => {
+              cleanups += 1;
+            };
+          },
+        }),
+    });
+
+    expect(await lab.ready).toBe(true);
+    expect(setups).toBe(1);
+    expect(cleanups).toBe(0);
+    expect(host.querySelector<HTMLElement>(".kg-lab__export")?.hidden).toBe(true);
+
+    lab.setSource("second", { run: false });
+    expect(await lab.run()).toBe(true);
+    expect(setups).toBe(2);
+    expect(cleanups).toBe(1);
+
+    lab.destroy();
+    expect(cleanups).toBe(2);
   });
 
   it("restores its authored source and static fallback", async () => {

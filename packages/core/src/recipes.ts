@@ -6,6 +6,8 @@
 import type {
   Align,
   BadgeMark,
+  CircleMark,
+  FillPaint,
   GroupLayout,
   GroupNode,
   IconMark,
@@ -93,6 +95,147 @@ export function pill(id: string, text: string, options: PillOptions = {}): Badge
     text,
     tone: options.tone ?? "accent",
     variant: options.variant ?? "soft",
+    ...(options.bind === undefined ? {} : { bind: options.bind }),
+    ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
+  };
+}
+
+export type LogicGateKind =
+  "and" | "or" | "xor" | "nand" | "nor" | "xnor" | "not" | "buffer" | "mux";
+
+export interface LogicGateOptions extends ContainerOptions {
+  /** Outline and pin colour. */
+  readonly tone?: Paint;
+  /** Interior of the gate silhouette. */
+  readonly fill?: FillPaint;
+  /** Short symbol drawn inside the gate; defaults to the upper-case kind. */
+  readonly text?: string;
+  /** Hide the interior text for a strictly symbolic schematic. */
+  readonly showText?: boolean;
+  readonly textTone?: Paint;
+}
+
+/**
+ * A proper logic-gate silhouette with visible input/output pins. It is still an ordinary group of
+ * path, circle, and text marks, so it exports everywhere and can be targeted by normal edges.
+ */
+export function gate(id: string, kind: LogicGateKind, options: LogicGateOptions = {}): GroupNode {
+  const {
+    tone = "accent",
+    fill = "surfaceRaised",
+    text: symbol = kind.toUpperCase(),
+    showText = true,
+    textTone = "text",
+    width = 120,
+    height = 80,
+    label = `${kind.toUpperCase()} logic gate`,
+    metadata,
+    ...containerOptions
+  } = options;
+  const shapeBind = containerOptions.bind;
+  const inverted = kind === "nand" || kind === "nor" || kind === "xnor" || kind === "not";
+  const base = kind === "nand" ? "and" : kind === "nor" || kind === "xnor" ? "or" : kind;
+  const outputX = inverted ? 98 : 108;
+  const body =
+    base === "and"
+      ? `M 14 8 L 52 8 C 86 8 ${outputX} 22 ${outputX} 40 C ${outputX} 58 86 72 52 72 L 14 72 Z`
+      : base === "or" || base === "xor"
+        ? `M 14 8 C 35 29 35 51 14 72 C 53 72 88 64 ${outputX} 40 C 88 16 53 8 14 8 Z`
+        : base === "not" || base === "buffer"
+          ? `M 14 8 L ${outputX} 40 L 14 72 Z`
+          : "M 18 8 L 100 18 L 100 62 L 18 72 Z";
+  const inputPins =
+    base === "not" || base === "buffer" ? "M 0 40 L 14 40" : "M 0 27 L 17 27 M 0 53 L 17 53";
+  const outputPin = inverted ? "M 112 40 L 120 40" : `M ${outputX} 40 L 120 40`;
+  const children: SceneNode[] = [
+    {
+      id: `${id}-shape`,
+      type: "path",
+      d: `${body} ${inputPins} ${outputPin}`,
+      viewBox: { width: 120, height: 80 },
+      fill,
+      stroke: tone,
+      strokeWidth: 2.4,
+      width: "100%",
+      height: "100%",
+      position: { x: 0, y: 0 },
+      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
+    },
+  ];
+  if (base === "xor") {
+    children.push({
+      id: `${id}-xor-arc`,
+      type: "path",
+      d: "M 7 8 C 28 29 28 51 7 72",
+      viewBox: { width: 120, height: 80 },
+      fill: "none",
+      stroke: tone,
+      strokeWidth: 2.4,
+      width: "100%",
+      height: "100%",
+      position: { x: 0, y: 0 },
+      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
+    });
+  }
+  if (inverted) {
+    children.push({
+      id: `${id}-bubble`,
+      type: "circle",
+      radius: 7,
+      fill,
+      stroke: tone,
+      strokeWidth: 2.4,
+      width: 14,
+      height: 14,
+      position: { x: 105 / 120, y: 0.5, anchor: "center" },
+      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
+    });
+  }
+  if (showText) {
+    children.push({
+      ...code(`${id}-text`, symbol, { tone: textTone, align: "center", width: 52 }),
+      position: { x: base === "mux" ? 0.5 : 0.48, y: 0.5, anchor: "center" },
+    });
+  }
+  return container(id, "coordinates", children, {
+    ...containerOptions,
+    width,
+    height,
+    label,
+    metadata: { ...metadata, circuitRole: "gate", gateKind: kind },
+  });
+}
+
+export interface JunctionOptions {
+  readonly tone?: Paint;
+  readonly size?: Responsive<number>;
+  readonly label?: string;
+  readonly bind?: NodeBindings;
+  readonly hidden?: Responsive<boolean>;
+}
+
+/** A filled circuit-net junction suitable for branching orthogonal wires. */
+export function junction(id: string, options: JunctionOptions = {}): CircleMark {
+  const size = options.size ?? 10;
+  const radius: Responsive<number> =
+    typeof size === "number"
+      ? size / 2
+      : {
+          ...(size.wide === undefined ? {} : { wide: size.wide / 2 }),
+          ...(size.compact === undefined ? {} : { compact: size.compact / 2 }),
+          ...(size.narrow === undefined ? {} : { narrow: size.narrow / 2 }),
+        };
+  return {
+    id,
+    type: "circle",
+    radius,
+    width: size,
+    height: size,
+    fill: options.tone ?? "accent",
+    stroke: "canvas",
+    strokeWidth: 2,
+    label: options.label ?? "Circuit junction",
+    metadata: { circuitRole: "junction" },
     ...(options.bind === undefined ? {} : { bind: options.bind }),
     ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
   };

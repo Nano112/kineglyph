@@ -77,9 +77,18 @@ wrapping, and connector routes adapt together rather than scaling one desktop im
 For browser playback, install `@kineglyph/web`; for files generated during a build or from the
 command line, install `@kineglyph/export`.
 
+For dense tables, `@kineglyph/svg` also exposes `renderMicroSvg()`—a runtime-free 64 × 16 line,
+area, bar, pie, or donut chart. Full live figures accept external data through
+`controller.setSignals()`; `@kineglyph/web` includes a burst-coalescing WebSocket adapter. See
+[Live data and microcharts](./live-data-and-microcharts.md) for both tiers.
+
 ## Continue
 
 - [Authoring API](./authoring-api.md) lists every `figure()` helper and its return type.
 - [Cookbook](./cookbook.md) covers responsive layouts, connectors, plots, motion, and state
   machines through complete patterns.
 - [Embedding and theming](./embedding-and-theming.md) covers the web runtime and host-page styling.
+- [Editorial infographic patterns](./infographic-patterns.md) rebuilds workflow, matrix, lane,
+  timeline, and comparison patterns as editable scenes.
+- [Live data and microcharts](./live-data-and-microcharts.md) covers WebSockets, external signals,
+  and tiny table-cell SVGs.

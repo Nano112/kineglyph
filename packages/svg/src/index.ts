@@ -8,6 +8,8 @@ import {
 import { motifShapes, type MotifShape } from "./motifs.js";
 
 export { MOTIFS, MOTIF_NAMES, motifShapes, type MotifShape } from "./motifs.js";
+export { parseMicroValues, renderMicroSvg } from "./micro.js";
+export type { MicrochartOptions, MicrochartType } from "./micro.js";
 
 type UnknownRecord = Record<string, unknown>;
 

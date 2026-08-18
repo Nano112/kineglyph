@@ -52,6 +52,8 @@ low-level escape hatch.
 - [Cookbook](./cookbook.md) collects complete patterns for layouts, charts, motion, and machines.
 - [Materials and effects](./materials-and-effects.md) separates semantic structure from visual
   direction.
+- [Editorial infographic patterns](./infographic-patterns.md) exercises process narratives,
+  activity matrices, convergence lanes, change streams, and before/after claims.
 
 ## Ship the same scene everywhere
 
@@ -60,6 +62,8 @@ layouts select `wide`, `compact`, or `narrow` rather than shrinking a desktop dr
 labels become unreadable.
 
 - [Embedding and theming](./embedding-and-theming.md) covers hydration and the CSS token contract.
+- [Live data and microcharts](./live-data-and-microcharts.md) spans WebSocket-fed figures and
+  runtime-free SVGs small enough for massive tables.
 - [Architecture](./architecture.md) follows a scene through resolution, rendering, animation, and
   export.
 

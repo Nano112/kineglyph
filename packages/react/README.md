@@ -13,22 +13,26 @@ React into your tree.
 
 ```tsx
 import { KineglyphFigure, type KineglyphFigureHandle } from "@kineglyph/react";
-import { useRef } from "react";
+import { defaultTheme } from "@kineglyph/core";
+import { useRef, useState } from "react";
 
 function Diagram({ scene }) {
   const ref = useRef<KineglyphFigureHandle>(null);
+  const [signals, setSignals] = useState({ rate: "waiting" });
   return (
     <>
-      <KineglyphFigure ref={ref} scene={scene} />
-      <button onClick={() => ref.current?.seek(0)}>Replay</button>
+      <KineglyphFigure ref={ref} figure={scene} theme={defaultTheme} signals={signals} />
+      <button onClick={() => ref.current?.restart()}>Replay</button>
+      <button onClick={() => setSignals({ rate: "1,284 req/s" })}>Use sample data</button>
     </>
   );
 }
 ```
 
-The ref exposes the same `KineglyphController` that [`@kineglyph/web`](../web) hands out — play,
-pause, seek, inspect a node — so the imperative surface is identical whether or not React is in the
-picture.
+Signal prop changes call `setSignals()` without remounting the scene. The ref also exposes the same
+`KineglyphController` that [`@kineglyph/web`](../web) hands out—play, pause, seek, inspect, send
+machine events, and push signals—so the imperative surface is identical whether or not React is in
+the picture.
 
 ## Licence
 

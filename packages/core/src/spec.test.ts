@@ -323,7 +323,7 @@ describe("sceneFromSpec", () => {
         ],
       });
       const [read, plan] = boxes;
-      const label = edges[0]?.labels[0];
+      const label = edges[0]?.labels?.[0];
       expect(read).toBeDefined();
       expect(plan).toBeDefined();
       expect(label).toBeDefined();

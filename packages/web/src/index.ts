@@ -26,6 +26,7 @@ import {
   type ResolvedScene,
   type SceneControl,
   type ThemeTokens,
+  type Variables,
 } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
@@ -46,6 +47,8 @@ import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
+export * from "./micro.js";
+export * from "./stream.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
 
@@ -100,6 +103,8 @@ export interface MountOptions {
   readonly idPrefix?: string;
   readonly className?: string;
   readonly initialState?: MachineState;
+  /** Initial overrides for scene-declared live signals. */
+  readonly signals?: Variables;
   /** Retain a transition history on the live machine controller. */
   readonly history?: boolean;
   /** HTML/WebGL renderers keyed by a live image node id. The image remains the export fallback. */
@@ -141,6 +146,7 @@ export interface KineglyphState {
   readonly width: number;
   readonly layout: LayoutName | undefined;
   readonly machineState: MachineState | undefined;
+  readonly signals: Variables;
   readonly inspected: InspectTarget | undefined;
   readonly destroyed: boolean;
 }
@@ -150,6 +156,7 @@ export type KineglyphEventMap = {
   readonly playback: boolean;
   readonly inspect: InspectTarget | undefined;
   readonly state: { readonly step: MachineStep; readonly scene: ResolvedScene };
+  readonly data: Variables;
   readonly resize: { readonly width: number; readonly layout: LayoutName | undefined };
   readonly render: ResolvedScene;
   readonly destroy: undefined;
@@ -173,6 +180,8 @@ export interface KineglyphController {
   reset(): void;
   setTheme(theme: ThemeTokens): void;
   setScene(scene: FigureSource, options?: { readonly initialState?: MachineState }): void;
+  /** Merges live signal values and re-renders; pass `replace` to discard earlier overrides. */
+  setSignals(signals: Variables, options?: { readonly replace?: boolean }): void;
   setReducedMotion(reduced: boolean): void;
   /** Programmatic inspection; pass `null` to clear. Returns the current inspection target. */
   inspect(id?: string | null): InspectTarget | undefined;
@@ -259,6 +268,7 @@ class FigureRuntime implements KineglyphController {
   #pinnedColorVars: readonly string[] = [];
   #time = 0;
   #playing = false;
+  #signals: Record<string, string | number | boolean | null>;
   readonly #emitter = new Emitter();
   readonly #cleanups: Array<() => void> = [];
   readonly #shell: HTMLElement;
@@ -277,6 +287,7 @@ class FigureRuntime implements KineglyphController {
     this.element = element;
     this.#options = options;
     this.#source = options.scene;
+    this.#signals = { ...(options.signals ?? {}) };
     this.#theme = options.theme ?? defaultTheme;
     mountCounter += 1;
     this.id = options.idPrefix ?? `kineglyph-${mountCounter.toString(36)}`;
@@ -372,6 +383,7 @@ class FigureRuntime implements KineglyphController {
       width: this.#width,
       layout: this.#resolved.layoutName,
       machineState: this.machine?.state,
+      signals: { ...this.#resolved.signals },
       inspected: this.#inspected,
       destroyed: this.#destroyed,
     };
@@ -435,6 +447,14 @@ class FigureRuntime implements KineglyphController {
     this.#invalidateMachineControls();
     this.#resolved = this.#resolve();
     this.#render(true);
+  }
+
+  setSignals(signals: Variables, options: { readonly replace?: boolean } = {}): void {
+    this.#assertLive();
+    this.#signals = options.replace === true ? { ...signals } : { ...this.#signals, ...signals };
+    this.#resolved = this.#resolve();
+    this.#render(false);
+    this.#emitter.emit("data", { ...this.#signals });
   }
 
   setReducedMotion(reduced: boolean): void {
@@ -505,6 +525,7 @@ class FigureRuntime implements KineglyphController {
       theme: this.#theme,
       layout: this.#options.layout ?? "auto",
       ...(this.machine === undefined ? {} : { machineState: this.machine.state }),
+      signals: this.#signals,
     });
   }
 
@@ -554,7 +575,7 @@ class FigureRuntime implements KineglyphController {
         : { renderers: this.#options.liveSurfaces }),
       theme: this.#theme,
       machineState: this.machine?.state,
-      signals: this.machine?.signals ?? {},
+      signals: { ...(this.machine?.signals ?? {}), ...this.#signals },
       time: initialTime,
       playing: initialPlaying,
       send: (event) => this.send(event),

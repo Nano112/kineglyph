@@ -37,13 +37,28 @@ controller.seek(1200);
 controller.send("FOCUS_FIELD"); // state-machine event, when the scene has one
 controller.reset();
 controller.setTheme(createTheme({ colors: { accent: "#6475b7" } }));
+controller.setSignals({ rate: "1,284 req/s", status: "live" });
 controller.inspect("field"); // programmatic inspection; inspect(null) clears
 controller.on("state", ({ step }) => console.log(step.transition));
 controller.destroy(); // removes DOM, listeners, observers, and animations
 ```
 
 `controller.state` reports time, duration, playing, reducedMotion, width, layout, machineState,
-and the inspected target. `controller.scene` is the current `ResolvedScene`.
+resolved signals, and the inspected target. `controller.scene` is the current `ResolvedScene`.
+
+For network feeds, `connectWebSocket()` parses JSON, coalesces bursts to the newest message once
+per animation frame, and optionally reconnects with bounded exponential backoff. For table cells,
+`mountMicrochart()` and `mountAllMicrocharts()` update tiny standalone SVGs without mounting full
+figure runtimes. See [Live data and microcharts](../../docs/live-data-and-microcharts.md).
+
+For thousands of cells, `mountMicrochartBatch()` uses one intersection observer and one shared
+frame queue. Only visible charts retain SVG DOM, offscreen updates retain numbers only, and repeated
+updates to one cell before paint collapse into a single draw.
+
+Editable modules mounted through `@kineglyph/web/lab` may also export
+`setup(controller, element)`. It runs after each successful preview mount and may return a cleanup
+function. The lab disposes the previous setup before rerunning edited source and on destroy, so a
+demo can safely own a timer, observer, or WebSocket while remaining hot-reloadable.
 
 Named material shaders are progressively enhanced in the live runtime. Rectangular shader surfaces
 receive a WebGL canvas inside their SVG group; its time uniform follows playback and `seek()`. The
@@ -193,6 +208,7 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 | `reducedMotion`   | media query      | Force the terminal frame and disable playback                       |
 | `idPrefix`        | generated        | Stable DOM id prefix                                                |
 | `initialState`    | machine initial  | Start a machine in a specific `MachineState`                        |
+| `signals`         | scene defaults   | Initial external values for declared live signal bindings           |
 | `liveSurfaces`    | —                | HTML/WebGL renderers keyed by live image node id                    |
 | callbacks         | —                | `onInspect`, `onFrame`, `onPlaybackChange`, `onStateChange`         |
 

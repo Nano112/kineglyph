@@ -27,6 +27,8 @@ import { validateStateMachine, type StateMachineDefinition } from "./machine.js"
 import {
   card,
   container,
+  gate,
+  junction,
   keyValue,
   panel,
   pill,
@@ -36,6 +38,9 @@ import {
   type CardOptions,
   type ContainerOptions,
   type KeyValueOptions,
+  type LogicGateKind,
+  type LogicGateOptions,
+  type JunctionOptions,
   type PanelOptions,
   type PillOptions,
   type TextOptions,
@@ -74,6 +79,7 @@ import {
   type TextMark,
 } from "./scene.js";
 import type { SemanticColorToken, SemanticTextStyle } from "./schema.js";
+import type { Variables } from "./machine.js";
 
 // ---------------------------------------------------------------------------------------------
 // Public types
@@ -87,6 +93,8 @@ export interface FigureMeta {
   readonly padding?: Responsive<Insets>;
   readonly background?: SemanticColorToken | "transparent";
   readonly metadata?: SceneMetadata;
+  /** Defaults and declarations for signals supplied later by a live data source. */
+  readonly signals?: Variables;
   /** Milliseconds added after the last keyframe so the terminal frame holds (default 0). */
   readonly hold?: number;
 }
@@ -116,6 +124,8 @@ export type FigureCalloutOptions = MarkOptions<CalloutMark, "text">;
 export type FigureCardOptions = CardOptions & { readonly id?: string };
 export type FigurePanelOptions = PanelOptions & { readonly id?: string };
 export type FigurePillOptions = PillOptions & { readonly id?: string };
+export type FigureGateOptions = LogicGateOptions & { readonly id?: string };
+export type FigureJunctionOptions = JunctionOptions & { readonly id?: string };
 export type FigureKeyValueOptions = KeyValueOptions & { readonly id?: string };
 export interface FigureRuleOptions {
   readonly id?: string;
@@ -125,6 +135,29 @@ export interface FigureSpacerOptions {
   readonly id?: string;
 }
 export type FigureGroupOptions = ContainerOptions & { readonly id?: string };
+
+/** High-level ranked layouts for node-link figures. Each inner array is one parallel stage. */
+export type FigureGraphStyle = "flow" | "circuit" | "tree";
+export type FigureGraphDirection = "horizontal" | "vertical";
+export interface FigureGraphRank extends FigureGroupOptions {
+  readonly nodes: readonly SceneNode[];
+  readonly layout?: Responsive<"stack" | "row" | "grid">;
+}
+export type FigureGraphLayer = SceneNode | readonly SceneNode[] | FigureGraphRank;
+export interface FigureGraphOptions extends FigureGroupOptions {
+  /** `flow` adapts like prose, `circuit` preserves ranks, and `tree` centres each rank. */
+  readonly style?: FigureGraphStyle;
+  /** Overrides the preset's axis, including per responsive layout. */
+  readonly direction?: Responsive<FigureGraphDirection>;
+  /** Default layout inside every multi-node rank; individual ranks may override it. */
+  readonly rankLayout?: Responsive<"stack" | "row" | "grid">;
+  /** Default column count for grid ranks; individual ranks may override it. */
+  readonly rankColumns?: Responsive<number>;
+  /** Space between ranked stages; `gap` remains a concise alias. */
+  readonly layerGap?: Responsive<number>;
+  /** Space between nodes that share a stage. */
+  readonly nodeGap?: Responsive<number>;
+}
 
 export interface FigureAddOptions {
   /** Namespace for the fragment's ids (default: inferred from the fragment's root id). */
@@ -141,6 +174,11 @@ export type NodeRef = SceneNode | string;
 /** A connector endpoint: a node (or id), or a node plus port options. */
 export type EndpointRef = NodeRef | ({ readonly node: NodeRef } & Omit<EdgeEndpoint, "node">);
 export type ConnectOptions = Omit<EdgeDefinition, "id" | "from" | "to"> & { readonly id?: string };
+export type FigureWireKind = "signal" | "bus" | "control";
+export interface FigureWireOptions extends ConnectOptions {
+  /** Semantic circuit-wire preset; individual connector options still override it. */
+  readonly kind?: FigureWireKind;
+}
 
 /** Motion targets: nodes, edges, ids, or arrays of those (edges only where the property allows). */
 export type MotionTarget =
@@ -227,10 +265,16 @@ export interface FigureBuilder {
   card(options: FigureCardOptions): GroupNode;
   panel(children: readonly SceneNode[], options?: FigurePanelOptions): GroupNode;
   pill(text: string, options?: FigurePillOptions): BadgeMark;
+  /** Standard logic-gate silhouette with pins; connect using normal endpoint sides/offsets. */
+  gate(kind: LogicGateKind, options?: FigureGateOptions): GroupNode;
+  /** Filled net junction for explicit signal fan-out. */
+  junction(options?: FigureJunctionOptions): CircleMark;
   keyValue(key: string, value: string, options?: FigureKeyValueOptions): GroupNode;
   rule(options?: FigureRuleOptions): RectMark;
   spacer(size: Responsive<number>, options?: FigureSpacerOptions): RectMark;
   // Layout
+  /** Places an existing node in a coordinates/absolute group without cloning or changing its id. */
+  place<T extends SceneNode>(node: T, position: NonNullable<SceneNode["position"]>): T;
   stack(children: readonly SceneNode[], options?: FigureGroupOptions): GroupNode;
   row(children: readonly SceneNode[], options?: FigureGroupOptions): GroupNode;
   grid(children: readonly SceneNode[], options?: FigureGroupOptions): GroupNode;
@@ -240,6 +284,8 @@ export interface FigureBuilder {
   /** Row on wide layouts, stack otherwise (given children); packets on (given an edge). */
   flow(children: readonly SceneNode[], options?: FigureGroupOptions): GroupNode;
   flow(edge: EdgeTarget, options?: FlowOptions): MotionStep;
+  /** Ranked node-link layout. Circuit ranks stay stable while ordinary flow remains responsive. */
+  graph(layers: readonly FigureGraphLayer[], options?: FigureGraphOptions): GroupNode;
   // Composition
   /**
    * Adds a fragment (or a `plot()` result). Ids are scoped under `options.id` unless the fragment
@@ -252,6 +298,8 @@ export interface FigureBuilder {
   raw<T extends SceneNode>(node: T): T;
   // Connectors
   connect(from: EndpointRef, to: EndpointRef, options?: ConnectOptions): EdgeDefinition;
+  /** Orthogonal circuit connector with signal, bus, and control presets. */
+  wire(from: EndpointRef, to: EndpointRef, options?: FigureWireOptions): EdgeDefinition;
   // Motion presets
   reveal(target: MotionTarget, options?: RevealOptions): MotionStep;
   draw(edge: EdgeTarget, options?: DrawOptions): MotionStep;
@@ -650,6 +698,121 @@ function createBuilder(
     );
   }
 
+  const graph = (
+    layers: readonly FigureGraphLayer[],
+    options: FigureGraphOptions = {},
+  ): GroupNode => {
+    if (layers.length === 0) throw fail("f.graph: no layers given");
+    const {
+      style = "flow",
+      direction: directionOption,
+      rankLayout,
+      rankColumns,
+      layerGap,
+      nodeGap = style === "circuit" ? 16 : 12,
+      gap,
+      ...outerOptions
+    } = options;
+    const presetDirection: Responsive<FigureGraphDirection> =
+      style === "flow" ? { wide: "horizontal", compact: "vertical" } : "vertical";
+    const direction: Responsive<FigureGraphDirection> =
+      directionOption === undefined
+        ? presetDirection
+        : typeof directionOption === "string"
+          ? directionOption
+          : {
+              ...(typeof presetDirection === "string"
+                ? { wide: presetDirection }
+                : presetDirection),
+              ...directionOption,
+            };
+    const stages = layers.map((layer) => {
+      const rank = !Array.isArray(layer) && "nodes" in layer ? layer : undefined;
+      const nodes =
+        rank !== undefined
+          ? rank.nodes
+          : Array.isArray(layer)
+            ? (layer as readonly SceneNode[])
+            : [layer as SceneNode];
+      if (nodes.length === 0) throw fail("f.graph: layers must not be empty");
+      if (nodes.length === 1 && nodes[0] !== undefined && rank === undefined) return nodes[0];
+      const defaultLayout = style === "flow" ? "stack" : style === "tree" ? "row" : "grid";
+      const layout = rank?.layout ?? rankLayout ?? defaultLayout;
+      const inferredColumns: Responsive<number> = {
+        wide: nodes.length,
+        compact: nodes.length,
+        narrow: Math.min(nodes.length, 2),
+      };
+      const {
+        nodes: _nodes,
+        layout: _layout,
+        id,
+        gap: rankGap,
+        columns,
+        metadata,
+        ...rankOptions
+      } = rank ?? { nodes };
+      void _nodes;
+      void _layout;
+      return group(style === "circuit" ? "circuit-rank" : "graph-rank", layout, nodes, {
+        ...rankOptions,
+        ...(id === undefined ? {} : { id }),
+        gap: rankGap ?? nodeGap,
+        width: rank?.width ?? "fill",
+        align: rank?.align ?? (style === "tree" ? "center" : "stretch"),
+        justify: rank?.justify ?? (style === "tree" ? "center" : "start"),
+        ...(layout === "grid" || typeof layout !== "string"
+          ? { columns: columns ?? rankColumns ?? inferredColumns }
+          : {}),
+        metadata: { ...metadata, graphRole: "rank", graphStyle: style },
+      });
+    });
+    const axisLayout = (value: FigureGraphDirection): GroupLayout =>
+      value === "horizontal" ? "row" : "stack";
+    const layout: Responsive<GroupLayout> =
+      typeof direction === "string"
+        ? axisLayout(direction)
+        : {
+            ...(direction.wide === undefined ? {} : { wide: axisLayout(direction.wide) }),
+            ...(direction.compact === undefined ? {} : { compact: axisLayout(direction.compact) }),
+            ...(direction.narrow === undefined ? {} : { narrow: axisLayout(direction.narrow) }),
+          };
+    return group("graph", layout, stages, {
+      ...outerOptions,
+      gap: layerGap ?? gap ?? (style === "circuit" ? 56 : style === "tree" ? 40 : 24),
+      width: outerOptions.width ?? "fill",
+      align: outerOptions.align ?? "stretch",
+      metadata: {
+        ...outerOptions.metadata,
+        graphStyle: style,
+      },
+    });
+  };
+
+  const connect = (
+    from: EndpointRef,
+    to: EndpointRef,
+    options: ConnectOptions = {},
+  ): EdgeDefinition => {
+    const helper = "f.connect";
+    const endpoint = (ref: EndpointRef): string | EdgeEndpoint => {
+      if (typeof ref === "string" || isSceneNode(ref)) return refId(ref, helper);
+      const { node, ...port } = ref;
+      return { node: refId(node, helper), ...port };
+    };
+    const fromEnd = endpoint(from);
+    const toEnd = endpoint(to);
+    const { id: explicit, ...rest } = options;
+    const fromId = endpointNode(fromEnd);
+    const toId = endpointNode(toEnd);
+    const id = explicit ?? uniqueId(`${fromId}-${toId}`);
+    register(id, `${helper}(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
+    edgeIds.add(id);
+    const edge: EdgeDefinition = { id, from: fromEnd, to: toEnd, ...rest };
+    edges.push(edge);
+    return edge;
+  };
+
   const builder: FigureBuilder = {
     text: (text, options) => textNode("text", undefined, text, options),
     textAt: (text, position, options) =>
@@ -725,6 +888,16 @@ function createBuilder(
       const id = inferId("pill", text, explicit);
       return commit(pill(id, text, rest), where("pill", text));
     },
+    gate(kind, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("gate", rest.text ?? kind, explicit);
+      return commit(gate(id, kind, rest), where("gate", kind));
+    },
+    junction(options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("junction", rest.label, explicit);
+      return commit(junction(id, rest), where("junction", rest.label));
+    },
     keyValue(key, value, options = {}) {
       const { id: explicit, ...rest } = options;
       const id = inferId("key-value", key, explicit);
@@ -739,6 +912,17 @@ function createBuilder(
       return commit(spacer(id, size), where("spacer"));
     },
 
+    place(node, position) {
+      if (!created.has(node))
+        throw fail(`f.place: unknown node "${node.id}"; create it with a builder helper first`);
+      if (nested.has(node.id)) throw fail(`f.place: "${node.id}" is already inside another group`);
+      // Builder nodes are intentionally mutable until they are nested. Returning the same object
+      // preserves the builder's identity bookkeeping; an object spread here would look like a
+      // second node with a duplicate id when the coordinates group is committed.
+      (node as SceneNode & { position: NonNullable<SceneNode["position"]> }).position = position;
+      return node;
+    },
+
     stack: (children, options) => group("stack", "stack", children, options),
     row: (children, options) => group("row", "row", children, options),
     grid: (children, options) => group("grid", "grid", children, options),
@@ -746,6 +930,7 @@ function createBuilder(
     coordinates: (children, options) => group("coordinates", "coordinates", children, options),
     absolute: (children, options) => group("absolute", "absolute", children, options),
     flow,
+    graph,
 
     add(source, options = {}) {
       const fragment = isFragment(source) ? source : source.fragment;
@@ -802,24 +987,33 @@ function createBuilder(
       return commit(node, `f.raw(${JSON.stringify(node.id)})`);
     },
 
-    connect(from, to, options = {}) {
-      const helper = "f.connect";
-      const endpoint = (ref: EndpointRef): string | EdgeEndpoint => {
-        if (typeof ref === "string" || isSceneNode(ref)) return refId(ref, helper);
-        const { node, ...port } = ref;
-        return { node: refId(node, helper), ...port };
-      };
-      const fromEnd = endpoint(from);
-      const toEnd = endpoint(to);
-      const { id: explicit, ...rest } = options;
-      const fromId = endpointNode(fromEnd);
-      const toId = endpointNode(toEnd);
-      const id = explicit ?? uniqueId(`${fromId}-${toId}`);
-      register(id, `${helper}(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
-      edgeIds.add(id);
-      const edge: EdgeDefinition = { id, from: fromEnd, to: toEnd, ...rest };
-      edges.push(edge);
-      return edge;
+    connect,
+    wire(from, to, options = {}) {
+      const { kind = "signal", ...rest } = options;
+      const preset: ConnectOptions =
+        kind === "bus"
+          ? {
+              route: "orthogonal",
+              head: "none",
+              width: 4,
+              tone: "info",
+              cornerRadius: 4,
+            }
+          : kind === "control"
+            ? {
+                route: "orthogonal",
+                head: "arrow",
+                stroke: "dashed",
+                tone: "muted",
+                cornerRadius: 6,
+              }
+            : {
+                route: "orthogonal",
+                head: "arrow",
+                tone: "accent",
+                cornerRadius: 6,
+              };
+      return connect(from, to, { ...preset, ...rest });
     },
 
     reveal(target, options = {}) {
@@ -965,24 +1159,22 @@ function createBuilder(
     }
     // Bindings must name machine variables or signals; resolve would reject them later anyway,
     // but the message here says which node and which property.
-    const known =
-      machine === undefined
-        ? undefined
-        : new Set([
-            ...Object.keys(machine.variables ?? {}),
-            ...Object.keys(machine.signals ?? {}),
-            "$state",
-            "$selection",
-          ]);
+    const knownNames = [
+      ...Object.keys(meta.signals ?? {}),
+      ...Object.keys(machine?.variables ?? {}),
+      ...Object.keys(machine?.signals ?? {}),
+      ...(machine === undefined ? [] : ["$state", "$selection"]),
+    ];
+    const known = knownNames.length === 0 ? undefined : new Set(knownNames);
     const checkBinding = (owner: string, entries: [string, string][]): void => {
       for (const [property, signal] of entries) {
         if (known === undefined)
           throw fail(
-            `"${owner}" binds ${property} to signal "${signal}" but the figure has no machine; call f.machine(...)`,
+            `"${owner}" binds ${property} to signal "${signal}" but the figure declares no signals; add meta.signals or call f.machine(...)`,
           );
         if (!known.has(signal))
           throw fail(
-            `"${owner}" binds ${property} to unknown signal "${signal}"; declare it in the machine's signals or variables`,
+            `"${owner}" binds ${property} to unknown signal "${signal}"; declare it in meta.signals or the machine`,
           );
       }
     };
@@ -1018,6 +1210,7 @@ function createBuilder(
       ...(edges.length === 0 ? {} : { edges: [...edges] }),
       ...(timeline === undefined ? {} : { timeline }),
       ...(machine === undefined ? {} : { machine }),
+      ...(meta.signals === undefined ? {} : { signals: meta.signals }),
       ...(controls.length === 0 ? {} : { controls: [...controls] }),
       ...(meta.metadata === undefined ? {} : { metadata: meta.metadata }),
     };

@@ -5,7 +5,13 @@
  * replaceable loader, and successful scenes are swapped through the normal Kineglyph controller.
  * The default loader uses a blob module, so the page's import map continues to own `kineglyph`.
  */
-import { defaultTheme, type FigureSource, type ThemeTokens } from "@kineglyph/core";
+import {
+  defaultTheme,
+  type FigureSource,
+  type ResolvedScene,
+  type ThemeTokens,
+} from "@kineglyph/core";
+import { renderSvg } from "@kineglyph/svg";
 import {
   autoplayAttr,
   chromeAttr,
@@ -18,9 +24,15 @@ import {
 import type { LabEditor } from "./lab-editor.js";
 
 export type KineglyphLabView = "source" | "split" | "preview";
+export type KineglyphLabSetup = (
+  controller: KineglyphController,
+  element: HTMLElement,
+) => void | (() => void);
 export interface KineglyphLabModuleResult {
   readonly scene: FigureSource;
   readonly theme?: ThemeTokens;
+  /** Starts optional live example behaviour after mount. The returned disposer runs before reruns. */
+  readonly setup?: KineglyphLabSetup;
 }
 export type KineglyphLabLoader = (
   source: string,
@@ -71,6 +83,7 @@ export interface KineglyphLabController {
 
 const LAB_STYLE_ID = "kineglyph-lab-styles";
 const DEFAULT_SELECTOR = "[data-kineglyph-lab]";
+let labExportMenuCounter = 0;
 
 const LAB_STYLES = `
 .kg-lab{--kg-lab-border:var(--kg-color-border,var(--kg-shell-border,#d7dbe2));--kg-lab-bg:var(--kg-color-canvas,var(--kg-shell-background,#fff));--kg-lab-surface:var(--kg-color-surface,var(--kg-shell-surface,#f7f8fa));--kg-lab-text:var(--kg-color-text,var(--kg-shell-text,#172033));--kg-lab-muted:var(--kg-color-text-muted,var(--kg-shell-muted,#657087));--kg-lab-accent:var(--kg-color-accent,var(--kg-shell-accent,#5b67f1));--kg-lab-code-bg:color-mix(in srgb,var(--kg-lab-bg) 92%,#0d1222);--kg-lab-code-text:var(--kg-lab-text);--kg-lab-syntax-keyword:var(--kg-color-accent,#8b8df5);--kg-lab-syntax-string:var(--kg-color-danger,#e56d88);--kg-lab-syntax-number:var(--kg-color-warning,#d79a42);--kg-lab-syntax-comment:var(--kg-lab-muted);--kg-lab-syntax-name:var(--kg-color-info,#58a6e7);--kg-lab-syntax-property:color-mix(in srgb,var(--kg-lab-text) 72%,var(--kg-lab-accent));--kg-lab-font:var(--kg-shell-font,Inter,ui-sans-serif,system-ui,sans-serif);--kg-lab-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;container-name:kg-lab;container-type:inline-size;display:block;margin:1.5rem 0;overflow:hidden;border:1px solid var(--kg-lab-border);border-radius:12px;background:var(--kg-lab-bg);color:var(--kg-lab-text);font-family:var(--kg-lab-font)}
@@ -78,8 +91,8 @@ const LAB_STYLES = `
 .kg-lab__tabs,.kg-lab__actions{display:flex;align-items:center;gap:4px}.kg-lab button{appearance:none;border:1px solid transparent;border-radius:7px;padding:8px 10px;background:transparent;color:var(--kg-lab-muted);font:650 12px/1 var(--kg-lab-font);cursor:pointer}.kg-lab button:hover{color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab button:focus-visible{outline:2px solid var(--kg-lab-accent);outline-offset:1px}.kg-lab__tabs button[aria-selected=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 35%,var(--kg-lab-border));background:color-mix(in srgb,var(--kg-lab-accent) 10%,transparent);color:var(--kg-lab-text)}.kg-lab__run{color:var(--kg-lab-text)!important}.kg-lab__shortcut{margin-left:4px;color:var(--kg-lab-muted);font:10px/1 var(--kg-lab-mono)}
 .kg-lab__workspace{display:grid;min-width:0;min-height:var(--kg-lab-height,420px);grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kg-lab__editor,.kg-lab__preview{min-width:0;min-height:0}.kg-lab__editor{height:var(--kg-lab-height,420px);overflow:hidden;border-right:1px solid var(--kg-lab-border);background:var(--kg-lab-code-bg)}.kg-lab__preview{display:grid;align-content:center;overflow:auto;padding:16px;background:var(--kg-lab-bg)}.kg-lab__preview-host{width:100%;min-width:0}.kg-lab__loading{display:grid;height:100%;place-items:center;color:var(--kg-lab-muted);font:12px/1.5 var(--kg-lab-font)}
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
-.kg-lab__preview-actions{display:none}.kg-lab__edit{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
-.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-canvas{fill:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;justify-content:flex-end;padding:6px 0 0;background:transparent}
+.kg-lab__preview-actions{display:none}.kg-lab__edit,.kg-lab__export-toggle{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__export{position:relative}.kg-lab__export[hidden],.kg-lab__export-menu[hidden]{display:none!important}.kg-lab__export-toggle[aria-expanded=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__export-chevron{display:inline-block;margin-left:3px;font-size:9px;transform:translateY(-1px)}.kg-lab__export-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:max-content;min-width:138px;padding:4px;border:1px solid var(--kg-lab-border);border-radius:9px;background:var(--kg-lab-surface);box-shadow:0 10px 28px color-mix(in srgb,#000 24%,transparent)}.kg-lab__export-menu button{display:block;width:100%;padding:8px 10px;text-align:left;white-space:nowrap}.kg-lab__export-menu small{display:block;margin-top:3px;color:var(--kg-lab-muted);font:10px/1.2 var(--kg-lab-mono)}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
+.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-canvas{fill:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0 0;background:transparent}
 @container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
 `;
@@ -120,6 +133,67 @@ function message(error: unknown): string {
   return String(error);
 }
 
+/** A still scene can be exported in-browser without asking which moment or machine state to use. */
+function isStaticExportScene(scene: ResolvedScene): boolean {
+  if ((scene.timeline?.duration ?? 0) > 0) return false;
+  if (scene.machine !== undefined || (scene.controls?.length ?? 0) > 0) return false;
+  return !scene.nodes.some((node) => node.image?.live === true);
+}
+
+function exportFileName(scene: ResolvedScene, extension: "svg" | "png"): string {
+  const stem = scene.id
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${stem || "kineglyph-figure"}.${extension}`;
+}
+
+function downloadBlob(doc: Document, blob: Blob, name: string): void {
+  const urlApi = doc.defaultView?.URL ?? URL;
+  const href = urlApi.createObjectURL(blob);
+  const anchor = doc.createElement("a");
+  anchor.href = href;
+  anchor.download = name;
+  anchor.hidden = true;
+  (doc.body ?? doc.documentElement).append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => urlApi.revokeObjectURL(href), 0);
+}
+
+async function pngBlob(doc: Document, svg: string, width: number, height: number): Promise<Blob> {
+  const view = doc.defaultView;
+  if (view === null) throw new Error("PNG export needs a browser window");
+  const urlApi = view.URL;
+  const source = new view.Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const href = urlApi.createObjectURL(source);
+  try {
+    const image = new view.Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("The browser could not rasterize this SVG"));
+      image.src = href;
+    });
+    const scale = 2;
+    const canvas = doc.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (context === null) throw new Error("Canvas is unavailable for PNG export");
+    context.scale(scale, scale);
+    context.drawImage(image, 0, 0, width, height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob === null ? reject(new Error("PNG encoding failed")) : resolve(blob)),
+        "image/png",
+      );
+    });
+  } finally {
+    urlApi.revokeObjectURL(href);
+  }
+}
+
 /** In a lab, `auto` is deliberately quiet; only `true` opts into persistent figure chrome. */
 function quietChrome(value: ChromeSetting | undefined): ChromeSetting | undefined {
   return value === "auto" ? undefined : value;
@@ -138,14 +212,21 @@ export async function loadKineglyphLabModule(
   const blob = new Blob([source], { type: "text/javascript" });
   const url = URL.createObjectURL(blob);
   try {
-    const mod = (await import(/* @vite-ignore */ url)) as { default?: unknown; theme?: unknown };
+    const mod = (await import(/* @vite-ignore */ url)) as {
+      default?: unknown;
+      theme?: unknown;
+      setup?: unknown;
+    };
     if (mod.default === null || typeof mod.default !== "object")
       throw new Error("inline scene: no default export");
+    if (mod.setup !== undefined && typeof mod.setup !== "function")
+      throw new Error("inline scene: setup export must be a function");
     const theme =
       mod.theme !== null && typeof mod.theme === "object" ? (mod.theme as ThemeTokens) : undefined;
     return {
       scene: mod.default as FigureSource,
       ...(theme === undefined ? {} : { theme }),
+      ...(mod.setup === undefined ? {} : { setup: mod.setup as KineglyphLabSetup }),
     };
   } finally {
     URL.revokeObjectURL(url);
@@ -164,9 +245,11 @@ class LabRuntime implements KineglyphLabController {
   #view: KineglyphLabView;
   #hostTheme: ThemeTokens | undefined;
   #moduleTheme: ThemeTokens | undefined;
+  #moduleHasSetup = false;
   readonly #moduleColorVars = new Set<string>();
   #theme: ThemeTokens | undefined;
   #figure: KineglyphController | undefined;
+  #moduleCleanup: (() => void) | undefined;
   #editor: LabEditor | undefined;
   #editorLoading: Promise<LabEditor> | undefined;
   #destroyed = false;
@@ -179,6 +262,13 @@ class LabRuntime implements KineglyphLabController {
   readonly #previewHost: HTMLElement;
   readonly #status: HTMLElement;
   readonly #buttons = new Map<KineglyphLabView, HTMLButtonElement>();
+  readonly #exportGroup: HTMLElement;
+  readonly #exportToggle: HTMLButtonElement;
+  readonly #exportMenu: HTMLElement;
+  readonly #onDocumentClick = (event: Event): void => {
+    if (event.target !== null && !this.#exportGroup.contains(event.target as Node))
+      this.#closeExportMenu();
+  };
 
   constructor(element: HTMLElement, options: MountKineglyphLabOptions) {
     this.element = element;
@@ -256,12 +346,54 @@ class LabRuntime implements KineglyphLabController {
     edit.className = "kg-lab__edit";
     edit.textContent = "Edit figure";
     edit.addEventListener("click", () => this.focus());
-    previewActions.append(edit);
+    this.#exportGroup = doc.createElement("div");
+    this.#exportGroup.className = "kg-lab__export";
+    this.#exportGroup.hidden = true;
+    this.#exportToggle = doc.createElement("button");
+    this.#exportToggle.type = "button";
+    this.#exportToggle.className = "kg-lab__export-toggle";
+    this.#exportToggle.setAttribute("aria-haspopup", "menu");
+    this.#exportToggle.setAttribute("aria-expanded", "false");
+    this.#exportToggle.innerHTML =
+      'Export <span class="kg-lab__export-chevron" aria-hidden="true">▼</span>';
+    const exportMenuId = `kineglyph-lab-export-${++labExportMenuCounter}`;
+    this.#exportToggle.setAttribute("aria-controls", exportMenuId);
+    this.#exportMenu = doc.createElement("div");
+    this.#exportMenu.id = exportMenuId;
+    this.#exportMenu.className = "kg-lab__export-menu";
+    this.#exportMenu.setAttribute("role", "menu");
+    this.#exportMenu.setAttribute("aria-label", "Export figure");
+    this.#exportMenu.hidden = true;
+    const formats = [
+      ["svg", "Download SVG", "vector · transparent"],
+      ["png", "Download PNG", "2× · transparent"],
+    ] as const;
+    for (const [format, label, detail] of formats) {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.dataset.format = format;
+      button.innerHTML = `${label}<small>${detail}</small>`;
+      button.addEventListener("click", () => void this.#export(format));
+      this.#exportMenu.append(button);
+    }
+    this.#exportToggle.addEventListener("click", () => {
+      this.#setExportMenu(this.#exportMenu.hidden);
+    });
+    this.#exportGroup.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      this.#closeExportMenu();
+      this.#exportToggle.focus();
+    });
+    this.#exportGroup.append(this.#exportToggle, this.#exportMenu);
+    previewActions.append(edit, this.#exportGroup);
     this.#shell.append(bar, workspace, previewActions, this.#status);
     const height = Number(element.dataset.height);
     if (Number.isFinite(height) && height >= 240 && height <= 1200)
       this.#shell.style.setProperty("--kg-lab-height", `${Math.round(height)}px`);
     element.append(this.#shell);
+    doc.addEventListener("click", this.#onDocumentClick);
     this.setView(this.#view);
     this.ready = this.run();
   }
@@ -345,9 +477,13 @@ class LabRuntime implements KineglyphLabController {
         if (playing) this.#figure.play();
         else this.#figure.pause();
       }
+      this.#moduleCleanup?.();
+      this.#moduleCleanup = loaded.setup?.(this.#figure, this.element) ?? undefined;
+      this.#moduleHasSetup = loaded.setup !== undefined;
       showStatic(this.element, false);
       delete this.element.dataset.kineglyphError;
       this.#setStatus("Preview updated", "success");
+      this.#syncExportVisibility();
       return true;
     } catch (error) {
       if (this.#destroyed || generation !== this.#generation) return false;
@@ -376,7 +512,10 @@ class LabRuntime implements KineglyphLabController {
     this.#generation++;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#editor?.destroy();
+    this.#moduleCleanup?.();
+    this.#moduleCleanup = undefined;
     this.#figure?.destroy();
+    this.element.ownerDocument.removeEventListener("click", this.#onDocumentClick);
     this.#shell.remove();
     showStatic(this.element, true);
     delete this.element.dataset.kineglyphLabMounted;
@@ -413,6 +552,60 @@ class LabRuntime implements KineglyphLabController {
   #setStatus(text: string, kind: "pending" | "success" | "error"): void {
     this.#status.textContent = text;
     this.#status.dataset.kind = kind;
+  }
+
+  #setExportMenu(open: boolean): void {
+    if (this.#exportGroup.hidden) return;
+    this.#exportMenu.hidden = !open;
+    this.#exportToggle.setAttribute("aria-expanded", String(open));
+    if (open) this.#exportMenu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }
+
+  #closeExportMenu(): void {
+    this.#exportMenu.hidden = true;
+    this.#exportToggle.setAttribute("aria-expanded", "false");
+  }
+
+  #syncExportVisibility(): void {
+    this.#exportGroup.hidden =
+      this.#figure === undefined ||
+      this.#moduleHasSetup ||
+      !isStaticExportScene(this.#figure.scene);
+    if (this.#exportGroup.hidden) this.#closeExportMenu();
+  }
+
+  async #export(format: "svg" | "png"): Promise<void> {
+    this.#closeExportMenu();
+    const scene = this.#figure?.scene;
+    if (scene === undefined || !isStaticExportScene(scene)) return;
+    this.#setStatus(`Preparing ${format.toUpperCase()}…`, "pending");
+    try {
+      const svg = renderSvg(scene, {
+        idPrefix: `export-${scene.id}`,
+        background: "none",
+        animateFlow: false,
+        effects: "portable",
+      });
+      const doc = this.element.ownerDocument;
+      if (format === "svg") {
+        const BlobConstructor = doc.defaultView?.Blob ?? Blob;
+        downloadBlob(
+          doc,
+          new BlobConstructor([svg], { type: "image/svg+xml;charset=utf-8" }),
+          exportFileName(scene, format),
+        );
+      } else {
+        downloadBlob(
+          doc,
+          await pngBlob(doc, svg, scene.width, scene.height),
+          exportFileName(scene, format),
+        );
+      }
+      this.#setStatus(`${format.toUpperCase()} downloaded`, "success");
+    } catch (error) {
+      this.#setStatus(message(error), "error");
+      this.#options.onError?.(error);
+    }
   }
 
   #applyModuleTheme(theme: ThemeTokens | undefined): void {

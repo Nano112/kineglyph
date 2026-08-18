@@ -127,6 +127,8 @@ export interface InspectInfo {
 /** Signal-driven properties. Values are signal or variable ids from the scene's state machine. */
 export interface NodeBindings {
   readonly text?: string;
+  /** SVG path data for path marks. Non-string signal values leave the authored path unchanged. */
+  readonly path?: string;
   readonly hidden?: string;
   readonly tone?: string;
   readonly opacity?: string;
@@ -446,6 +448,8 @@ export interface SceneDefinition {
   readonly edges?: readonly EdgeDefinition[];
   readonly timeline?: AnimationTimeline;
   readonly machine?: StateMachineDefinition;
+  /** Default externally-driven signals. Runtimes may override them without replacing the scene. */
+  readonly signals?: Readonly<Record<string, VariableValue>>;
   readonly controls?: readonly SceneControl[];
   readonly metadata?: SceneMetadata;
 }

@@ -317,10 +317,10 @@ working [Laravel example](./examples/laravel-blade/README.md).
 | Package             | Responsibility                                                    |
 | ------------------- | ----------------------------------------------------------------- |
 | `@kineglyph/core`   | scene schema, authoring, layout, edges, timelines, state machines |
-| `@kineglyph/svg`    | accessible SVG serialization and motifs                           |
+| `@kineglyph/svg`    | accessible scene SVGs plus runtime-free table microcharts         |
 | `@kineglyph/anime`  | scoped Anime.js frame application                                 |
 | `@kineglyph/plot`   | typed plots, scales, marks, axes, annotations, and stable handles |
-| `@kineglyph/web`    | framework-neutral controller and browser bundle                   |
+| `@kineglyph/web`    | controller, live signals, WebSocket feeds, and browser bundle     |
 | `@kineglyph/react`  | React component and imperative handle                             |
 | `@kineglyph/export` | SVG, PNG, GIF, and the `kineglyph-export` CLI                     |
 | `@kineglyph/scenes` | twelve catalogue scenes, shared recipes, and three themes         |

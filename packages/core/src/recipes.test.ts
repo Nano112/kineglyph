@@ -7,9 +7,11 @@ import {
   container,
   eyebrow,
   flowLayout,
+  gate,
   grid,
   heading,
   keyValue,
+  junction,
   motif,
   overlay,
   panel,
@@ -103,6 +105,42 @@ describe("pill, motif, rule, spacer, keyValue", () => {
     expect(kv.justify).toBe("between");
     expect(kv.children.map((child) => child.id)).toEqual(["kv-key", "kv-value"]);
     expect(kv.children[1]).toMatchObject({ type: "text", textStyle: "code", color: "success" });
+  });
+});
+
+describe("circuit recipes", () => {
+  it("builds standard gate silhouettes from portable scene primitives", () => {
+    const xor = gate("xor", "xor", { tone: "info" });
+    expect(xor).toMatchObject({
+      type: "group",
+      layout: "coordinates",
+      width: 120,
+      height: 80,
+      label: "XOR logic gate",
+      metadata: { circuitRole: "gate", gateKind: "xor" },
+    });
+    expect(xor.children.map((child) => child.id)).toEqual(["xor-shape", "xor-xor-arc", "xor-text"]);
+    expect(xor.children[0]).toMatchObject({ type: "path", fill: "surfaceRaised", stroke: "info" });
+    expect(xor.children[1]).toMatchObject({ type: "path", fill: "none" });
+
+    const nand = gate("nand", "nand", { showText: false });
+    expect(nand.children.map((child) => child.id)).toEqual(["nand-shape", "nand-bubble"]);
+    expect(nand.children[1]).toMatchObject({ type: "circle", radius: 7 });
+
+    const live = gate("live", "xor", { bind: { highlight: "signal" } });
+    expect(live.children[0]).toMatchObject({ bind: { highlight: "signal" } });
+    expect(live.children[1]).toMatchObject({ bind: { highlight: "signal" } });
+  });
+
+  it("creates a compact, semantic fan-out junction", () => {
+    expect(junction("branch", { tone: "success", size: 12 })).toMatchObject({
+      id: "branch",
+      type: "circle",
+      width: 12,
+      height: 12,
+      fill: "success",
+      metadata: { circuitRole: "junction" },
+    });
   });
 });
 

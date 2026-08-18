@@ -181,4 +181,53 @@ describe("KineglyphFigure in React StrictMode", () => {
     root = undefined;
     expect(container.querySelectorAll(".kg-figure")).toHaveLength(0);
   });
+
+  it("updates external signals through props and the imperative handle without remounting", () => {
+    const scene = defineScene({
+      schemaVersion: 2,
+      id: "live-react",
+      title: "Live React figure",
+      signals: { value: "waiting" },
+      root: {
+        id: "root",
+        type: "group",
+        children: [{ id: "value", type: "text", text: "waiting", bind: { text: "value" } }],
+      },
+    });
+    const theme = createTheme();
+    const handle = createRef<KineglyphFigureHandle>();
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <KineglyphFigure
+          ref={handle}
+          figure={scene}
+          theme={theme}
+          signals={{ value: "one" }}
+          autoplay={false}
+        />,
+      );
+    });
+    const shell = container.querySelector(".kg-figure");
+    const value = (): string =>
+      container.querySelector('[data-node-id="value"] text')?.textContent ?? "";
+    expect(value()).toBe("one");
+
+    act(() => {
+      root?.render(
+        <KineglyphFigure
+          ref={handle}
+          figure={scene}
+          theme={theme}
+          signals={{ value: "two" }}
+          autoplay={false}
+        />,
+      );
+    });
+    expect(value()).toBe("two");
+    expect(container.querySelector(".kg-figure")).toBe(shell);
+
+    act(() => handle.current?.setSignals({ value: "three" }));
+    expect(value()).toBe("three");
+  });
 });

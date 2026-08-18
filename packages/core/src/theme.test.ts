@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  counterTerminalTheme,
   createTheme,
   declaredColorRoles,
   defaultTheme,
@@ -7,6 +8,16 @@ import {
   overrideTheme,
   withFontFamily,
 } from "./theme.js";
+
+describe("counter terminal theme", () => {
+  it("keeps the counter palette and monospace voice reusable across figures", () => {
+    expect(counterTerminalTheme.name).toBe("counter-terminal");
+    expect(counterTerminalTheme.colors.canvas).toBe("#08090d");
+    expect(counterTerminalTheme.colors.chart6).toBe("#fde047");
+    expect(counterTerminalTheme.typography.display.family).toContain("ui-monospace");
+    expect(declaredColorRoles(counterTerminalTheme)).toContain("connector");
+  });
+});
 
 /**
  * A theme carries two separate things and they are easy to confuse: the colours it would paint,

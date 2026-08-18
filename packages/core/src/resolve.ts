@@ -119,6 +119,7 @@ interface View {
   readonly progress: number;
   readonly tone: Paint | undefined;
   readonly text: string | undefined;
+  readonly pathData: string | undefined;
   readonly description: string | undefined;
   readonly font: TextFont | undefined;
   readonly textColor: string;
@@ -227,6 +228,7 @@ function buildView(
       : undefined);
   const height = boundHeight ?? pick(node.height, layout);
   const boundText = bind.text === undefined ? undefined : signal(bind.text);
+  const boundPath = bind.path === undefined ? undefined : signal(bind.path);
   const boundTone = bind.tone === undefined ? undefined : signal(bind.tone);
   const boundDescription = bind.description === undefined ? undefined : signal(bind.description);
   const z = node.z ?? parentZ;
@@ -334,6 +336,7 @@ function buildView(
     progress: bind.progress !== undefined ? unit(numeric(signal(bind.progress)), 1) : 1,
     tone,
     text,
+    pathData: typeof boundPath === "string" ? boundPath : undefined,
     description,
     font,
     textColor,
@@ -1653,7 +1656,9 @@ function emit(
           },
         }
       : {}),
-    ...(node.type === "path" ? { path: { d: node.d, viewBox: node.viewBox } } : {}),
+    ...(node.type === "path"
+      ? { path: { d: view.pathData ?? node.d, viewBox: node.viewBox } }
+      : {}),
     ...(node.type === "polyline"
       ? {
           path: {
@@ -1728,7 +1733,7 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
   const diagnostics: SceneDiagnostic[] = [];
 
   let machineState: MachineState | undefined;
-  let signals: Record<string, VariableValue> = {};
+  let signals: Record<string, VariableValue> = { ...(scene.signals ?? {}) };
   if (scene.machine !== undefined) {
     const nodeIds = new Set<string>();
     const collect = (node: SceneNode): void => {
@@ -1743,7 +1748,7 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
         `invalid state machine ${scene.machine.id}:\n${errors.map((entry) => `- ${entry.message}`).join("\n")}`,
       );
     machineState = options.machineState ?? createMachineState(scene.machine);
-    signals = { ...evaluateSignals(scene.machine, machineState) };
+    signals = { ...signals, ...evaluateSignals(scene.machine, machineState) };
   }
   if (options.signals !== undefined) signals = { ...signals, ...options.signals };
   checkBindings(scene, signals, diagnostics);

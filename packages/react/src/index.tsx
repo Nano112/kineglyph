@@ -8,6 +8,7 @@ import type {
   ResolvedNode,
   ResolvedScene,
   ThemeTokens,
+  Variables,
 } from "@kineglyph/core";
 import {
   mountKineglyph,
@@ -28,6 +29,7 @@ export interface KineglyphFigureHandle {
   send(event: string | MachineEvent): MachineStep | undefined;
   reset(): void;
   setTheme(theme: ThemeTokens): void;
+  setSignals(signals: Variables, options?: { readonly replace?: boolean }): void;
   inspect(id?: string | null): InspectTarget | undefined;
   /** The live controller, or undefined before mount / after unmount. */
   readonly controller: KineglyphController | undefined;
@@ -49,6 +51,8 @@ export interface KineglyphFigureProps {
   readonly reducedMotion?: boolean;
   readonly idPrefix?: string;
   readonly initialState?: MachineState;
+  /** External live-signal values; prop changes patch the mounted figure without remounting it. */
+  readonly signals?: Variables;
   readonly onInspectChange?: (node: ResolvedNode | undefined, target?: InspectTarget) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
@@ -78,6 +82,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       reducedMotion,
       idPrefix,
       initialState,
+      signals,
       onInspectChange,
       onFrame,
       onPlaybackChange,
@@ -91,6 +96,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
     callbacksRef.current = { onInspectChange, onFrame, onPlaybackChange, onStateChange };
     const appliedThemeRef = useRef<ThemeTokens>(theme);
     const appliedReducedMotionRef = useRef<boolean | undefined>(reducedMotion);
+    const appliedSignalsRef = useRef<Variables | undefined>(signals);
 
     useEffect(() => {
       const host = hostRef.current;
@@ -108,6 +114,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         ...(reducedMotion === undefined ? {} : { reducedMotion }),
         ...(idPrefix === undefined ? {} : { idPrefix }),
         ...(initialState === undefined ? {} : { initialState }),
+        ...(signals === undefined ? {} : { signals }),
         ...(className === undefined ? {} : { className }),
         onInspect: (target) => callbacksRef.current.onInspectChange?.(target?.node, target),
         onFrame: (frame) => callbacksRef.current.onFrame?.(frame),
@@ -117,6 +124,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       controllerRef.current = controller;
       appliedThemeRef.current = theme;
       appliedReducedMotionRef.current = reducedMotion;
+      appliedSignalsRef.current = signals;
       return () => {
         controller.destroy();
         if (controllerRef.current === controller) controllerRef.current = undefined;
@@ -148,6 +156,12 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       controllerRef.current?.setReducedMotion(reducedMotion);
     }, [reducedMotion]);
 
+    useEffect(() => {
+      if (appliedSignalsRef.current === signals) return;
+      appliedSignalsRef.current = signals;
+      controllerRef.current?.setSignals(signals ?? {}, { replace: true });
+    }, [signals]);
+
     useImperativeHandle(
       forwardedRef,
       () => ({
@@ -158,6 +172,8 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         send: (event) => controllerRef.current?.send(event),
         reset: () => controllerRef.current?.reset(),
         setTheme: (nextTheme) => controllerRef.current?.setTheme(nextTheme),
+        setSignals: (nextSignals, options) =>
+          controllerRef.current?.setSignals(nextSignals, options),
         inspect: (id) => controllerRef.current?.inspect(id),
         get controller() {
           return controllerRef.current;

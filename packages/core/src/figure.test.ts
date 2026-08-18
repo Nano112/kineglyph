@@ -130,6 +130,28 @@ describe("figure(): ids", () => {
 });
 
 describe("figure(): positioned text", () => {
+  it("places an existing builder node without cloning its identity", () => {
+    const scene = figure("placed-node", { title: "Placed node" }, (f) => {
+      const gate = f.gate("xor", { id: "gate" });
+      f.root(
+        f.coordinates(
+          [
+            f.place(gate, {
+              wide: { x: 0.25, y: 0.5, anchor: "center" },
+              narrow: { x: 0.5, y: 0.25, anchor: "center" },
+            }),
+          ],
+          { height: 200 },
+        ),
+      );
+    });
+    expect(scene.root.children[0]).toBeDefined();
+    expect(scene.root.children[0]?.position).toEqual({
+      wide: { x: 0.25, y: 0.5, anchor: "center" },
+      narrow: { x: 0.5, y: 0.25, anchor: "center" },
+    });
+  });
+
   it("keeps responsive placement and base-node controls on text helpers", () => {
     const scene = figure("positioned-text", { title: "Positioned text" }, (f) => {
       const value = f.labelAt(
@@ -268,6 +290,122 @@ describe("figure(): connect()", () => {
         f.connect(a, { id: "ghost", type: "rect" });
       }),
     ).toThrow(/node "ghost" was not created by this figure/);
+  });
+});
+
+describe("figure(): graph() and wire()", () => {
+  it("authors proper gates and junctions with inferred stable ids", () => {
+    const scene = figure("logic", { title: "Logic" }, (f) => {
+      const xor = f.gate("xor", { tone: "info" });
+      const branch = f.junction({ label: "A fan-out", tone: "success" });
+      f.root(f.row([branch, xor], { gap: 24 }));
+      f.wire(branch, { node: xor, side: "left", offset: 0.35 });
+    });
+    expect(scene.root.children).toMatchObject([
+      { id: "junction-a-fan-out", type: "circle" },
+      { id: "gate-xor", type: "group", metadata: { gateKind: "xor" } },
+    ]);
+    expect(scene.edges?.[0]?.to).toEqual({ node: "gate-xor", side: "left", offset: 0.35 });
+    expect(validateScene(scene).ok).toBe(true);
+  });
+
+  it("builds ranked circuit layouts with semantic orthogonal wire presets", () => {
+    const scene = figure("circuit", { title: "Circuit" }, (f) => {
+      const a = f.card({ title: "A", compact: true });
+      const b = f.card({ title: "B", compact: true });
+      const xor = f.card({ title: "XOR", compact: true });
+      const output = f.card({ title: "SUM", compact: true });
+      f.root(f.graph([[a, b], xor, output], { style: "circuit" }));
+      f.wire(a, xor);
+      f.wire(b, xor, { kind: "control" });
+      f.wire(xor, output, { kind: "bus" });
+    });
+
+    expect(scene.root).toMatchObject({
+      layout: "stack",
+      gap: 56,
+      metadata: { graphStyle: "circuit" },
+    });
+    expect(scene.root.children[0]).toMatchObject({
+      layout: "grid",
+      columns: { wide: 2, compact: 2, narrow: 2 },
+      metadata: { graphRole: "rank", graphStyle: "circuit" },
+    });
+    expect(scene.edges).toMatchObject([
+      { route: "orthogonal", head: "arrow", tone: "accent", cornerRadius: 6 },
+      {
+        route: "orthogonal",
+        head: "arrow",
+        stroke: "dashed",
+        tone: "muted",
+      },
+      { route: "orthogonal", head: "none", width: 4, tone: "info", cornerRadius: 4 },
+    ]);
+
+    for (const width of WIDTHS) {
+      const resolved = resolveScene(scene, { width, theme });
+      expect(resolved.diagnostics?.filter((entry) => entry.severity === "error") ?? []).toEqual([]);
+      expect(resolved.edges.every((edge) => edge.route === "orthogonal")).toBe(true);
+    }
+  });
+
+  it("supports prose flow and centred tree styles without adding a new IR node kind", () => {
+    const flowScene = figure("flow-graph", { title: "Flow graph" }, (f) => {
+      const a = f.card({ title: "A" });
+      const b = f.card({ title: "B" });
+      f.root(f.graph([a, b], { style: "flow" }));
+    });
+    expect(flowScene.root.layout).toEqual({ wide: "row", compact: "stack" });
+
+    const treeScene = figure("tree-graph", { title: "Tree graph" }, (f) => {
+      const root = f.card({ title: "Root" });
+      const left = f.card({ title: "Left" });
+      const right = f.card({ title: "Right" });
+      f.root(f.graph([root, [left, right]], { style: "tree" }));
+    });
+    expect(treeScene.root.layout).toBe("stack");
+    expect(treeScene.root.children[1]).toMatchObject({ layout: "row", justify: "center" });
+    expect(validateScene(treeScene).ok).toBe(true);
+  });
+
+  it("lets a preset be reshaped with responsive direction and per-rank layout", () => {
+    const scene = figure("custom-graph", { title: "Custom graph" }, (f) => {
+      const source = f.card({ title: "Source" });
+      const left = f.card({ title: "Left" });
+      const right = f.card({ title: "Right" });
+      const sink = f.card({ title: "Sink" });
+      f.root(
+        f.graph(
+          [
+            source,
+            {
+              id: "branches",
+              nodes: [left, right],
+              layout: { wide: "row", compact: "grid" },
+              width: "hug",
+              columns: { compact: 2, narrow: 1 },
+              gap: 8,
+            },
+            sink,
+          ],
+          {
+            style: "circuit",
+            direction: { wide: "horizontal", compact: "vertical" },
+            layerGap: { wide: 64, compact: 44 },
+          },
+        ),
+      );
+    });
+
+    expect(scene.root.layout).toEqual({ wide: "row", compact: "stack" });
+    expect(scene.root.gap).toEqual({ wide: 64, compact: 44 });
+    expect(scene.root.children[1]).toMatchObject({
+      id: "branches",
+      layout: { wide: "row", compact: "grid" },
+      columns: { compact: 2, narrow: 1 },
+      gap: 8,
+      width: "hug",
+    });
   });
 });
 
@@ -601,7 +739,7 @@ describe("figure(): machine and controls", () => {
       figure("m", { title: "M" }, (f) => {
         f.heading("A", { bind: { text: "headline" } });
       }),
-    ).toThrow(/"heading-a" binds text to signal "headline" but the figure has no machine/);
+    ).toThrow(/"heading-a" binds text to signal "headline" but the figure declares no signals/);
     expect(() =>
       figure("m", { title: "M" }, (f) => {
         f.heading("A", { bind: { text: "headline" } });
@@ -623,6 +761,25 @@ describe("figure(): machine and controls", () => {
       });
     });
     expect(validateScene(ok).ok).toBe(true);
+    const live = figure(
+      "live",
+      { title: "Live", signals: { value: "waiting", trend: "M0 1L1 0" } },
+      (f) => {
+        f.heading("waiting", { bind: { text: "value" } });
+        f.path("M0 1L1 0", { width: 1, height: 1 }, { bind: { path: "trend" } });
+      },
+    );
+    expect(live.signals).toEqual({ value: "waiting", trend: "M0 1L1 0" });
+    const resolvedHeading = resolveScene(live, {
+      width: 400,
+      signals: { value: "42", trend: "M0 0L1 1" },
+    }).nodes.find((node) => node.id === "heading-waiting");
+    expect(resolvedHeading?.text?.lines[0]?.text).toBe("42");
+    const resolvedPath = resolveScene(live, {
+      width: 400,
+      signals: { value: "42", trend: "M0 0L1 1" },
+    }).nodes.find((node) => node.kind === "path");
+    expect(resolvedPath?.path?.d).toBe("M0 0L1 1");
     expect(() =>
       figure("m", { title: "M" }, (f) => {
         f.heading("A");

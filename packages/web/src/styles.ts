@@ -7,7 +7,7 @@ export const FIGURE_STYLES = `
    transport under it the border is what holds the parts together; with nothing but a stage inside
    it, it is a box drawn around a picture that already paints its own canvas — and, for an embedder
    whose pre-rendered fallback has no such box, a border that appears out of nowhere on hydration. */
-.kg-figure:not(:has(.kg-figure__readout,.kg-figure__machine,.kg-figure__controls)){border:0;border-radius:0;background:transparent}
+.kg-figure:not(:has(.kg-figure__readout:not([hidden]),.kg-figure__machine:not([hidden]),.kg-figure__controls:not([hidden]))){border:0;border-radius:0;background:transparent}
 .kg-figure *{box-sizing:border-box}
 /* overflow-x:auto, not hidden: a drawing laid out wider than its container (an embedder that
    mounts at a fixed width so the live figure matches a pre-rendered one, rather than reflowing
@@ -28,7 +28,7 @@ export const FIGURE_STYLES = `
 .kg-figure__fields dt{color:var(--kg-shell-muted);font-weight:600}
 .kg-figure__fields dd{margin:0;color:var(--kg-shell-text);font-variant-numeric:tabular-nums}
 .kg-figure__eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--kg-shell-accent);font-size:10px;font-weight:700}
-.kg-figure__machine{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}
+.kg-figure__machine{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}.kg-figure__machine[hidden]{display:none}
 .kg-figure__machine-group{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-right:12px}
 .kg-figure__machine-label{color:var(--kg-shell-muted);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-right:4px}
 .kg-figure__controls{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--kg-shell-border);background:var(--kg-shell-surface)}

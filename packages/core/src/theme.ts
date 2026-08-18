@@ -283,6 +283,78 @@ export function createTheme(
 }
 
 /**
+ * High-contrast monospace theme for finite-state machines, bit fields, and compact instruments.
+ *
+ * The palette moves from violet through magenta and coral to yellow, so a binary word can encode
+ * position without adding another legend. It began as the visual language of the binary counter
+ * example and is public so a whole explanation can keep that voice without repeating its tokens.
+ */
+export const counterTerminalTheme: ThemeTokens = createTheme({
+  name: "counter-terminal",
+  colors: {
+    canvas: "#08090d",
+    surface: "#0d0f15",
+    surfaceRaised: "#151823",
+    surfaceMuted: "#1b1e27",
+    text: "#f7f7fb",
+    textMuted: "#7f8595",
+    accent: "#8b5cf6",
+    info: "#d946ef",
+    success: "#fb7185",
+    warning: "#fde047",
+    border: "#2b3040",
+    connector: "#8b5cf6",
+    chart1: "#6d28d9",
+    chart2: "#8b2bb9",
+    chart3: "#c0268d",
+    chart4: "#ef476f",
+    chart5: "#fb7b45",
+    chart6: "#fde047",
+  },
+  typography: {
+    display: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 54,
+      lineHeight: 60,
+      weight: 700,
+      letterSpacing: -1.5,
+    },
+    title: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 24,
+      lineHeight: 30,
+      weight: 650,
+    },
+    body: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 14,
+      lineHeight: 20,
+      weight: 450,
+    },
+    caption: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 12,
+      lineHeight: 17,
+      weight: 450,
+    },
+    label: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 11,
+      lineHeight: 15,
+      weight: 650,
+      letterSpacing: 1,
+    },
+    code: {
+      family: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      size: 13,
+      lineHeight: 18,
+      weight: 550,
+    },
+  },
+  radii: { sm: 6, md: 9, lg: 14 },
+});
+
+/**
  * The same theme, drawn in another font stack.
  *
  * A figure is laid out once and shipped as fixed geometry, so the family that lays it out has to
