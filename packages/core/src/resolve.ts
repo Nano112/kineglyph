@@ -48,7 +48,7 @@ import {
   type SceneNode,
   type SceneNodeType,
 } from "./scene.js";
-import { measureText, wrapText, type TextFont, type TextLine } from "./text.js";
+import { measureText, wrapText, type TextFont, type TextLine, type TextMeasurer } from "./text.js";
 import {
   defaultTheme,
   paintColor,
@@ -67,6 +67,8 @@ export interface ResolveSceneOptions {
   /** Extra or overriding signal values, useful for tests and export snapshots. */
   readonly signals?: Readonly<Record<string, VariableValue>>;
   readonly precision?: number;
+  /** Embedded-font shaper used for exact text widths and line breaks. */
+  readonly textMeasurer?: TextMeasurer;
 }
 
 const DEFAULT_BREAKPOINTS = { wide: 900, compact: 560 } as const;
@@ -123,6 +125,7 @@ interface View {
   readonly textAlign: "start" | "center" | "end";
   readonly transform: "none" | "uppercase";
   readonly maxLines: number;
+  readonly textMeasurer: TextMeasurer | undefined;
   // group
   readonly layout: GroupLayout;
   readonly gap: number;
@@ -204,6 +207,7 @@ function buildView(
   theme: ThemeTokens,
   signals: Readonly<Record<string, VariableValue>>,
   parentZ: number,
+  textMeasurer?: TextMeasurer,
 ): View {
   const bind = node.bind ?? {};
   const signal = (key: string | undefined): VariableValue | undefined =>
@@ -336,6 +340,7 @@ function buildView(
     textAlign,
     transform,
     maxLines,
+    textMeasurer,
     layout: isGroup ? pickOr(node.layout, layout, "stack") : "stack",
     gap: isGroup ? pickOr(node.gap, layout, theme.spacing.sm) : 0,
     padding: isGroup ? insets(pick(node.padding, layout), 0) : insets(undefined, 0),
@@ -343,7 +348,7 @@ function buildView(
     justify: isGroup ? pickOr(node.justify, layout, "start") : "start",
     columns: isGroup ? Math.max(1, Math.floor(pickOr(node.columns, layout, 2))) : 1,
     children: isGroup
-      ? node.children.map((child) => buildView(child, layout, theme, signals, z))
+      ? node.children.map((child) => buildView(child, layout, theme, signals, z, textMeasurer))
       : [],
     iconSize,
     circleRadius,
@@ -382,16 +387,23 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
   if (typeof view.width === "number") return view.width;
   switch (view.type) {
     case "text":
-      return view.font === undefined ? 0 : longestLineWidth(displayText(view), view.font);
+      return view.font === undefined
+        ? 0
+        : longestLineWidth(displayText(view), view.font, view.textMeasurer);
     case "badge":
       return (
-        (view.font === undefined ? 0 : measureText(displayText(view), view.font)) + BADGE_PAD_X * 2
+        (view.font === undefined
+          ? 0
+          : measureText(displayText(view), view.font, view.textMeasurer)) +
+        BADGE_PAD_X * 2
       );
     case "callout": {
       const pad = calloutPaddingResolved(view);
       const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
       return (
-        (view.font === undefined ? 0 : longestLineWidth(displayText(view), view.font)) +
+        (view.font === undefined
+          ? 0
+          : longestLineWidth(displayText(view), view.font, view.textMeasurer)) +
         pad.left +
         pad.right +
         pointerX
@@ -418,7 +430,9 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
       if (node.type !== "legend" || view.font === undefined) return 0;
       const widths = node.items.map(
         (item) =>
-          LEGEND_SWATCH + LEGEND_SWATCH_GAP + measureText(item.label, view.font ?? fallbackFont),
+          LEGEND_SWATCH +
+          LEGEND_SWATCH_GAP +
+          measureText(item.label, view.font ?? fallbackFont, view.textMeasurer),
       );
       const gap = pickOr(node.gap, layout, LEGEND_ITEM_GAP);
       return view.legendDirection === "row"
@@ -455,12 +469,12 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
 
 const fallbackFont: TextFont = { family: "sans-serif", size: 12, weight: 400, lineHeight: 16 };
 
-function longestLineWidth(text: string, font: TextFont): number {
-  return Math.max(0, ...text.split(/\n/).map((line) => measureText(line.trim(), font)));
+function longestLineWidth(text: string, font: TextFont, measurer?: TextMeasurer): number {
+  return Math.max(0, ...text.split(/\n/).map((line) => measureText(line.trim(), font, measurer)));
 }
 
-function longestWordWidth(text: string, font: TextFont): number {
-  return Math.max(0, ...text.split(/\s+/).map((word) => measureText(word, font)));
+function longestWordWidth(text: string, font: TextFont, measurer?: TextMeasurer): number {
+  return Math.max(0, ...text.split(/\s+/).map((word) => measureText(word, font, measurer)));
 }
 
 /** Smallest width a node can be squeezed to before its content must overflow. */
@@ -472,7 +486,10 @@ function minContentWidth(view: View, layout: LayoutName): number {
         view.minWidth,
         view.font === undefined
           ? 0
-          : Math.min(longestWordWidth(displayText(view), view.font), intrinsicWidth(view, layout)),
+          : Math.min(
+              longestWordWidth(displayText(view), view.font, view.textMeasurer),
+              intrinsicWidth(view, layout),
+            ),
       );
     case "badge":
     case "icon":
@@ -489,7 +506,9 @@ function minContentWidth(view: View, layout: LayoutName): number {
       const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
       return Math.max(
         view.minWidth,
-        (view.font === undefined ? 0 : longestWordWidth(displayText(view), view.font)) +
+        (view.font === undefined
+          ? 0
+          : longestWordWidth(displayText(view), view.font, view.textMeasurer)) +
           pad.left +
           pad.right +
           pointerX,
@@ -714,7 +733,10 @@ function layoutNode(
           truncated = true;
           break;
         }
-        const wrapped = wrapText(paragraph, width, font, { maxLines: remaining });
+        const wrapped = wrapText(paragraph, width, font, {
+          maxLines: remaining,
+          ...(view.textMeasurer === undefined ? {} : { measurer: view.textMeasurer }),
+        });
         lines.push(...wrapped);
         if (wrapped.some((line) => line.text.endsWith("…"))) truncated = true;
       }
@@ -728,6 +750,7 @@ function layoutNode(
       const font = view.font ?? fallbackFont;
       const lines = wrapText(displayText(view), Math.max(1, width - BADGE_PAD_X * 2), font, {
         maxLines: 1,
+        ...(view.textMeasurer === undefined ? {} : { measurer: view.textMeasurer }),
       });
       placed.lines = lines;
       placed.truncated = lines.some((line) => line.text.endsWith("…"));
@@ -740,7 +763,10 @@ function layoutNode(
       const pointerX = view.pointer === "left" || view.pointer === "right" ? CALLOUT_POINTER : 0;
       const pointerY = view.pointer === "up" || view.pointer === "down" ? CALLOUT_POINTER : 0;
       const textWidth = Math.max(1, width - pad.left - pad.right - pointerX);
-      const lines = wrapText(displayText(view), textWidth, font, { maxLines: view.maxLines });
+      const lines = wrapText(displayText(view), textWidth, font, {
+        maxLines: view.maxLines,
+        ...(view.textMeasurer === undefined ? {} : { measurer: view.textMeasurer }),
+      });
       placed.lines = lines;
       placed.truncated = lines.some((line) => line.text.endsWith("…"));
       const bodyHeight = lines.length * font.lineHeight + pad.top + pad.bottom;
@@ -776,7 +802,7 @@ function layoutNode(
           swatch: item.swatch,
           shape: item.shape ?? "square",
         },
-        width: LEGEND_SWATCH + LEGEND_SWATCH_GAP + measureText(item.label, font),
+        width: LEGEND_SWATCH + LEGEND_SWATCH_GAP + measureText(item.label, font, view.textMeasurer),
       }));
       const boxes: NonNullable<Placed["legendItems"]> = [];
       if (view.legendDirection === "column") {
@@ -1723,7 +1749,7 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
   checkBindings(scene, signals, diagnostics);
 
   const padding = insets(pick(scene.padding, layout), layout === "narrow" ? 16 : 24);
-  const rootView = buildView(scene.root, layout, theme, signals, 0);
+  const rootView = buildView(scene.root, layout, theme, signals, 0, options.textMeasurer);
   const rootWidth = Math.max(0, options.width - padding.left - padding.right);
   const context: LayoutContext = { layout, theme, diagnostics };
   const placedRoot = layoutNode(
@@ -1778,6 +1804,7 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
       obstacles: emitted.obstacles,
       bounds: { x: 0, y: 0, width, height },
       labelFont,
+      ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
       labelColor: theme.colors.textMuted,
       precision,
       overrides: {
@@ -1789,6 +1816,13 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
       },
     });
     if (resolved === undefined) continue;
+    if (resolved.collidingObstacles)
+      diagnostics.push({
+        severity: "warning",
+        code: "edge-collision",
+        message: `edge ${definition.id} could not find an obstacle-free orthogonal route in the ${layout} layout`,
+        path: definition.id,
+      });
     for (const labelId of resolved.collidingLabels)
       diagnostics.push({
         severity: "warning",
@@ -1915,6 +1949,7 @@ export interface ResolveFigureOptions {
   readonly machineState?: MachineState;
   readonly signals?: Readonly<Record<string, VariableValue>>;
   readonly precision?: number;
+  readonly textMeasurer?: TextMeasurer;
 }
 
 export function isSceneDefinition(source: FigureSource): source is SceneDefinition {
@@ -1931,6 +1966,7 @@ export function resolveFigure(source: FigureSource, options: ResolveFigureOption
       ...(options.machineState === undefined ? {} : { machineState: options.machineState }),
       ...(options.signals === undefined ? {} : { signals: options.signals }),
       ...(options.precision === undefined ? {} : { precision: options.precision }),
+      ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
     });
   }
   const requested = options.layout ?? "auto";

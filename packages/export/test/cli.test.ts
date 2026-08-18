@@ -11,6 +11,9 @@ import { fontFile } from "./helpers.js";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = join(packageRoot, "dist", "cli.js");
 const fixture = join(packageRoot, "test", "fixtures", "pipeline.mjs");
+const geist = fileURLToPath(
+  new URL("../../../docs/assets/fonts/GeistMono[wght].ttf", import.meta.url),
+);
 const fontArgs = fontFile === undefined ? [] : ["--font", fontFile, "--no-system-fonts"];
 let outDir = "";
 
@@ -82,6 +85,25 @@ describe("kineglyph-export CLI", () => {
     expect(svg).toContain('width="320"');
   });
 
+  it("uses one explicit font for HarfBuzz layout and raster pixels", () => {
+    const out = join(outDir, "shaped.png");
+    const result = cli(
+      "png",
+      "--scene",
+      `${fixture}#scene`,
+      "--out",
+      out,
+      "--shape-font",
+      `Inter=${geist}`,
+      "--no-system-fonts",
+      "--default-font",
+      "Geist Mono",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(pngInfo(new Uint8Array(readFileSync(out))).width).toBeGreaterThan(0);
+  });
+
   it("exports GIF from a resolver function using a theme module", () => {
     const out = join(outDir, "pipeline.gif");
     const result = cli(
@@ -120,6 +142,9 @@ describe("kineglyph-export CLI", () => {
   it("reports usage errors and missing modules", () => {
     expect(cli("webp", "--scene", fixture, "--out", "x").status).toBe(1);
     expect(cli("png", "--scene", fixture).stderr).toMatch(/--out is required/);
+    expect(
+      cli("png", "--scene", fixture, "--out", "x.png", "--shape-font", "missing").stderr,
+    ).toMatch(/--shape-font expects/);
     const missing = cli("png", "--scene", join(outDir, "missing.mjs"), "--out", "x.png");
     expect(missing.status).toBe(1);
     expect(missing.stderr).toMatch(/^error: /);

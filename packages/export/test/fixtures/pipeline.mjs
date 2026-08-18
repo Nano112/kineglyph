@@ -49,6 +49,20 @@ export const pipeline = {
   },
 };
 
+/** @type {import("@kineglyph/core").SceneDefinition} */
+export const scene = {
+  schemaVersion: 2,
+  id: "font-fixture",
+  title: "Font fixture",
+  root: {
+    id: "root",
+    type: "group",
+    width: "fill",
+    padding: 16,
+    children: [{ id: "text", type: "text", text: "Shaped from embedded bytes" }],
+  },
+};
+
 /**
  * Alternate export shape: a resolver function the CLI calls with { width, theme, layout }.
  *

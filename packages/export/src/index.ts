@@ -1,5 +1,10 @@
 export { KineglyphExportError, isKineglyphExportError } from "./errors.js";
 export type { KineglyphExportErrorCode } from "./errors.js";
+export {
+  createEmbeddedFontMeasurer,
+  type EmbeddedFontMeasurer,
+  type EmbeddedFontSource,
+} from "./font-shaping.js";
 export { exportSvg } from "./svg.js";
 export type { ExportBackground, SvgExportOptions } from "./svg.js";
 export { exportPng } from "./png.js";

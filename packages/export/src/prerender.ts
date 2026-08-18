@@ -4,6 +4,7 @@ import {
   sceneNeedsRuntime,
   seekTimeline,
   type FigureSource,
+  type TextMeasurer,
   type ThemeTokens,
 } from "@kineglyph/core";
 import { exportSvg } from "./svg.js";
@@ -38,6 +39,8 @@ export interface PrerenderOptions {
   /** Extra bare-specifier mappings. `kineglyph` is always mapped to `@kineglyph/web/bundle` (the entry that re-exports core authoring helpers). */
   readonly imports?: Readonly<Record<string, string>>;
   readonly idPrefix?: string;
+  /** Embedded-font shaper used while resolving every responsive variant. */
+  readonly textMeasurer?: TextMeasurer;
 }
 
 export interface PrerenderResult {
@@ -173,7 +176,11 @@ export async function prerender(
   const results: PrerenderResult[] = [];
   for (const containerWidth of widths) {
     for (const theme of options.themes) {
-      const scene = resolveFigure(figure, { width: containerWidth, theme: theme.tokens });
+      const scene = resolveFigure(figure, {
+        width: containerWidth,
+        theme: theme.tokens,
+        ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
+      });
       const errors = (scene.diagnostics ?? []).filter((d) => d.severity === "error");
       if (errors.length > 0)
         throw new KineglyphExportError(

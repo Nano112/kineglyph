@@ -18,6 +18,7 @@ export interface LiveSurfaceContext {
   readonly machineState: MachineState | undefined;
   readonly signals: Readonly<Record<string, VariableValue>>;
   readonly time: number;
+  readonly playing: boolean;
   readonly signal: AbortSignal;
   readonly send: (event: string | MachineEvent) => MachineStep | undefined;
 }
@@ -35,7 +36,9 @@ export interface LiveSurfaceHandle {
   readonly mounted?: boolean;
   /** Delay the handoff from the static image until the live renderer is ready. */
   readonly ready?: Promise<void>;
-  readonly update?: (next: LiveSurfaceUpdate) => void;
+  readonly update?: (next: LiveSurfaceUpdate) => void | Promise<void>;
+  /** Playback changes are delivered even when no new timeline frame is emitted. */
+  readonly playback?: (playing: boolean) => void | Promise<void>;
   readonly destroy?: () => void;
 }
 
@@ -49,6 +52,7 @@ export interface MountLiveSurfacesOptions {
   readonly machineState: MachineState | undefined;
   readonly signals: Readonly<Record<string, VariableValue>>;
   readonly time: number;
+  readonly playing: boolean;
   readonly send: (event: string | MachineEvent) => MachineStep | undefined;
   readonly onError?: (nodeId: string, error: unknown) => void;
 }
@@ -108,6 +112,7 @@ export class LiveSurfaceManager {
         machineState: this.#options.machineState,
         signals: this.#options.signals,
         time: this.#options.time,
+        playing: this.#options.playing,
         signal: record.abort.signal,
         send: this.#options.send,
       });
@@ -137,13 +142,27 @@ export class LiveSurfaceManager {
       const node = frame.nodes.find((candidate) => candidate.id === record.nodeId);
       if (node === undefined) continue;
       if (record.layer.dataset.ready === "true") applyMotion(record.layer, node);
-      record.handle?.update?.({
+      const update = record.handle?.update?.({
         frame,
         node,
         machineState: frame.machineState,
         signals: frame.signals ?? {},
         time: frame.time,
       });
+      if (update !== undefined)
+        void Promise.resolve(update).catch((error: unknown) => {
+          if (!record.abort.signal.aborted) this.#options.onError?.(record.nodeId, error);
+        });
+    }
+  }
+
+  setPlaying(playing: boolean): void {
+    for (const record of this.#records) {
+      const update = record.handle?.playback?.(playing);
+      if (update !== undefined)
+        void Promise.resolve(update).catch((error: unknown) => {
+          if (!record.abort.signal.aborted) this.#options.onError?.(record.nodeId, error);
+        });
     }
   }
 
@@ -158,6 +177,151 @@ export class LiveSurfaceManager {
     }
     this.#records.length = 0;
   }
+}
+
+/**
+ * Application-owned adapter for a renderer whose operation or media frame follows Kineglyph time.
+ * Async frame work is serialized and coalesced: while one frame renders, only the newest pending
+ * frame is kept, so an expensive renderer can never paint an older result over a newer one.
+ */
+export interface FrameSurfaceAdapter<Target> {
+  readonly mount: (context: LiveSurfaceContext) => Target | Promise<Target>;
+  readonly ready?: (target: Target, context: LiveSurfaceContext) => void | Promise<void>;
+  readonly frame: (
+    target: Target,
+    update: LiveSurfaceUpdate,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
+  readonly playback?: (
+    target: Target,
+    playing: boolean,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
+  readonly destroy?: (target: Target) => void;
+}
+
+/** Turn an application frame adapter into a managed Kineglyph live-surface renderer. */
+export function adaptLiveSurface<Target>(
+  adapter: FrameSurfaceAdapter<Target>,
+): LiveSurfaceRenderer {
+  return async (context) => {
+    const target = await adapter.mount(context);
+    let pending: LiveSurfaceUpdate | undefined;
+    let draining = false;
+    let failed = false;
+    const drain = async (): Promise<void> => {
+      if (draining || failed) return;
+      draining = true;
+      try {
+        while (pending !== undefined && !context.signal.aborted) {
+          const next = pending;
+          pending = undefined;
+          await adapter.frame(target, next, context.signal);
+        }
+      } catch (error) {
+        failed = true;
+        throw error;
+      } finally {
+        draining = false;
+      }
+    };
+    return {
+      ...(adapter.ready === undefined
+        ? {}
+        : { ready: Promise.resolve(adapter.ready(target, context)) }),
+      update(next) {
+        pending = next;
+        return drain();
+      },
+      ...(adapter.playback === undefined
+        ? {}
+        : {
+            playback: (playing: boolean) => adapter.playback?.(target, playing, context.signal),
+          }),
+      destroy() {
+        pending = undefined;
+        adapter.destroy?.(target);
+      },
+    };
+  };
+}
+
+export interface VideoSurfaceOptions {
+  readonly src: string;
+  readonly poster?: string;
+  readonly muted?: boolean;
+  readonly loop?: boolean;
+  readonly preload?: "none" | "metadata" | "auto";
+  readonly crossOrigin?: "anonymous" | "use-credentials";
+  /** Kineglyph time at which media time zero begins. Defaults to 0. */
+  readonly offset?: number;
+  /** Media seconds per Kineglyph second. Defaults to 1. */
+  readonly rate?: number;
+  readonly attributes?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Mount a video whose decoded frame is slaved to the seekable Kineglyph timeline. The video never
+ * runs an independent clock: every live frame sets `currentTime`, eliminating playback drift and
+ * making pause, seek, restart, and reduced-motion frames agree with exported scene time.
+ */
+export function videoSurface(options: VideoSurfaceOptions): LiveSurfaceRenderer {
+  const seek = (video: HTMLVideoElement, time: number): void => {
+    video.pause();
+    const rate = options.rate ?? 1;
+    const desired = Math.max(0, ((time - (options.offset ?? 0)) / 1000) * rate);
+    const mediaTime = Number.isFinite(video.duration) ? Math.min(video.duration, desired) : desired;
+    if (Math.abs(video.currentTime - mediaTime) > 1 / 240) video.currentTime = mediaTime;
+  };
+  return adaptLiveSurface<HTMLVideoElement>({
+    mount(context) {
+      const video = context.element.ownerDocument.createElement("video");
+      video.src = options.src;
+      video.muted = options.muted ?? true;
+      video.loop = options.loop ?? false;
+      video.preload = options.preload ?? "auto";
+      video.playsInline = true;
+      if (options.poster !== undefined) video.poster = options.poster;
+      if (options.crossOrigin !== undefined) video.crossOrigin = options.crossOrigin;
+      for (const [name, value] of Object.entries(options.attributes ?? {}))
+        video.setAttribute(name, value);
+      video.style.display = "block";
+      video.style.width = "100%";
+      video.style.height = "100%";
+      video.style.objectFit = context.node.image?.fit ?? "contain";
+      context.element.append(video);
+      return video;
+    },
+    async ready(video, context) {
+      if (video.readyState < 2)
+        await new Promise<void>((resolve, reject) => {
+          const loaded = () => resolve();
+          const failed = () => reject(new Error(`video could not load ${context.node.id}`));
+          video.addEventListener("loadeddata", loaded, { once: true });
+          video.addEventListener("error", failed, { once: true });
+          context.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      seek(video, context.time);
+    },
+    frame(video, update) {
+      seek(video, update.time);
+    },
+    playback(video, playing) {
+      // The scene clock owns playback; this callback is still useful to pause immediately when the
+      // animator stops before another frame arrives.
+      if (!playing) video.pause();
+    },
+    destroy(video) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.remove();
+    },
+  });
 }
 
 function normaliseHandle(

@@ -72,7 +72,8 @@ re-resolved for it.
   maps; narrower layouts fall back to wider definitions.
 - **Sizing**: numbers, `fill` (share available space by grow weight, flex-basis 0), or `hug`
   (content size). Rows allocate space with a deterministic flex algorithm; text wraps at its
-  resolved width using explicit glyph-class metrics, so wrapping is identical everywhere.
+  resolved width using explicit glyph-class metrics by default, or a caller-owned `TextMeasurer`
+  backed by embedded font bytes, so wrapping is identical everywhere.
 - **Bindings**: `bind: { text, hidden, tone, opacity, highlight, progress, width, height }` read
   state-machine signals or variables.
 - **Authoring and recipes** (`@kineglyph/core`): `figure()` plus `card`, `panel`, `pill`, `flow`,
@@ -90,7 +91,10 @@ stroke style (`solid`, `dashed`, `dotted`, `flow`), width, tone, opacity, curvat
 radius, labels with start/middle/end placement, packets, an accessible description, and bindings.
 The core computes ports (auto-distributing edges that share a node side), path geometry with
 arc-length sampling, label boxes nudged away from nodes and kept inside the canvas, and packet
-positions at a given time. The SVG renderer derives markers (ids scoped by root, kind, and
+positions at a given time. Orthogonal routes use a deterministic rectilinear visibility graph over
+inflated node bounds, minimizing length and bends while preserving authored endpoints and port
+directions. If no route exists, the authored fallback remains visible and produces an
+`edge-collision` diagnostic. The SVG renderer derives markers (ids scoped by root, kind, and
 colour), dash/reveal patterns, hit targets, and CSS flow animation from that data; it never
 hand-authors paths.
 
@@ -122,6 +126,10 @@ patterns, marker visibility, highlight colours, packet positions), and disposes 
   returns a controller (`play`, `pause`, `restart`, `seek`, `send`, `reset`, `setTheme`,
   `setScene`, `inspect`, `resize`, `on`, `destroy`). `autoMount()` mounts `[data-kineglyph]`
   elements; `dist/kineglyph-web.js` is a self-contained ESM bundle for pages without a bundler.
+- Live image nodes can use `adaptLiveSurface()` to connect an application-owned operation or frame
+  renderer. Async frames are serialized and coalesced to the newest pending time. `videoSurface()`
+  slaves decoded media time to the Kineglyph clock, so play, pause, restart, seek, and reduced
+  motion never drift onto a second clock.
 - `@kineglyph/react` — `KineglyphFigure` owns only the mount lifecycle and forwards a handle; it
   survives StrictMode effect replay because mount and destroy are symmetric.
 
@@ -133,6 +141,11 @@ Backgrounds are themed or transparent, sizes fit uniformly (never stretch), time
 final frame, and errors are explicit (`invalid-time`, `invalid-output`, `missing-font`,
 `live-media`, `encoder`). Raster dependencies live only in this package. The
 `kineglyph-export` CLI wraps the same functions.
+
+`createEmbeddedFontMeasurer()` loads explicit font files through HarfBuzz. The returned synchronous
+measurer is passed into `resolveScene`/`resolveFigure` and the same files are passed to raster export
+with system fonts disabled. Layout shaping and pixels then derive from the same bytes. The CLI's
+repeatable `--shape-font Family=path.ttf` option wires both halves together.
 
 ## Package boundaries
 
@@ -153,9 +166,14 @@ published consumers still resolve `import` and get `dist/`. Because the conditio
 `src/`, every package publishes `src` alongside `dist` in `files`; `scripts/check-exports.test.mjs`
 enforces both halves of that contract.
 
-## Deferred work
+## Explicit boundaries
 
-- Exact embedded-font shaping for byte-identical export across machines (explicit font files
-  are supported; system-font fallback differs per machine).
-- Collision-aware routing for arbitrary graphs beyond the constrained routes and port rules.
-- Application-owned operation/frame adapters and rendered-media synchronisation.
+- Font-independent glyph-class estimates remain the zero-configuration default. Byte-identical
+  typography across machines is opt-in because it requires redistributable font bytes: use an
+  embedded HarfBuzz measurer and disable system fonts during raster export.
+- Collision-aware routing moves orthogonal connectors around rectangular node surfaces. Kineglyph
+  still does not rearrange arbitrary graphs or promise a globally optimal graph layout; authors own
+  node placement and can inspect `edge-collision` diagnostics when no corridor exists.
+- Kineglyph owns the clock, cancellation, and stale-frame protection for live surfaces. Domain
+  operations and rendering engines remain application code connected through `adaptLiveSurface`;
+  bundled adapters cannot know an application's operation model.

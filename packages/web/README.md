@@ -81,6 +81,43 @@ If `<model-viewer>` is unavailable or generation fails, the static image remains
 `LiveSurfaceRenderer` can mount Three.js, a native canvas, an iframe, or an application component
 instead.
 
+### Adapt operations and synchronized media
+
+`adaptLiveSurface()` gives application renderers a lifecycle without letting slow async work race
+the timeline. It serializes frame work and retains only the newest pending frame while one is in
+flight. Playback changes are delivered separately, including pauses that emit no later frame.
+
+```ts
+import { adaptLiveSurface, mountKineglyph } from "@kineglyph/web";
+
+const preview = adaptLiveSurface({
+  mount({ element }) {
+    const canvas = element.appendChild(document.createElement("canvas"));
+    return createApplicationRenderer(canvas);
+  },
+  async frame(renderer, { time, signals }, signal) {
+    const operation = operationAt(time, signals); // application-owned domain adapter
+    await renderer.render(operation, { signal });
+  },
+  destroy(renderer) {
+    renderer.destroy();
+  },
+});
+
+mountKineglyph(host, { scene, liveSurfaces: { "build-preview": preview } });
+```
+
+For rendered video, `videoSurface({ src, offset?, rate? })` keeps the media element paused and
+sets its decoded `currentTime` from every Kineglyph frame. The figure's clock remains the only
+clock, so pause, seek, restart, reduced motion, and timeline export all agree.
+
+```ts
+mountKineglyph(host, {
+  scene,
+  liveSurfaces: { "simulation-video": videoSurface({ src: "/simulation.mp4" }) },
+});
+```
+
 ### Add parameters and binding-aware source
 
 `createParameterPanel` and `createCodeDrawer` cover the controls around a live renderer. They are

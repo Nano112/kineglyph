@@ -24,7 +24,7 @@ import type {
   Tone,
 } from "./scene.js";
 import { pick, pickOr, endpointNode } from "./scene.js";
-import { measureText, type TextFont } from "./text.js";
+import { measureText, type TextFont, type TextMeasurer } from "./text.js";
 import { paintColor, type ThemeTokens } from "./theme.js";
 
 export interface EdgeNodeBox extends Rect {
@@ -52,6 +52,7 @@ export interface EdgeResolveContext {
   /** Scene bounds that labels must stay inside. */
   readonly bounds?: Rect;
   readonly labelFont: TextFont;
+  readonly textMeasurer?: TextMeasurer;
   readonly labelColor: string;
   readonly precision: number;
   /** Signal-bound overrides already applied by the resolver. */
@@ -71,6 +72,8 @@ export interface ResolvedEdgeGeometry {
   readonly packetPeriod: number;
   /** Labels that still overlap a node after every nudge was tried. */
   readonly collidingLabels: readonly string[];
+  /** True when no obstacle-free route could be found and the authored fallback crosses a node. */
+  readonly collidingObstacles: boolean;
 }
 
 type Side = Exclude<EdgeSide, "auto">;
@@ -371,6 +374,223 @@ function orthogonalPoints(a: Point, aSide: Side, b: Point, bSide: Side): Point[]
   return dedupe([a, a1, { x: b1.x, y: a1.y }, b1, b]);
 }
 
+const ROUTE_CLEARANCE = 8;
+const ROUTE_BEND_COST = 24;
+
+/**
+ * Deterministic rectilinear visibility-graph routing around rectangular node obstacles.
+ *
+ * The graph is made from endpoint stubs and every inflated obstacle boundary. Dijkstra then
+ * chooses the shortest route with a stable bend penalty and coordinate-order tie breaks. This is
+ * intentionally a constrained orthogonal router, not an automatic graph layout engine: node
+ * placement and port intent remain authored.
+ */
+export function routeOrthogonalAvoidingObstacles(
+  a: Point,
+  aSide: Side,
+  b: Point,
+  bSide: Side,
+  obstacles: readonly Rect[],
+  bounds?: Rect,
+  clearance = ROUTE_CLEARANCE,
+): readonly Point[] | undefined {
+  const stub = 14;
+  const na = sideNormal(aSide);
+  const nb = sideNormal(bSide);
+  const start = aSide === "center" ? a : { x: a.x + na.x * stub, y: a.y + na.y * stub };
+  const finish = bSide === "center" ? b : { x: b.x + nb.x * stub, y: b.y + nb.y * stub };
+  const inflated = obstacles.map((rect) => inflateRect(rect, clearance));
+  if (inflated.some((rect) => pointInside(rect, start) || pointInside(rect, finish)))
+    return undefined;
+
+  const xs = uniqueSorted([
+    start.x,
+    finish.x,
+    ...inflated.flatMap((rect) => [rect.x, rect.x + rect.width]),
+    ...(bounds === undefined ? [] : [bounds.x + clearance, bounds.x + bounds.width - clearance]),
+  ]);
+  const ys = uniqueSorted([
+    start.y,
+    finish.y,
+    ...inflated.flatMap((rect) => [rect.y, rect.y + rect.height]),
+    ...(bounds === undefined ? [] : [bounds.y + clearance, bounds.y + bounds.height - clearance]),
+  ]);
+  const points: Point[] = [];
+  for (const y of ys)
+    for (const x of xs) {
+      const point = { x, y };
+      if (outsideBounds(point, bounds) || inflated.some((rect) => pointInside(rect, point)))
+        continue;
+      points.push(point);
+    }
+  const startIndex = pointIndex(points, start);
+  const finishIndex = pointIndex(points, finish);
+  if (startIndex < 0 || finishIndex < 0) return undefined;
+
+  const neighbours: { to: number; direction: "h" | "v"; distance: number }[][] = points.map(
+    () => [],
+  );
+  connectVisible(points, neighbours, inflated, "h");
+  connectVisible(points, neighbours, inflated, "v");
+
+  type Direction = "h" | "v" | "start";
+  interface State {
+    readonly node: number;
+    readonly direction: Direction;
+    readonly cost: number;
+    readonly key: string;
+  }
+  const initialDirection: Direction = na.x !== 0 ? "h" : na.y !== 0 ? "v" : "start";
+  const finalDirection: Direction = nb.x !== 0 ? "h" : nb.y !== 0 ? "v" : "start";
+  const initialKey = stateKey(startIndex, initialDirection);
+  const distances = new Map<string, number>([[initialKey, 0]]);
+  const previous = new Map<string, string>();
+  const queue: State[] = [
+    { node: startIndex, direction: initialDirection, cost: 0, key: initialKey },
+  ];
+  let winner: State | undefined;
+  while (queue.length > 0) {
+    queue.sort((left, right) => left.cost - right.cost || left.key.localeCompare(right.key));
+    const current = queue.shift();
+    if (current === undefined || current.cost !== distances.get(current.key)) continue;
+    if (winner !== undefined && current.cost > winner.cost + 1e-9) break;
+    if (current.node === finishIndex) {
+      const total =
+        current.cost +
+        (finalDirection !== "start" && current.direction !== finalDirection ? ROUTE_BEND_COST : 0);
+      if (winner === undefined || total < winner.cost - 1e-9) winner = { ...current, cost: total };
+      continue;
+    }
+    for (const edge of neighbours[current.node] ?? []) {
+      const bend =
+        current.direction === "start" || current.direction === edge.direction ? 0 : ROUTE_BEND_COST;
+      const cost = current.cost + edge.distance + bend;
+      const key = stateKey(edge.to, edge.direction);
+      const known = distances.get(key);
+      if (known !== undefined && known <= cost + 1e-9) continue;
+      distances.set(key, cost);
+      previous.set(key, current.key);
+      queue.push({ node: edge.to, direction: edge.direction, cost, key });
+    }
+  }
+  if (winner === undefined) return undefined;
+  const routed: Point[] = [];
+  let key: string | undefined = winner.key;
+  while (key !== undefined) {
+    const node = Number(key.slice(0, key.indexOf("|")));
+    const point = points[node];
+    if (point !== undefined) routed.push(point);
+    key = previous.get(key);
+  }
+  routed.reverse();
+  return dedupe([a, ...routed, b]);
+}
+
+function inflateRect(rect: Rect, amount: number): Rect {
+  return {
+    x: rect.x - amount,
+    y: rect.y - amount,
+    width: rect.width + amount * 2,
+    height: rect.height + amount * 2,
+  };
+}
+
+function pointInside(rect: Rect, point: Point): boolean {
+  const epsilon = 1e-6;
+  return (
+    point.x > rect.x + epsilon &&
+    point.x < rect.x + rect.width - epsilon &&
+    point.y > rect.y + epsilon &&
+    point.y < rect.y + rect.height - epsilon
+  );
+}
+
+function outsideBounds(point: Point, bounds: Rect | undefined): boolean {
+  if (bounds === undefined) return false;
+  const epsilon = 1e-6;
+  return (
+    point.x < bounds.x - epsilon ||
+    point.x > bounds.x + bounds.width + epsilon ||
+    point.y < bounds.y - epsilon ||
+    point.y > bounds.y + bounds.height + epsilon
+  );
+}
+
+function uniqueSorted(values: readonly number[]): number[] {
+  return [...new Set(values.map((value) => Math.round(value * 1e6) / 1e6))].sort((a, b) => a - b);
+}
+
+function pointIndex(points: readonly Point[], point: Point): number {
+  return points.findIndex(
+    (candidate) => Math.abs(candidate.x - point.x) < 1e-6 && Math.abs(candidate.y - point.y) < 1e-6,
+  );
+}
+
+function stateKey(node: number, direction: "h" | "v" | "start"): string {
+  return `${node}|${direction}`;
+}
+
+function connectVisible(
+  points: readonly Point[],
+  neighbours: { to: number; direction: "h" | "v"; distance: number }[][],
+  obstacles: readonly Rect[],
+  direction: "h" | "v",
+): void {
+  const groups = new Map<number, number[]>();
+  points.forEach((point, index) => {
+    const key = direction === "h" ? point.y : point.x;
+    const group = groups.get(key) ?? [];
+    group.push(index);
+    groups.set(key, group);
+  });
+  for (const group of groups.values()) {
+    group.sort((left, right) => {
+      const a = points[left];
+      const b = points[right];
+      if (a === undefined || b === undefined) return left - right;
+      return direction === "h" ? a.x - b.x : a.y - b.y;
+    });
+    for (let index = 1; index < group.length; index += 1) {
+      const fromIndex = group[index - 1];
+      const toIndex = group[index];
+      if (fromIndex === undefined || toIndex === undefined) continue;
+      const from = points[fromIndex];
+      const to = points[toIndex];
+      if (from === undefined || to === undefined || segmentBlocked(from, to, obstacles)) continue;
+      const distance = Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
+      neighbours[fromIndex]?.push({ to: toIndex, direction, distance });
+      neighbours[toIndex]?.push({ to: fromIndex, direction, distance });
+    }
+  }
+}
+
+function segmentBlocked(a: Point, b: Point, obstacles: readonly Rect[]): boolean {
+  const epsilon = 1e-6;
+  if (Math.abs(a.y - b.y) < epsilon) {
+    const low = Math.min(a.x, b.x);
+    const high = Math.max(a.x, b.x);
+    return obstacles.some(
+      (rect) =>
+        a.y > rect.y + epsilon &&
+        a.y < rect.y + rect.height - epsilon &&
+        high > rect.x + epsilon &&
+        low < rect.x + rect.width - epsilon,
+    );
+  }
+  if (Math.abs(a.x - b.x) < epsilon) {
+    const low = Math.min(a.y, b.y);
+    const high = Math.max(a.y, b.y);
+    return obstacles.some(
+      (rect) =>
+        a.x > rect.x + epsilon &&
+        a.x < rect.x + rect.width - epsilon &&
+        high > rect.y + epsilon &&
+        low < rect.y + rect.height - epsilon,
+    );
+  }
+  return true;
+}
+
 function dedupe(points: readonly Point[]): Point[] {
   const out: Point[] = [];
   for (const point of points) {
@@ -438,8 +658,8 @@ const LABEL_PADDING_X = 5;
  * much room a label asks for *before* it decides how far apart to put them — see
  * `sceneFromSpec`.
  */
-export function edgeLabelWidth(text: string, font: TextFont): number {
-  return measureText(text, font) + LABEL_PADDING_X * 2;
+export function edgeLabelWidth(text: string, font: TextFont, measurer?: TextMeasurer): number {
+  return measureText(text, font, measurer) + LABEL_PADDING_X * 2;
 }
 
 /** The height an edge label will occupy, box and all. */
@@ -486,18 +706,40 @@ export function resolveEdge(
     rectCenter(toBox),
   );
   const end = portPoint(toBox, ports.to.side, ports.to.offset, toEnd.gap ?? 0, rectCenter(fromBox));
+  // Endpoint boxes and framed ancestors contain a port by definition; every other surface is an
+  // obstacle the connector should travel around.
+  const contains = (rect: Rect, point: Point): boolean =>
+    point.x >= rect.x - 0.5 &&
+    point.x <= rect.x + rect.width + 0.5 &&
+    point.y >= rect.y - 0.5 &&
+    point.y <= rect.y + rect.height + 0.5;
+  const obstacles = context.obstacles.filter(
+    (obstacle) => !contains(obstacle, start) && !contains(obstacle, end),
+  );
   const curvature = edge.curvature ?? 0.5;
   let segments: PathSegment[];
+  let collidingObstacles = false;
   switch (route) {
     case "straight":
       segments = [{ kind: "line", from: start, to: end }];
       break;
-    case "orthogonal":
-      segments = polylineToSegments(
-        orthogonalPoints(start, ports.from.side, end, ports.to.side),
-        edge.cornerRadius ?? 8,
+    case "orthogonal": {
+      const fallback = orthogonalPoints(start, ports.from.side, end, ports.to.side);
+      const routed = routeOrthogonalAvoidingObstacles(
+        start,
+        ports.from.side,
+        end,
+        ports.to.side,
+        obstacles,
+        context.bounds,
       );
+      const points = routed ?? fallback;
+      collidingObstacles = points.some(
+        (point, index) => index > 0 && segmentBlocked(points[index - 1] ?? point, point, obstacles),
+      );
+      segments = polylineToSegments(points, edge.cornerRadius ?? 8);
       break;
+    }
     case "curve":
       segments = curveSegments(start, ports.from.side, end, ports.to.side, curvature);
       break;
@@ -536,21 +778,13 @@ export function resolveEdge(
   const collidingLabels: string[] = [];
   // A box this edge comes out of, or goes into, cannot push its label away — the label has to sit
   // near the run, and the run starts on that box's border. Every other box can.
-  const contains = (rect: Rect, point: Point): boolean =>
-    point.x >= rect.x - 0.5 &&
-    point.x <= rect.x + rect.width + 0.5 &&
-    point.y >= rect.y - 0.5 &&
-    point.y <= rect.y + rect.height + 0.5;
-  const obstacles = context.obstacles.filter(
-    (obstacle) => !contains(obstacle, start) && !contains(obstacle, end),
-  );
   for (const label of definedLabels) {
     const text = context.overrides?.labelText?.get(label.id) ?? label.text;
     const hidden =
       (context.overrides?.labelHidden?.has(label.id) ?? false) ||
       ("hidden" in label && pickOr(label.hidden, context.layout, false));
     const font = context.labelFont;
-    const boxWidth = edgeLabelWidth(text, font);
+    const boxWidth = edgeLabelWidth(text, font, context.textMeasurer);
     const boxHeight = edgeLabelHeight(font);
     const placement =
       "placement" in label && label.placement !== undefined ? label.placement : "middle";
@@ -673,7 +907,14 @@ export function resolveEdge(
       : {}),
     ...(edge.metadata === undefined ? {} : { metadata: edge.metadata }),
   };
-  return { edge: resolved, geometry, packetCount, packetPeriod, collidingLabels };
+  return {
+    edge: resolved,
+    geometry,
+    packetCount,
+    packetPeriod,
+    collidingLabels,
+    collidingObstacles,
+  };
 }
 
 export const EDGE_SAMPLE_COUNT = 32;

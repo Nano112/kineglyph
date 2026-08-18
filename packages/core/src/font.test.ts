@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultTheme, withFontFamily } from "./theme.js";
-import { measureText } from "./text.js";
+import { measureText, wrapText } from "./text.js";
 
 describe("withFontFamily", () => {
   it("re-fonts every prose style and leaves code monospaced", () => {
@@ -38,5 +38,23 @@ describe("withFontFamily", () => {
     expect(measureText("Signed distance field", after)).toBe(
       measureText("Signed distance field", before),
     );
+  });
+});
+
+describe("embedded text measurement", () => {
+  const font = defaultTheme.typography.body;
+  const measurer = { measureText: (text: string) => Array.from(text).length * 10 };
+
+  it("uses caller-owned shaped advances for measurement and wrapping", () => {
+    expect(measureText("abcd", font, measurer)).toBe(40);
+    expect(wrapText("aa bb cc", 50, font, { measurer }).map((line) => line.text)).toEqual([
+      "aa bb",
+      "cc",
+    ]);
+  });
+
+  it("rejects invalid widths from a custom shaper", () => {
+    expect(() => measureText("x", font, { measureText: () => Number.NaN })).toThrow(RangeError);
+    expect(() => measureText("x", font, { measureText: () => -1 })).toThrow(RangeError);
   });
 });
