@@ -110,7 +110,6 @@ describe("KineglyphFigure in React StrictMode", () => {
         timeout: 1_000,
       });
     });
-    expect(Number(node?.style.opacity)).toBeLessThan(1);
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 280));

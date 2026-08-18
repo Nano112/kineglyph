@@ -143,7 +143,10 @@ if (step === "check" || step === "publish") {
 }
 
 if (step === "check" || step === "pack" || step === "publish") {
-  if (step === "pack") run("npm run build");
+  // Build immediately before packing, even after `npm test` (whose pretest already builds).
+  // Some tests exercise package build outputs, so the immutable artifacts we audit and publish
+  // must come from a fresh, final build rather than whatever happens to remain after the suite.
+  run("npm run build");
   audit(pkgs);
 }
 
