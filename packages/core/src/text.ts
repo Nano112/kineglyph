@@ -19,10 +19,24 @@ export interface TextLine {
   readonly width: number;
 }
 
+/**
+ * Pluggable, synchronous text shaping used during deterministic layout.
+ *
+ * Core ships a portable estimate, while hosts that own concrete font bytes can provide a shaper
+ * backed by those bytes (for example `createEmbeddedFontMeasurer` from `@kineglyph/export`). The
+ * resolver stays synchronous after the fonts have been loaded and never consults browser or system
+ * font state.
+ */
+export interface TextMeasurer {
+  readonly measureText: (text: string, font: TextFont) => number;
+}
+
 export interface WrapOptions {
   readonly maxLines?: number;
   /** Replaces the tail of the last line with an ellipsis when lines are dropped. */
   readonly ellipsis?: boolean;
+  /** Exact embedded-font shaper, when the caller owns one. */
+  readonly measurer?: TextMeasurer;
 }
 
 /** Slack for floating-point round trips between measured widths and hug-sized boxes. */
@@ -54,8 +68,14 @@ export function isMonospace(family: string): boolean {
 }
 
 /** Estimated advance width of a string in pixels. */
-export function measureText(text: string, font: TextFont): number {
+export function measureText(text: string, font: TextFont, measurer?: TextMeasurer): number {
   if (text.length === 0) return 0;
+  if (measurer !== undefined) {
+    const measured = measurer.measureText(text, font);
+    if (!Number.isFinite(measured) || measured < 0)
+      throw new RangeError("text measurer must return a finite, non-negative width");
+    return round(measured);
+  }
   const characters = Array.from(text);
   const mono = isMonospace(font.family);
   const weightFactor = font.weight >= 600 ? 1.045 : 1;
@@ -69,13 +89,18 @@ function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1000) / 1000;
 }
 
-function splitLongWord(word: string, maxWidth: number, font: TextFont): string[] {
+function splitLongWord(
+  word: string,
+  maxWidth: number,
+  font: TextFont,
+  measurer?: TextMeasurer,
+): string[] {
   const characters = Array.from(word);
   const chunks: string[] = [];
   let current = "";
   for (const character of characters) {
     const candidate = current + character;
-    if (current.length > 0 && measureText(candidate, font) > maxWidth + EPSILON) {
+    if (current.length > 0 && measureText(candidate, font, measurer) > maxWidth + EPSILON) {
       chunks.push(current);
       current = character;
     } else current = candidate;
@@ -105,10 +130,12 @@ export function wrapText(
 
   outer: for (const word of words) {
     const pieces =
-      measureText(word, font) > width + EPSILON ? splitLongWord(word, width, font) : [word];
+      measureText(word, font, options.measurer) > width + EPSILON
+        ? splitLongWord(word, width, font, options.measurer)
+        : [word];
     for (const piece of pieces) {
       const candidate = current.length === 0 ? piece : `${current} ${piece}`;
-      if (measureText(candidate, font) <= width + EPSILON) {
+      if (measureText(candidate, font, options.measurer) <= width + EPSILON) {
         current = candidate;
         continue;
       }
@@ -128,9 +155,12 @@ export function wrapText(
   if (truncated && options.ellipsis !== false && lines.length > 0) {
     const lastIndex = lines.length - 1;
     let last = lines[lastIndex] ?? "";
-    while (last.length > 0 && measureText(`${last}…`, font) > width)
+    while (last.length > 0 && measureText(`${last}…`, font, options.measurer) > width)
       last = last.slice(0, -1).trimEnd();
     lines[lastIndex] = `${last}…`;
   }
-  return lines.map((line) => ({ text: line, width: Math.min(width, measureText(line, font)) }));
+  return lines.map((line) => ({
+    text: line,
+    width: Math.min(width, measureText(line, font, options.measurer)),
+  }));
 }

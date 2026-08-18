@@ -6,10 +6,12 @@ import type {
   PipelineDefinition,
   ResolvedScene,
   SceneDefinition,
+  TextMeasurer,
   ThemeTokens,
 } from "@kineglyph/core";
 import { resolveMachineState, resolvePipeline, resolveScene } from "@kineglyph/core";
 import { KineglyphExportError } from "./errors.js";
+import { createEmbeddedFontMeasurer } from "./font-shaping.js";
 import { exportFile } from "./file.js";
 import { gifInfo, pngInfo } from "./formats.js";
 import type { GifExportOptions } from "./gif.js";
@@ -36,6 +38,7 @@ Options:
   --state <id>                Machine state to resolve (scene definitions with a machine)
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
   --font <path>               Font file for png/gif (repeatable)
+  --shape-font <family=path>  HarfBuzz font for layout and png/gif (repeatable)
   --no-system-fonts           Do not load fonts installed on this machine
   --default-font <family>     Fallback font family for png/gif
   -h, --help                  Show this help
@@ -58,6 +61,7 @@ interface CliArgs {
   readonly state?: string;
   readonly containerWidth?: number;
   readonly fonts: readonly string[];
+  readonly shapeFonts: readonly string[];
   readonly loadSystemFonts: boolean;
   readonly defaultFamily?: string;
 }
@@ -68,6 +72,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
   const positional: string[] = [];
   const values = new Map<string, string>();
   const fonts: string[] = [];
+  const shapeFonts: string[] = [];
   let loop = true;
   let loadSystemFonts = true;
   const valueFlags = new Set([
@@ -85,6 +90,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     "state",
     "width-container",
     "font",
+    "shape-font",
     "default-font",
   ]);
   for (let index = 0; index < argv.length; index += 1) {
@@ -110,6 +116,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
       }
       if (value === undefined) throw new UsageError(`--${name} requires a value`);
       if (name === "font") fonts.push(value);
+      else if (name === "shape-font") shapeFonts.push(value);
       else values.set(name, value);
       continue;
     }
@@ -143,6 +150,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     ...optional("state", state),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
     fonts,
+    shapeFonts,
     loadSystemFonts,
     ...optional("defaultFamily", values.get("default-font")),
   };
@@ -163,6 +171,15 @@ function parseLayout(value: string | undefined): LayoutName | "auto" | "stacked"
   )
     return value;
   throw new UsageError("--layout must be auto, wide, compact, narrow, or stacked");
+}
+
+function parseShapeFont(value: string): { family: string; file: string } {
+  const equals = value.indexOf("=");
+  const family = equals < 0 ? "" : value.slice(0, equals).trim();
+  const file = equals < 0 ? "" : value.slice(equals + 1).trim();
+  if (family.length === 0 || file.length === 0)
+    throw new UsageError(`--shape-font expects <family=path> (received "${value}")`);
+  return { family, file };
 }
 
 function numeric(flag: string, value: string | undefined): number | undefined {
@@ -221,6 +238,7 @@ interface ResolveContext {
   readonly layout: LayoutName | "auto" | "stacked" | undefined;
   readonly theme: ThemeTokens | undefined;
   readonly state: string | undefined;
+  readonly textMeasurer: TextMeasurer | undefined;
 }
 
 async function loadScene(spec: string, context: ResolveContext): Promise<ResolvedScene> {
@@ -241,6 +259,7 @@ async function loadScene(spec: string, context: ResolveContext): Promise<Resolve
         : { layout: context.layout === "stacked" ? "compact" : context.layout }),
       ...(context.theme === undefined ? {} : { theme: context.theme }),
       ...(machineState === undefined ? {} : { machineState }),
+      ...(context.textMeasurer === undefined ? {} : { textMeasurer: context.textMeasurer }),
     });
   }
   if (isPipelineDefinition(value)) {
@@ -292,11 +311,16 @@ async function run(argv: readonly string[]): Promise<number> {
     return 0;
   }
   const theme = await loadTheme(args.theme);
+  const shapedFonts =
+    args.shapeFonts.length === 0
+      ? undefined
+      : await createEmbeddedFontMeasurer(args.shapeFonts.map(parseShapeFont));
   const scene = await loadScene(args.scene, {
     width: args.containerWidth ?? 960,
     layout: args.layout,
     state: args.state,
     theme,
+    textMeasurer: shapedFonts,
   });
   const frameOptions: Omit<SvgExportOptions, "time"> = {
     ...(args.width === undefined ? {} : { width: args.width }),
@@ -309,7 +333,7 @@ async function run(argv: readonly string[]): Promise<number> {
     ...(args.time === undefined ? {} : { time: args.time }),
   };
   const fonts: FontOptions = {
-    files: args.fonts,
+    files: [...new Set([...args.fonts, ...(shapedFonts?.files ?? [])])],
     loadSystemFonts: args.loadSystemFonts,
     ...(args.defaultFamily === undefined ? {} : { defaultFamily: args.defaultFamily }),
   };

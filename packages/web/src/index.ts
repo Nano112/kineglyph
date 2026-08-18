@@ -492,6 +492,9 @@ class FigureRuntime implements KineglyphController {
     // Non-autoplaying and reduced-motion figures present their complete terminal frame; Play restarts.
     const restFrame = this.#reducedMotion || !(this.#options.autoplay ?? true);
     const initialTime = resetTime ? (restFrame ? this.#duration : 0) : previousTime;
+    const initialPlaying = resetTime
+      ? (this.#options.autoplay ?? true) && !this.#reducedMotion && this.#duration > 0
+      : wasPlaying && !this.#reducedMotion;
     const frame = seekTimeline(this.#resolved, initialTime);
     this.stage.innerHTML = renderSvg(frame, {
       idPrefix: this.id,
@@ -518,6 +521,7 @@ class FigureRuntime implements KineglyphController {
       machineState: this.machine?.state,
       signals: this.machine?.signals ?? {},
       time: initialTime,
+      playing: initialPlaying,
       send: (event) => this.send(event),
       ...(this.#options.onSurfaceError === undefined
         ? {}
@@ -538,6 +542,7 @@ class FigureRuntime implements KineglyphController {
       },
       onPlaybackChange: (playing) => {
         this.#playing = playing;
+        this.#liveSurfaces?.setPlaying(playing);
         this.#syncControls();
         this.#emitter.emit("playback", playing);
         this.#options.onPlaybackChange?.(playing);

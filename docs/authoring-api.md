@@ -92,6 +92,11 @@ invalid machines (`validateStateMachine` against the created node ids), and bind
 signal or variable the machine does not declare — the same problems `resolveScene` would surface
 later, but with the node and property named.
 
+Orthogonal connectors route around intervening framed nodes through a deterministic visibility
+graph. Node placement and port sides remain authored; Kineglyph minimizes route length and bends
+without rearranging the graph. When no corridor exists, the fallback route is preserved and
+`resolveScene()` reports an `edge-collision` diagnostic.
+
 ### Fill paint
 
 `FrameStyle.fill` and the fill on rectangles, circles, paths, and polylines accept theme-aware

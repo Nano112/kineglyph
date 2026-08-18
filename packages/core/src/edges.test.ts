@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { assignPorts, packetPositions, resolveEdge, type EdgeNodeBox } from "./edges.js";
+import {
+  assignPorts,
+  packetPositions,
+  resolveEdge,
+  routeOrthogonalAvoidingObstacles,
+  type EdgeNodeBox,
+} from "./edges.js";
 import { PathGeometry, polylineToSegments } from "./geometry.js";
 import { measureText, wrapText } from "./text.js";
 import { createTheme } from "./theme.js";
@@ -32,6 +38,32 @@ function resolve(edge: EdgeDefinition, edges: readonly EdgeDefinition[] = [edge]
 }
 
 describe("edge grammar", () => {
+  it("finds the shortest stable orthogonal route around node obstacles", () => {
+    const obstacle = { x: 180, y: 20, width: 40, height: 60 };
+    const route = routeOrthogonalAvoidingObstacles(
+      { x: 100, y: 50 },
+      "right",
+      { x: 300, y: 50 },
+      "left",
+      [obstacle],
+      { x: 0, y: 0, width: 400, height: 160 },
+    );
+    expect(route).toBeDefined();
+    expect(route?.[0]).toEqual({ x: 100, y: 50 });
+    expect(route?.at(-1)).toEqual({ x: 300, y: 50 });
+    expect(route?.some((point) => point.y === 12 || point.y === 88)).toBe(true);
+    expect(
+      routeOrthogonalAvoidingObstacles(
+        { x: 100, y: 50 },
+        "right",
+        { x: 300, y: 50 },
+        "left",
+        [obstacle],
+        { x: 0, y: 0, width: 400, height: 160 },
+      ),
+    ).toEqual(route);
+  });
+
   it("routes straight, orthogonal, curve, and arc paths from typed data", () => {
     const straight = resolve({ id: "s", from: "a", to: "b" });
     expect(straight.edge.path).toBe("M 100 30 L 300 30");

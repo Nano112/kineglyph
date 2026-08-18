@@ -32,6 +32,7 @@
     "@kineglyph/svg": "*",
     "@kineglyph/web": "*",
     "@resvg/resvg-js": "^2.6.2",
-    "gifenc": "^1.0.3"
+    "gifenc": "^1.0.3",
+    "harfbuzzjs": "^1.6.0"
   }
 }

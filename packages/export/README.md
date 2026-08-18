@@ -51,6 +51,30 @@ Common options (`SvgExportOptions`):
 `GifExportOptions` adds `fps` (1–60, default 12), `holdLast` (ms, default 800), `loop`
 (default `true`), and `maxFrames` (default 600) and drops `time`.
 
+### Shape with the embedded font
+
+Rasterizing with an explicit font file pins the pixels, but layout also needs that face's real
+OpenType advances if wrapping and box geometry must be exact. `createEmbeddedFontMeasurer()` loads
+the file through HarfBuzz; pass the returned object into the resolver and its files into export:
+
+```ts
+import { resolveScene } from "@kineglyph/core";
+import { createEmbeddedFontMeasurer, exportPng } from "@kineglyph/export";
+
+const fonts = await createEmbeddedFontMeasurer([
+  { family: "Geist Mono", file: "fonts/GeistMono[wght].ttf" },
+]);
+const resolved = resolveScene(scene, { width: 960, theme, textMeasurer: fonts });
+const png = await exportPng(resolved, {
+  fonts: { files: fonts.files, loadSystemFonts: false, defaultFamily: "Geist Mono" },
+});
+```
+
+The family is inferred from the font's OpenType name when omitted. Variable `wght` faces follow
+each semantic text style's requested weight. CSS family stacks choose the first loaded match; an
+unmatched family keeps core's portable glyph-class estimate unless a source is marked
+`fallback: true`. `prerender()` also accepts `textMeasurer`.
+
 Errors are `KineglyphExportError` instances with a `code`: `invalid-time`, `invalid-output`,
 `missing-font`, `live-media` (image nodes flagged `live`), or `encoder`.
 
@@ -105,7 +129,7 @@ kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file>
     [--theme <module>#<export>] [--width N] [--height N] [--scale N] [--time MS]
     [--fps N] [--hold-last MS] [--no-loop] [--background transparent|theme|<color>]
     [--layout auto|wide|compact|narrow] [--state <machine state>] [--width-container N]
-    [--font <path>]... [--no-system-fonts]
+    [--font <path>]... [--shape-font <family=path>]... [--no-system-fonts]
 ```
 
 `--scene` is imported dynamically. The chosen export (default export, then `scene`, then
@@ -115,6 +139,10 @@ kineglyph-export <svg|png|gif> --scene <module>[#export] --out <file>
 with `resolvePipeline`), or a `resolve({ width, theme, layout, state })` function. `--theme`
 points at theme tokens or a factory such as `createTheme`. Export errors print `error: <message>`
 and exit with code 1.
+
+`--shape-font "Geist Mono=fonts/GeistMono[wght].ttf"` uses the same file for HarfBuzz layout and
+rasterization. Combine it with `--no-system-fonts --default-font "Geist Mono"` for an export whose
+typography is independent of the machine running the command.
 
 ```sh
 kineglyph-export png --scene node_modules/@kineglyph/scenes/dist/index.js#smartSimulationScene \
@@ -129,8 +157,9 @@ palettes are computed with a deterministic quantizer, and frame timing is derive
 Two things vary between machines and must be pinned for reproducible output:
 
 - **Fonts.** By default resvg loads the fonts installed on the machine, so text glyphs (and
-  therefore pixels) depend on the host. Pass `fonts: { files: [...], loadSystemFonts: false }`
-  to render with explicit font files. This is also much faster: loading the system font database
+  therefore pixels) depend on the host. Use `createEmbeddedFontMeasurer()` during resolution and
+  pass `fonts: { files: [...], loadSystemFonts: false }` during rasterization to derive geometry
+  and pixels from the same bytes. This is also much faster: loading the system font database
   costs roughly 100 ms per rendered frame, whereas explicit files load in a few milliseconds.
 - **Renderer versions.** Pin `@resvg/resvg-js` and `gifenc` if pixel-exact output matters.
 
