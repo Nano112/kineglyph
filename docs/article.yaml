@@ -1,0 +1,32 @@
+slug: kineglyph
+title: Kineglyph
+form: docs
+status: published
+visibility: public
+category: developer tools
+tags: [typescript, svg, animation, data-visualization, documentation]
+description: >-
+  Build deterministic, responsive technical illustrations and quantitative graphics from concise,
+  typed scene definitions—with motion, interaction, theming, and reproducible export.
+author: Kineglyph contributors
+
+kineglyph:
+  widths: [960, 640, 440, 320]
+
+snippets:
+  roots: [".", ".."]
+
+exclude:
+  - assets/
+
+nav:
+  - { title: Introduction, page: index.md }
+  - section: Authoring
+    children:
+      - { title: Authoring API, page: authoring-api.md }
+      - { title: Cookbook, page: cookbook.md }
+      - { title: Materials and effects, page: materials-and-effects.md }
+  - section: Integration
+    children:
+      - { title: Embedding and theming, page: embedding-and-theming.md }
+      - { title: Architecture, page: architecture.md }

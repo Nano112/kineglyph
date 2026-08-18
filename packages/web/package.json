@@ -34,11 +34,13 @@
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.5.2",
     "@kineglyph/anime": "*",
     "@kineglyph/core": "*",
     "@kineglyph/plot": "*",
     "@kineglyph/svg": "*",
+    "@lezer/highlight": "^1.2.3",
     "codemirror": "^6.0.2"
   },
   "devDependencies": {

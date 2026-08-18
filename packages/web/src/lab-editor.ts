@@ -1,6 +1,8 @@
 import { Compartment, EditorState } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { basicSetup, EditorView } from "codemirror";
+import { tags } from "@lezer/highlight";
 
 export interface LabEditor {
   value(): string;
@@ -30,9 +32,31 @@ export function createLabEditor(options: CreateLabEditorOptions): LabEditor {
       extensions: [
         basicSetup,
         javascript({ typescript: false }),
+        syntaxHighlighting(
+          HighlightStyle.define([
+            {
+              tag: [tags.keyword, tags.operatorKeyword, tags.modifier],
+              color: "var(--kg-lab-syntax-keyword)",
+            },
+            { tag: [tags.string, tags.special(tags.string)], color: "var(--kg-lab-syntax-string)" },
+            { tag: [tags.number, tags.bool, tags.null], color: "var(--kg-lab-syntax-number)" },
+            {
+              tag: [tags.comment, tags.lineComment, tags.blockComment],
+              color: "var(--kg-lab-syntax-comment)",
+              fontStyle: "italic",
+            },
+            {
+              tag: [tags.definition(tags.variableName), tags.function(tags.variableName)],
+              color: "var(--kg-lab-syntax-name)",
+            },
+            {
+              tag: [tags.propertyName, tags.typeName, tags.className],
+              color: "var(--kg-lab-syntax-property)",
+            },
+          ]),
+        ),
         editable.of(EditorView.editable.of(!options.readOnly)),
         readOnly.of(EditorState.readOnly.of(options.readOnly)),
-        EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !applying) options.onChange(update.state.doc.toString());
         }),

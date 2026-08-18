@@ -32,6 +32,9 @@ describe("mountKineglyphLab", () => {
     expect(load).toHaveBeenLastCalledWith("second", host);
     expect(lab.figure?.scene.id).toBe("lab-second");
     expect(host.querySelector(".kg-lab__preview-host")).not.toBeNull();
+    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
+      "@container kg-lab (max-width:640px)",
+    );
   });
 
   it("keeps the last good preview visible and reports a bad edit", async () => {
