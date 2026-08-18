@@ -2,3 +2,6 @@ docs/assets/readme/*.gif
 docs/assets/readme/*.png
 docs/assets/readme/*.svg
 docs/assets/fonts/*
+
+# pagina build output for docs/ — generated, not authored
+docs/.pagina/

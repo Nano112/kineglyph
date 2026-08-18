@@ -1,6 +1,6 @@
 {
   "name": "@kineglyph/svg",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic, accessible SVG rendering for Kineglyph scenes",
   "license": "MIT",
   "author": "Harrison (https://github.com/Nano112)",
@@ -50,6 +50,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/core": "^0.1.0"
+    "@kineglyph/core": "^0.2.0"
   }
 }
