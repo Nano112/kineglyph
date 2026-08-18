@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTheme, defineScene, type SceneDefinition } from "@kineglyph/core";
+import {
+  createTheme,
+  defineScene,
+  inheritTheme,
+  resolveFigure,
+  type SceneDefinition,
+} from "@kineglyph/core";
+import { renderSvg } from "@kineglyph/svg";
 import {
   autoMount,
   modelViewerSurface,
@@ -766,5 +773,135 @@ describe("keyboard inspection", () => {
     // Inspect-only marks still get an accessible name from inspect.title.
     expect(bar2?.querySelector("title")?.textContent).toBe("A · Q2");
     controller.destroy();
+  });
+});
+
+/**
+ * A declared theme has to be an override *and* stay in its own figure. Those pull against each
+ * other: the way to beat the page is to define the token, and the way to leak is to define it
+ * somewhere shared. The tests below hold both ends — the pin exists, and it exists on this
+ * figure's own shell, where the figure beside it cannot see it.
+ */
+describe("a figure's theme is scoped to the figure", () => {
+  const shellOf = (element: HTMLElement): HTMLElement =>
+    element.querySelector<HTMLElement>(".kg-figure") as HTMLElement;
+  const pinsOn = (element: HTMLElement): string[] =>
+    [...shellOf(element).style]
+      .filter((name) => name.startsWith("--kg-color-"))
+      .map((name) => `${name}:${shellOf(element).style.getPropertyValue(name)}`)
+      .sort();
+  const svgPinsIn = (element: HTMLElement): string[] =>
+    [
+      ...(element.querySelector("svg")?.getAttribute("style") ?? "").matchAll(
+        /(--kg-color-[a-z0-9-]+):([^;]*)/g,
+      ),
+    ]
+      .map((match) => `${match[1]}:${match[2]}`)
+      .sort();
+
+  it("pins nothing for a figure with no opinion", () => {
+    const element = host();
+    const controller = mountKineglyph(element, { scene, autoplay: false });
+
+    expect(pinsOn(element)).toEqual([]);
+    expect(svgPinsIn(element)).toEqual([]);
+    // …while still naming every role, so the page's tokens reach the chrome as well as the drawing.
+    expect(shellOf(element).style.getPropertyValue("--kg-shell-accent")).toContain(
+      "var(--kg-color-accent,",
+    );
+    controller.destroy();
+  });
+
+  it("pins a declared theme without touching the document or the figure next to it", () => {
+    const declared = host();
+    const neighbour = host();
+    const a = mountKineglyph(declared, {
+      scene,
+      theme: createTheme({ colors: { accent: "#ff00ff", canvas: "#101216" } }),
+      autoplay: false,
+    });
+    const b = mountKineglyph(neighbour, { scene, autoplay: false });
+
+    expect(pinsOn(declared)).toEqual(["--kg-color-accent:#ff00ff", "--kg-color-canvas:#101216"]);
+    expect(pinsOn(neighbour)).toEqual([]);
+    // Nothing was written above either figure — that is the whole difference between an override
+    // and a repaint of the article.
+    expect(document.documentElement.getAttribute("style")).toBeNull();
+    expect(document.body.getAttribute("style")).toBeNull();
+    a.destroy();
+    b.destroy();
+  });
+
+  it("pins only what a partial theme names", () => {
+    const element = host();
+    const controller = mountKineglyph(element, {
+      scene,
+      theme: createTheme({ colors: { accent: "#ff00ff" } }),
+      autoplay: false,
+    });
+
+    expect(pinsOn(element)).toEqual(["--kg-color-accent:#ff00ff"]);
+    // Nineteen roles still read through, carrying the theme's literal only as a fallback.
+    expect(shellOf(element).style.getPropertyValue("--kg-shell-background")).toBe(
+      "var(--kg-color-canvas, #eef1f5)",
+    );
+    controller.destroy();
+  });
+
+  it("lets a figure go back to following the page", () => {
+    const element = host();
+    const controller = mountKineglyph(element, {
+      scene,
+      theme: createTheme({ colors: { accent: "#ff00ff" } }),
+      autoplay: false,
+    });
+    expect(pinsOn(element)).toEqual(["--kg-color-accent:#ff00ff"]);
+
+    // A pin nobody clears is an override the author has deleted but the page still obeys.
+    controller.setTheme(inheritTheme(createTheme({ colors: { accent: "#ff00ff" } })));
+    expect(pinsOn(element)).toEqual([]);
+    expect(svgPinsIn(element)).toEqual([]);
+    controller.destroy();
+  });
+
+  it("gives the prerendered frame and the hydrated one the same pins", () => {
+    // The two paths are the same renderer, and this is the assertion that keeps them so: the
+    // publish-time string and the DOM the runtime builds carry an identical set of overrides, so
+    // a reader with JavaScript off and a reader with it on see one figure, not two.
+    const theme = createTheme({ colors: { accent: "#ff00ff", canvas: "#101216" } });
+    const prerendered = renderSvg(resolveFigure(scene, { width: 900, theme }));
+    const element = host();
+    const controller = mountKineglyph(element, { scene, theme, autoplay: false });
+
+    const prerenderedPins = [
+      ...(/style="([^"]*)"/.exec(prerendered)?.[1] ?? "").matchAll(
+        /(--kg-color-[a-z0-9-]+):([^;]*)/g,
+      ),
+    ]
+      .map((match) => `${match[1]}:${match[2]}`)
+      .sort();
+
+    expect(prerenderedPins).toEqual(["--kg-color-accent:#ff00ff", "--kg-color-canvas:#101216"]);
+    expect(svgPinsIn(element)).toEqual(prerenderedPins);
+    controller.destroy();
+  });
+
+  it("resolves the reserved name a host writes when it means inherit", () => {
+    registerTheme("declared-dark", createTheme({ colors: { canvas: "#101216" } }));
+    const declared = host();
+    const following = host();
+    declared.dataset.kineglyph = "lab";
+    declared.dataset.theme = "declared-dark";
+    declared.dataset.autoplay = "false";
+    following.dataset.kineglyph = "lab";
+    following.dataset.theme = "inherit";
+    following.dataset.autoplay = "false";
+    registerScene("lab", scene);
+
+    const controllers = autoMount();
+
+    expect(pinsOn(declared)).toEqual(["--kg-color-canvas:#101216"]);
+    expect(pinsOn(following)).toEqual([]);
+    for (const controller of controllers) controller.destroy();
   });
 });

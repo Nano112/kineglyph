@@ -56,6 +56,20 @@ export interface OrnamentTokens {
 
 export interface ThemeTokens {
   readonly name?: string;
+  /**
+   * The colour roles this theme asserts against the page it is drawn on.
+   *
+   * Every value in `colors` is always a *literal* — something has to be drawn when nothing else
+   * says otherwise, and that literal is what a renderer bakes as the `var()` fallback. This list is
+   * the separate question of whether the theme is claiming that colour or merely carrying a default
+   * for it. A theme that lists nothing (the common case, and `defaultTheme`) inherits: on a page
+   * that defines `--kg-color-*`, the page wins. A theme that lists three roles overrides those three
+   * and inherits the other seventeen.
+   *
+   * `createTheme` fills this in from the keys an override actually names, so partial themes are
+   * partial by construction. `inheritTheme` clears it; `overrideTheme` fills it with everything.
+   */
+  readonly declaredColors?: readonly SemanticColorToken[];
   readonly colors: Readonly<Record<SemanticColorToken, string>>;
   readonly spacing: Readonly<Record<SemanticSpacingToken, number>>;
   readonly radii: Readonly<Record<SemanticRadiusToken, number>>;
@@ -169,6 +183,11 @@ export const defaultTheme: ThemeTokens = {
 
 export type ThemeOverride = {
   readonly name?: string;
+  /**
+   * Roles to assert on top of the ones `colors` names — for a theme that wants the base's literal
+   * for a role *and* wants it to beat the page. `"all"` asserts every role the theme names.
+   */
+  readonly declareColors?: readonly SemanticColorToken[] | "all";
   readonly colors?: Partial<ThemeTokens["colors"]>;
   readonly spacing?: Partial<ThemeTokens["spacing"]>;
   readonly radii?: Partial<ThemeTokens["radii"]>;
@@ -179,17 +198,79 @@ export type ThemeOverride = {
   readonly materials?: Partial<ThemeTokens["materials"]>;
 };
 
-/** Applies shallow token overrides without mutating either input. */
+const COLOR_ROLE_ORDER = Object.keys(defaultTheme.colors) as SemanticColorToken[];
+
+/** Deduplicates and orders roles the way the default theme lists them, so output is stable. */
+function normaliseRoles(roles: Iterable<SemanticColorToken>): readonly SemanticColorToken[] {
+  const wanted = new Set<SemanticColorToken>(roles);
+  const ordered = COLOR_ROLE_ORDER.filter((role) => wanted.has(role));
+  const extra = [...wanted].filter((role) => !COLOR_ROLE_ORDER.includes(role)).sort();
+  return [...ordered, ...extra];
+}
+
+/**
+ * The colour roles a theme asserts against its page. Empty means it inherits every one of them.
+ *
+ * Renderers ask this, not `colors`, when deciding what to pin — `colors` is always complete, since
+ * something has to be drawn on a page that defines no tokens at all.
+ */
+export function declaredColorRoles(theme: ThemeTokens): readonly SemanticColorToken[] {
+  return theme.declaredColors ?? [];
+}
+
+/**
+ * The same palette, asserting nothing: every paint resolves from the page's `--kg-color-*`.
+ *
+ * This is what a figure does by default, and this is how an author says so on purpose — "follow the
+ * page" is a choice, not only the shape of an omission. The literals survive as the fallbacks that
+ * draw the figure on a page which defines no tokens.
+ */
+export function inheritTheme(base: ThemeTokens = defaultTheme): ThemeTokens {
+  if (base.declaredColors === undefined) return base;
+  const rest: Record<string, unknown> = { ...base };
+  // Deleted rather than set to `[]`: "declares nothing" and "declares an empty list" have to
+  // serialise the same way, or a round-tripped theme stops matching the one it came from.
+  delete rest["declaredColors"];
+  return rest as unknown as ThemeTokens;
+}
+
+/**
+ * The same palette, asserting all of it: the figure keeps these colours whatever the page says.
+ *
+ * Scoped to the figure that declares it — a renderer pins the tokens on the drawing's own root, so
+ * the figure next to it is untouched.
+ */
+export function overrideTheme(base: ThemeTokens = defaultTheme): ThemeTokens {
+  return {
+    ...base,
+    declaredColors: normaliseRoles(Object.keys(base.colors) as SemanticColorToken[]),
+  };
+}
+
+/**
+ * Applies shallow token overrides without mutating either input.
+ *
+ * Naming a colour declares it: `createTheme({ colors: { accent: "#f0f" } })` overrides the page's
+ * accent and inherits everything else. Reach for `declareColors` to assert a role whose literal you
+ * are happy to take from the base.
+ */
 export function createTheme(
   override: ThemeOverride = {},
   base: ThemeTokens = defaultTheme,
 ): ThemeTokens {
+  const named = Object.keys(override.colors ?? {}) as SemanticColorToken[];
+  const asserted =
+    override.declareColors === "all"
+      ? (Object.keys({ ...base.colors, ...override.colors }) as SemanticColorToken[])
+      : (override.declareColors ?? []);
+  const declared = normaliseRoles([...declaredColorRoles(base), ...named, ...asserted]);
   return {
     ...(override.name === undefined
       ? base.name === undefined
         ? {}
         : { name: base.name }
       : { name: override.name }),
+    ...(declared.length === 0 ? {} : { declaredColors: declared }),
     colors: { ...base.colors, ...override.colors },
     spacing: { ...base.spacing, ...override.spacing },
     radii: { ...base.radii, ...override.radii },

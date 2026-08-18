@@ -379,6 +379,84 @@ describe("re-themable colour", () => {
 });
 
 /**
+ * Inheriting is the default; declaring is the exception, and the exception is scoped.
+ *
+ * `colors` is always complete — something has to be drawn on a page that defines no tokens — so
+ * "did this theme mean it?" cannot be read off the palette. `declaredColors` is that second
+ * question, and these tests are about the one thing it changes: whether the role is *pinned* on the
+ * drawing's own root, where it beats the page for this figure and reaches no other.
+ */
+describe("declared themes", () => {
+  const scene = (theme: unknown) =>
+    ({
+      width: 200,
+      height: 100,
+      theme,
+      nodes: [{ id: "a", x: 0, y: 0, width: 80, height: 40, label: "A" }],
+      edges: [],
+    }) as never;
+  const palette = {
+    canvas: "#101216",
+    surface: "#16191e",
+    text: "#e8eaed",
+    accent: "#67cbbb",
+    border: "#3d4552",
+    connector: "#8a929e",
+  };
+  const rootStyle = (svg: string): string => /style="([^"]*)"/.exec(svg)?.[1] ?? "";
+  const pins = (svg: string): string[] =>
+    [...rootStyle(svg).matchAll(/(--kg-color-[a-z0-9-]+):([^;]*)/g)].map(
+      (match) => `${match[1]}:${match[2]}`,
+    );
+
+  it("pins nothing when the theme declares nothing", () => {
+    expect(pins(renderSvg(scene({ colors: palette })))).toEqual([]);
+  });
+
+  it("pins every declared role on the drawing's own root", () => {
+    const svg = renderSvg(scene({ colors: palette, declaredColors: Object.keys(palette) }));
+
+    expect(pins(svg)).toEqual([
+      "--kg-color-canvas:#101216",
+      "--kg-color-surface:#16191e",
+      "--kg-color-border:#3d4552",
+      "--kg-color-text:#e8eaed",
+      "--kg-color-accent:#67cbbb",
+      "--kg-color-connector:#8a929e",
+    ]);
+    // Pinned on the root element, never in the embedded stylesheet — an inlined SVG's `<style>`
+    // is document-wide, and a rule there would repaint the figure next to this one.
+    expect(svg).not.toMatch(/<style[^>]*>[^<]*--kg-color-/);
+  });
+
+  it("pins only what a partial theme names, and leaves the rest reading the page", () => {
+    const svg = renderSvg(scene({ colors: palette, declaredColors: ["accent"] }));
+
+    expect(pins(svg)).toEqual(["--kg-color-accent:#67cbbb"]);
+    // The roles it did not claim are still references, so the page still decides them.
+    expect(rootStyle(svg)).toContain("--kg-node-fill:var(--kg-color-surface, #16191e)");
+  });
+
+  it("still carries the literal as a fallback, so a token-less page is unchanged", () => {
+    const declared = renderSvg(scene({ colors: palette, declaredColors: Object.keys(palette) }));
+    const collapse = (svg: string): string =>
+      svg
+        .replace(/var\((--[a-z0-9-]+), ([^)]*)\)/g, "$2")
+        .replace(/--kg-color-[a-z0-9-]+:[^;"]*;?/g, "");
+
+    expect(collapse(declared)).toBe(collapse(renderSvg(scene({ colors: palette }))));
+  });
+
+  it("names a role it cannot see no differently than one it can", () => {
+    // A role the theme does not carry a literal for is not pinnable; claiming it is a no-op
+    // rather than a pin with no value, which would paint the figure with nothing at all.
+    expect(
+      pins(renderSvg(scene({ colors: { accent: "#67cbbb" }, declaredColors: ["danger"] }))),
+    ).toEqual([]);
+  });
+});
+
+/**
  * The connector is the diagram's verb, so what it looks like is a contract, not an accident.
  */
 describe("connectors", () => {

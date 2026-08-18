@@ -2432,7 +2432,24 @@ function buildPalette(theme: UnknownRecord): Palette {
     name,
     `var(--kg-color-${role}, ${value})`,
   ];
-  const vars: Array<[string, string]> = [
+  /**
+   * The roles this theme *claims*, pinned on the drawing's own root.
+   *
+   * Everything else in this function is written so the page wins — which is right for a figure with
+   * no opinion, and wrong for one that was given a theme on purpose. A custom property redefined on
+   * an element beats the one it would have inherited, for that element and its subtree and nothing
+   * else, so a claimed role is pinned here rather than anywhere shared: the figure next to this one
+   * keeps whatever the page gave it. A theme that claims three roles pins three; the other
+   * seventeen still read through to the cascade.
+   */
+  const declared = new Set(stringArray(theme.declaredColors ?? tokens.declaredColors));
+  const vars: Array<[string, string]> = [];
+  for (const key of ordered) {
+    if (!declared.has(key)) continue;
+    const value = string(colors[key]);
+    if (value !== undefined) vars.push([`--kg-color-${cssName(key)}`, value]);
+  }
+  vars.push(
     alias(
       "--kg-background",
       "canvas",
@@ -2472,7 +2489,7 @@ function buildPalette(theme: UnknownRecord): Palette {
       "--kg-font-family",
       firstString(bodyFont.family, theme.fontFamily, text.fontFamily) ?? "system-ui, sans-serif",
     ],
-  ];
+  );
   for (const key of Object.keys(radii).sort()) {
     const value = radii[key];
     // Also geometry: baked, for the same reason.
@@ -2648,6 +2665,12 @@ function firstString(...values: unknown[]): string | undefined {
 
 function string(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringArray(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function boolean(value: unknown): boolean | undefined {
