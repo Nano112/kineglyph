@@ -450,7 +450,6 @@ export function sceneFromSpec(
     spec.nodes.map((node) => buildNode(node, spacing)),
     {
       gap: spec.gap ?? connectorGap(spec.nodes, spec.layout, 16, spacing),
-      ...(spec.layout === "row" ? { align: "start" as const } : {}),
     },
   );
   const edges = (spec.edges ?? []).map(buildEdge);

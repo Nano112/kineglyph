@@ -35,6 +35,12 @@ export interface EdgeNodeBox extends Rect {
 export interface EdgePortAssignment {
   readonly side: Exclude<EdgeSide, "auto">;
   readonly offset: number;
+  /**
+   * True when this port sits where something asked it to: an authored `offset`, or a place in the
+   * fan of several edges sharing one side. A pinned port never moves to meet its partner — see
+   * `anchorFacingPorts`.
+   */
+  readonly pinned: boolean;
 }
 
 export interface EdgeResolveContext {
@@ -149,6 +155,8 @@ export function assignPorts(
     groups.set(key, list);
   }
   const offsets = new Map<string, number>();
+  /** Ports spread across a side they share with other edges: their place in the fan is meant. */
+  const distributed = new Set<string>();
   for (const [, list] of groups) {
     const horizontalSide = list[0]?.side === "top" || list[0]?.side === "bottom";
     const sorted = [...list].sort((a, b) => {
@@ -159,7 +167,9 @@ export function assignPorts(
       return a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : a.end === "from" ? -1 : 1;
     });
     sorted.forEach((entry, index) => {
-      offsets.set(`${entry.edgeId}::${entry.end}`, (index + 1) / (sorted.length + 1));
+      const key = `${entry.edgeId}::${entry.end}`;
+      offsets.set(key, (index + 1) / (sorted.length + 1));
+      if (sorted.length > 1) distributed.add(key);
     });
   }
   const result = new Map<string, { from: EdgePortAssignment; to: EdgePortAssignment }>();
@@ -168,18 +178,87 @@ export function assignPorts(
     if (chosen === undefined) continue;
     const from = normalisedEndpoint(edge.from);
     const to = normalisedEndpoint(edge.to);
+    const fromOffset = pick(from.offset, layout);
+    const toOffset = pick(to.offset, layout);
     result.set(edge.id, {
       from: {
         side: chosen.from,
-        offset: pick(from.offset, layout) ?? offsets.get(`${edge.id}::from`) ?? 0.5,
+        offset: fromOffset ?? offsets.get(`${edge.id}::from`) ?? 0.5,
+        pinned: fromOffset !== undefined || distributed.has(`${edge.id}::from`),
       },
       to: {
         side: chosen.to,
-        offset: pick(to.offset, layout) ?? offsets.get(`${edge.id}::to`) ?? 0.5,
+        offset: toOffset ?? offsets.get(`${edge.id}::to`) ?? 0.5,
+        pinned: toOffset !== undefined || distributed.has(`${edge.id}::to`),
       },
     });
   }
   return result;
+}
+
+/** The side a connector arriving on this side must have left from, for the run to be perpendicular. */
+const FACING: Readonly<Record<Side, Side | undefined>> = {
+  left: "right",
+  right: "left",
+  top: "bottom",
+  bottom: "top",
+  center: undefined,
+};
+
+/**
+ * A connector between two facing sides is drawn *on an axis*, never leaning a few pixels.
+ *
+ * Two boxes joined side to side each offer their own middle as the obvious place to attach, and the
+ * two middles agree only while the boxes are the same size. One extra line of body copy in one of
+ * them and the run acquires an eight-pixel drop over sixty — far too shallow to read as "these are
+ * at different heights" and far too visible to read as anything but a rendering mistake. There is no
+ * honest size for that lean: either the two boxes face each other, in which case the connector runs
+ * straight between them, or they do not, in which case it has to travel and should look like it.
+ *
+ * So: take the span the two boxes **share** on the cross axis — the stretch of it where each is
+ * genuinely opposite the other — and put both ports on its midpoint. That is the one axis on which
+ * the run can be perpendicular *and* land inside both boxes. When the boxes are the same size it is
+ * both their centres, which is the ordinary case and the one the eye expects; when one is much
+ * larger it is the smaller one's centre, so the arrow still points at the middle of what it is
+ * pointing at.
+ *
+ * Two ports are left exactly where they are when either is `pinned` — an authored offset, or one of
+ * a fan of edges spread along a side — because those positions are a statement, and a fan of arrows
+ * converging on a node is not the defect this is about.
+ *
+ * Returns `"traverse"` when the sides face but the boxes share none of the axis: nothing is
+ * perpendicular there, and the caller routes it as a journey rather than a lean.
+ */
+export function anchorFacingPorts(
+  fromBox: Rect,
+  toBox: Rect,
+  ports: { readonly from: EdgePortAssignment; readonly to: EdgePortAssignment },
+):
+  | { readonly kind: "as-authored" }
+  | { readonly kind: "traverse" }
+  | {
+      readonly kind: "aligned";
+      readonly from: EdgePortAssignment;
+      readonly to: EdgePortAssignment;
+    } {
+  if (ports.from.pinned || ports.to.pinned) return { kind: "as-authored" };
+  if (FACING[ports.from.side] !== ports.to.side) return { kind: "as-authored" };
+  const across = ports.from.side === "left" || ports.from.side === "right";
+  const start = (box: Rect): number => (across ? box.y : box.x);
+  const extent = (box: Rect): number => (across ? box.height : box.width);
+  const low = Math.max(start(fromBox), start(toBox));
+  const high = Math.min(start(fromBox) + extent(fromBox), start(toBox) + extent(toBox));
+  if (high < low) return { kind: "traverse" };
+  const axis = (low + high) / 2;
+  const at = (box: Rect): number => {
+    const size = extent(box);
+    return size <= 1e-6 ? 0.5 : Math.min(1, Math.max(0, (axis - start(box)) / size));
+  };
+  return {
+    kind: "aligned",
+    from: { ...ports.from, offset: at(fromBox) },
+    to: { ...ports.to, offset: at(toBox) },
+  };
 }
 
 function sideNormal(side: Side): Point {
@@ -385,7 +464,7 @@ function labelBox(
 /** Resolves geometry, markers, labels, and packet metadata for one edge definition. */
 export function resolveEdge(
   edge: EdgeDefinition,
-  ports: { readonly from: EdgePortAssignment; readonly to: EdgePortAssignment },
+  requested: { readonly from: EdgePortAssignment; readonly to: EdgePortAssignment },
   context: EdgeResolveContext,
 ): ResolvedEdgeGeometry | undefined {
   const fromEnd = normalisedEndpoint(edge.from);
@@ -393,7 +472,12 @@ export function resolveEdge(
   const fromBox = context.boxes.get(fromEnd.node);
   const toBox = context.boxes.get(toEnd.node);
   if (fromBox === undefined || toBox === undefined) return undefined;
-  const route = pickOr(edge.route, context.layout, "straight");
+  const anchored = anchorFacingPorts(fromBox, toBox, requested);
+  const ports = anchored.kind === "aligned" ? anchored : requested;
+  const authored = pickOr(edge.route, context.layout, "straight");
+  // Facing sides with no shared axis: a straight line between them can only lean, so it turns.
+  const route: EdgeRoute =
+    anchored.kind === "traverse" && authored === "straight" ? "orthogonal" : authored;
   const start = portPoint(
     fromBox,
     ports.from.side,

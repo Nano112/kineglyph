@@ -223,6 +223,53 @@ describe("sceneFromSpec", () => {
     expect(resolveFigure(still, { width: 800, theme: defaultTheme }).timeline).toBeUndefined();
   });
 
+  it("draws a row of unequal boxes as one band with level connectors", () => {
+    // The reported defect: three stages in a row, the last one a line shorter than its neighbours.
+    // Sized to its own content it is 16px shorter, its middle sits 8px higher, and the arrow into
+    // it runs downhill over a 40px gap — a slope too shallow to mean anything and too visible to
+    // ignore. A row is a band: equal heights, one centre line, level arrows.
+    const row: SimpleSceneSpec = {
+      version: 1,
+      id: "row-band",
+      title: "Read, plan, store",
+      layout: "row",
+      timeline: "none",
+      nodes: [
+        { id: "read", kind: "box", title: "Read", body: "One line." },
+        {
+          id: "plan",
+          kind: "box",
+          title: "Plan",
+          body: "Three whole lines of body copy that wrap more than once at this width, and keep going well past the end of the second line.",
+        },
+        { id: "store", kind: "box", title: "Store", body: "One line." },
+      ],
+      edges: [
+        { from: "read", to: "plan" },
+        { from: "plan", to: "store" },
+      ],
+    };
+    const scene = resolveFigure(sceneFromSpec(row), { width: 960, theme: defaultTheme });
+    const boxes = (scene.nodes ?? []).filter((node) =>
+      ["n:read", "n:plan", "n:store"].includes(node.id),
+    );
+    expect(boxes).toHaveLength(3);
+    expect(new Set(boxes.map((node) => node.height)).size).toBe(1);
+    expect(new Set(boxes.map((node) => node.y)).size).toBe(1);
+
+    // The assertion that matters is on the emitted path, not on the boxes: every connector in the
+    // row starts and ends at the same y, so `M x y L x' y` with one y.
+    const paths = (scene.edges ?? []).map((edge) => edge.path);
+    expect(paths).toHaveLength(2);
+    for (const path of paths) {
+      const match = /^M (-?[\d.]+) (-?[\d.]+) L (-?[\d.]+) (-?[\d.]+)$/.exec(path ?? "");
+      expect(match, `expected a straight run, got ${String(path)}`).not.toBeNull();
+      expect(Number(match?.[2])).toBe(Number(match?.[4]));
+      expect(Number(match?.[3])).toBeGreaterThan(Number(match?.[1]));
+    }
+    for (const edge of scene.edges ?? []) expect(edge.start.y).toBe(edge.end.y);
+  });
+
   it("throws with the same path-named messages as validateSpec", () => {
     const spec = {
       ...flowSpec,

@@ -653,8 +653,28 @@ function clampWidth(view: View, width: number): number {
   return Math.min(view.maxWidth, Math.max(view.minWidth, width));
 }
 
+/**
+ * What a child does with the cross axis of the row or column it sits in, when nobody said.
+ *
+ * **A row is a band and a column is a stack of bands.** Two cards side by side are read as one
+ * band across the figure, so they are the same height and their centre lines agree; the moment one
+ * card carries an extra line of body copy and the other does not, sizing each to its own content
+ * makes the band ragged and — because a connector anchors at the middle of a side — tilts every
+ * arrow between them. A row of boxes that lines up is the common case, so it is the default.
+ *
+ * The default applies to *containers* only. A leaf mark keeps its own size, because for a dot, a
+ * rule, a pill or a piece of text the size **is** the content, not the slot it was given: stretching
+ * a badge across its row would draw a pill the width of the figure and mean something else entirely.
+ *
+ * Authors opt out per container with `align` and per child with `alignSelf`, either of which may be
+ * `"start"`, `"center"`, `"end"` or `"stretch"` — a deliberately ragged row is still one word away.
+ */
+function crossAlign(child: View, parentAlign: Align | undefined): Align {
+  return child.alignSelf ?? parentAlign ?? (child.type === "group" ? "stretch" : "start");
+}
+
 function stretchHeight(child: View, parentAlign: Align | undefined): boolean {
-  return child.height === "fill" || (child.alignSelf ?? parentAlign) === "stretch";
+  return child.height === "fill" || crossAlign(child, parentAlign) === "stretch";
 }
 
 /** Lays out a node into a Placed tree with positions relative to the node's own origin. */
@@ -852,9 +872,11 @@ function layoutGroup(
   const results: Placed[] = [];
   let contentHeight = 0;
 
-  const alignCross = (child: Placed, extent: number, fallback: Align): number => {
-    const align = child.view.alignSelf ?? view.align ?? fallback;
-    const size = view.layout === "row" ? child.height : child.width;
+  const alignCross = (child: Placed, extent: number): number => {
+    const align = crossAlign(child.view, view.align);
+    // A stack runs down the page, so its cross axis is horizontal; a row and a grid's rows run
+    // across it, so theirs is vertical.
+    const size = view.layout === "stack" ? child.width : child.height;
     switch (align) {
       case "center":
         return (extent - size) / 2;
@@ -887,14 +909,13 @@ function layoutGroup(
 
   switch (view.layout) {
     case "stack": {
-      const stretchAll = view.align === "stretch";
       const naturals = children.map((child) =>
         layoutNode(
           child,
           resolveChildWidth(
             child,
             innerWidth,
-            stretchAll || child.alignSelf === "stretch",
+            crossAlign(child, view.align) === "stretch",
             context,
           ),
           percentHeightBasis(child, innerHeight),
@@ -928,7 +949,7 @@ function layoutGroup(
       const { lead, between } = distribute(finals.length, extent - total);
       let y = pad.top + lead;
       for (const child of finals) {
-        child.x = pad.left + alignCross(child, innerWidth, "start");
+        child.x = pad.left + alignCross(child, innerWidth);
         child.y = y;
         y += child.height + gap + between;
         results.push(child);
@@ -989,7 +1010,7 @@ function layoutGroup(
       let x = pad.left + lead;
       for (const child of finals) {
         child.x = x;
-        child.y = pad.top + alignCross(child, rowHeight, "start");
+        child.y = pad.top + alignCross(child, rowHeight);
         x += child.width + gap + between;
         results.push(child);
       }
@@ -1043,7 +1064,7 @@ function layoutGroup(
               : horizontal === "end"
                 ? columnWidth - final.width
                 : 0);
-          final.y = y + alignCross(final, rowHeight, "start");
+          final.y = y + alignCross(final, rowHeight);
           results.push(final);
         });
         y += rowHeight + gap;
