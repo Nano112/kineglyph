@@ -13,6 +13,7 @@ import {
   type ThemeTokens,
 } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";
+import { loadGifenc } from "./gifenc.js";
 import {
   autoplayAttr,
   chromeAttr,
@@ -250,7 +251,7 @@ async function drawSvgFrame(
 async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
   const view = doc.defaultView;
   if (view === null) throw new Error("GIF export needs a browser window");
-  const { GIFEncoder, applyPalette, quantize } = await import("gifenc");
+  const { GIFEncoder, applyPalette, quantize } = await loadGifenc();
   const scale = Math.min(
     1,
     GIF_MAX_WIDTH / Math.max(1, scene.width),
