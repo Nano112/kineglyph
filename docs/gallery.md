@@ -1,8 +1,8 @@
 # Visual gallery
 
 These are working Kineglyph scenes, not screenshots. Each one starts as the glyph alone with a
-quiet **Edit figure** button underneath. Static figures also get a compact **Export** menu for a
-transparent SVG or 2× PNG. Open the editor to change the source, then press **Run** (or
+quiet **Edit figure** button underneath. Portable figures also get a compact **Export** menu for a
+current-frame SVG or PNG, plus GIF when the scene has a timeline. Open the editor to change the source, then press **Run** (or
 <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd>). Everything runs locally in the browser, and this
 Gerrymander-hosted page refreshes as the documentation changes on disk.
 
@@ -18,9 +18,13 @@ immediate start, `false` for a finished still, or tune the trigger directly:
 mountKineglyph(host, {
   scene,
   autoplay: "in-view",
+  loop: false,
   inView: { delay: 320, threshold: 0.12, rootMargin: "0px 0px -6%" },
 });
 ```
+
+Use `loop: true` for a short ambient mark that should repeat while ordinary explanatory timelines
+continue to play once and hold their final frame.
 
 ## A responsive explanation
 
@@ -29,8 +33,10 @@ _Animated · no reader controls_
 The same row becomes a readable stack in a narrow container. Change `layout`, `gap`, a tone, or an
 edge label and the preview is re-resolved immediately.
 
-```kineglyph live id=gallery-responsive view=preview height=430
-import { sceneFromSpec } from "kineglyph";
+```kineglyph live id=gallery-responsive view=preview height=360
+import { kineglyphTheme, sceneFromSpec } from "kineglyph";
+
+export const theme = kineglyphTheme;
 
 export default sceneFromSpec({
   version: 1,
@@ -38,8 +44,8 @@ export default sceneFromSpec({
   title: "One definition, every container",
   description: "A semantic flow that changes arrangement instead of shrinking.",
   layout: "row",
-  gap: 28,
-  padding: 28,
+  gap: 22,
+  padding: 20,
   nodes: [
     { id: "author", kind: "box", title: "Author", body: "Structure and intent", tone: "accent" },
     { id: "resolve", kind: "box", title: "Resolve", body: "Width, theme, and state", tone: "info" },
@@ -50,7 +56,7 @@ export default sceneFromSpec({
     { from: "resolve", to: "render", label: "draw", style: "flow" },
   ],
   timeline: "reveal",
-});
+}, { theme });
 ```
 
 ## Data that stays data
@@ -375,10 +381,11 @@ export default figure("binary-counter-automaton", {
 
 ## Interactive simulation: paper-plane wind tunnel
 
-_Interactive simulation · discrete model_
+_Interactive simulation · typed controls_
 
-The controls are authored in the scene, not bolted on by the page. Pick a launch angle and the
-deterministic model highlights the predicted flight profile.
+The controls are authored in the scene, not bolted on by the page. Adjust the range, paper stock,
+and gust toggle; typed event values feed the deterministic machine and update the same exportable
+figure.
 
 ```kineglyph live id=gallery-plane-sim view=preview height=520
 import { createTheme, figure, material } from "kineglyph";
@@ -402,26 +409,38 @@ export default figure("paper-plane-wind-tunnel", { title: "Paper-plane wind tunn
     tone: "accent", frame: material("raised"), bind: { highlight: "steep" },
   });
   f.root(f.stack([
-    f.stack([f.eyebrow("WIND: 8 KM/H · PAPER: 80 GSM", { tone: "info" }), f.title("Choose a launch angle")], { gap: 4 }),
+    f.stack([
+      f.eyebrow("TUNABLE WIND MODEL", { tone: "info" }),
+      f.title("Choose a launch angle"),
+      f.code("25° · 80 GSM · STEADY AIR", { tone: "textMuted", bind: { text: "status" } }),
+    ], { gap: 4 }),
     f.flow([low, balanced, steep], { gap: 18, align: "stretch" }),
   ], { gap: 22, width: "fill" }));
   f.machine({
-    initial: "balanced",
+    initial: "tuning",
+    variables: { angle: 25, paper: 80, gusts: false },
     states: {
-      low: { on: { BALANCED: "balanced", STEEP: "steep" } },
-      balanced: { on: { LOW: "low", STEEP: "steep" } },
-      steep: { on: { LOW: "low", BALANCED: "balanced" } },
+      tuning: { on: {
+        SET_ANGLE: { target: "tuning", actions: [{ type: "set", var: "angle", value: { fromEvent: true } }] },
+        SET_PAPER: { target: "tuning", actions: [{ type: "set", var: "paper", value: { fromEvent: true } }] },
+        SET_GUSTS: { target: "tuning", actions: [{ type: "set", var: "gusts", value: { fromEvent: true } }] },
+      } },
     },
     signals: {
-      low: { when: { state: "low" }, then: 1, else: 0 },
-      balanced: { when: { state: "balanced" }, then: 1, else: 0 },
-      steep: { when: { state: "steep" }, then: 1, else: 0 },
+      low: { when: { var: "angle", op: "eq", value: 10 }, then: 1, else: 0 },
+      balanced: { when: { var: "angle", op: "eq", value: 25 }, then: 1, else: 0 },
+      steep: { when: { var: "angle", op: "eq", value: 40 }, then: 1, else: 0 },
+      air: { when: { var: "gusts", op: "truthy" }, then: "GUSTS ON", else: "STEADY AIR" },
+      status: { concat: [{ var: "angle" }, "° · ", { var: "paper" }, " GSM · ", { signal: "air" }] },
     },
   });
   f.controls([
-    { label: "10°", event: "LOW", activeWhen: { state: "low" }, group: "launch angle" },
-    { label: "25°", event: "BALANCED", activeWhen: { state: "balanced" }, group: "launch angle" },
-    { label: "40°", event: "STEEP", activeWhen: { state: "steep" }, group: "launch angle" },
+    { label: "Launch angle", kind: "range", event: "SET_ANGLE", bind: "angle", min: 10, max: 40, step: 15, group: "flight" },
+    { label: "Paper", kind: "select", event: "SET_PAPER", bind: "paper", options: [
+      { label: "60 GSM", value: 60 }, { label: "80 GSM", value: 80 }, { label: "120 GSM", value: 120 },
+    ], group: "flight" },
+    { label: "Gusts", kind: "toggle", event: "SET_GUSTS", bind: "gusts", group: "flight" },
+    { label: "Reset", kind: "reset", group: "flight" },
   ]);
 });
 ```

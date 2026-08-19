@@ -200,6 +200,37 @@ describe("resolveScene", () => {
     expect(find(1000)?.state.highlight).toBeCloseTo(0.3, 5);
   });
 
+  it("seeks rotation in degrees without normalizing complete turns", () => {
+    const spinning: SceneDefinition = {
+      ...scene,
+      id: "rotating-node",
+      timeline: {
+        duration: 1_000,
+        tracks: [
+          {
+            id: "a-turn",
+            target: "a",
+            property: "rotation",
+            keyframes: [
+              { time: 0, value: -45 },
+              { time: 1_000, value: 405 },
+            ],
+          },
+        ],
+      },
+    };
+    const resolved = resolveScene(spinning, { width: 800, theme });
+    expect(seekTimeline(resolved, 0).nodes.find((node) => node.id === "a")?.state.rotation).toBe(
+      -45,
+    );
+    expect(seekTimeline(resolved, 500).nodes.find((node) => node.id === "a")?.state.rotation).toBe(
+      180,
+    );
+    expect(
+      seekTimeline(resolved, 1_000).nodes.find((node) => node.id === "a")?.state.rotation,
+    ).toBe(405);
+  });
+
   it("rejects invalid definitions with useful diagnostics", () => {
     const broken: SceneDefinition = {
       ...scene,
@@ -218,6 +249,45 @@ describe("resolveScene", () => {
         { width: 800 },
       ),
     ).toThrow(/duplicate node id: a/);
+  });
+
+  it("validates typed value-control contracts", () => {
+    const result = validateScene({
+      ...scene,
+      machine: {
+        id: "controls-machine",
+        initial: "ready",
+        variables: { speed: 1, mode: "a" },
+        states: { ready: {} },
+      },
+      controls: [
+        {
+          id: "bad-range",
+          kind: "range",
+          label: "Speed",
+          event: "SET_SPEED",
+          bind: "unknown",
+          min: 10,
+          max: 0,
+        },
+        {
+          id: "bad-select",
+          kind: "select",
+          label: "Mode",
+          event: "SET_MODE",
+          bind: "mode",
+          options: [
+            { label: "A", value: "a" },
+            { label: "Again", value: "a" },
+          ],
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining(["control-bind", "control-range", "control-options"]),
+    );
   });
 
   it("resolves legacy pipelines through the unified figure entry point", () => {

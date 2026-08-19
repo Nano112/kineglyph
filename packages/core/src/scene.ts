@@ -172,6 +172,13 @@ interface BaseNode {
   readonly interactive?: boolean;
   /** Machine event sent when an interactive node is activated. */
   readonly onActivate?: string;
+  /** Semantic pointer/focus gestures. Pointer and drag payloads are normalized `[x, y]` pairs. */
+  readonly onHover?: string;
+  readonly onLeave?: string;
+  readonly onFocus?: string;
+  readonly onBlur?: string;
+  readonly onPointer?: string;
+  readonly onDrag?: string;
   readonly opacity?: number;
   readonly metadata?: SceneMetadata;
   readonly bind?: NodeBindings;
@@ -208,6 +215,10 @@ interface BaseNode {
 export interface GroupNode extends BaseNode {
   readonly type: "group";
   readonly layout?: Responsive<GroupLayout>;
+  /** Optional local breakpoints; responsive values inside this group follow its allocated width. */
+  readonly breakpoints?: Partial<LayoutBreakpoints>;
+  /** Tight-fit a coordinate space to positioned child bounds instead of using the fallback height. */
+  readonly fit?: Responsive<"content" | "none">;
   readonly gap?: Responsive<number>;
   readonly padding?: Responsive<Insets>;
   readonly align?: Responsive<Align>;
@@ -428,12 +439,27 @@ export interface LayoutBreakpoints {
 
 export interface SceneControl {
   readonly id: string;
-  readonly kind?: "event" | "reset";
+  /** Visual/interaction grammar. `event` is the backwards-compatible push button. */
+  readonly kind?: "event" | "reset" | "toggle" | "range" | "select" | "radio" | "transport";
   readonly label: string;
   readonly event?: string;
   readonly description?: string;
   readonly group?: string;
   readonly activeWhen?: Condition;
+  /** Variable or signal reflected by value controls after every deterministic machine step. */
+  readonly bind?: string;
+  /** Initial/fallback value when `bind` has not resolved yet. */
+  readonly value?: VariableValue;
+  readonly min?: number;
+  readonly max?: number;
+  readonly step?: number;
+  /** Milliseconds advanced by the transport's Step control. Defaults to 100. */
+  readonly transportStep?: number;
+  readonly options?: readonly {
+    readonly label: string;
+    readonly value: VariableValue;
+    readonly description?: string;
+  }[];
 }
 
 export interface SceneDefinition {
@@ -632,6 +658,12 @@ export function validateScene(scene: SceneDefinition): SceneValidationResult {
   }
 
   const controlIds = new Set<string>();
+  const controlBindings = new Set([
+    ...Object.keys(scene.signals ?? {}),
+    ...Object.keys(scene.machine?.variables ?? {}),
+    ...Object.keys(scene.machine?.signals ?? {}),
+    ...(scene.machine === undefined ? [] : ["$state", "$selection"]),
+  ]);
   for (const control of scene.controls ?? []) {
     id(control.id, "control", diagnostics);
     if (controlIds.has(control.id))
@@ -642,18 +674,78 @@ export function validateScene(scene: SceneDefinition): SceneValidationResult {
         path: control.id,
       });
     controlIds.add(control.id);
-    if ((control.kind ?? "event") === "event" && !control.event)
+    const kind = control.kind ?? "event";
+    if (kind !== "reset" && kind !== "transport" && !control.event)
       diagnostics.push({
         severity: "error",
         code: "control-event",
         message: `control ${control.id} must name an event`,
         path: control.id,
       });
-    if (scene.machine === undefined)
+    if (
+      (kind === "toggle" || kind === "range" || kind === "select" || kind === "radio") &&
+      !control.bind
+    )
+      diagnostics.push({
+        severity: "error",
+        code: "control-bind",
+        message: `control ${control.id} (${kind}) must bind a variable or signal`,
+        path: control.id,
+      });
+    else if (control.bind !== undefined && !controlBindings.has(control.bind))
+      diagnostics.push({
+        severity: "error",
+        code: "control-bind",
+        message: `control ${control.id} binds unknown variable or signal ${control.bind}`,
+        path: control.id,
+      });
+    if (kind === "range") {
+      const min = control.min ?? 0;
+      const max = control.max ?? 100;
+      const step = control.step ?? 1;
+      if (![min, max, step].every(Number.isFinite) || min > max || step <= 0)
+        diagnostics.push({
+          severity: "error",
+          code: "control-range",
+          message: `control ${control.id} range needs finite min/max, min <= max, and step > 0`,
+          path: control.id,
+        });
+    }
+    if ((kind === "select" || kind === "radio") && (control.options?.length ?? 0) === 0)
+      diagnostics.push({
+        severity: "error",
+        code: "control-options",
+        message: `control ${control.id} (${kind}) needs at least one option`,
+        path: control.id,
+      });
+    if (kind === "select" || kind === "radio") {
+      const values = control.options?.map((option) => option.value) ?? [];
+      if (
+        values.some((value, index) => values.slice(0, index).some((seen) => Object.is(seen, value)))
+      )
+        diagnostics.push({
+          severity: "error",
+          code: "control-options",
+          message: `control ${control.id} (${kind}) option values must be unique`,
+          path: control.id,
+        });
+    }
+    if (scene.machine === undefined && kind !== "transport")
       diagnostics.push({
         severity: "error",
         code: "control-machine",
         message: `control ${control.id} requires a scene state machine`,
+        path: control.id,
+      });
+    if (
+      kind === "transport" &&
+      control.transportStep !== undefined &&
+      (!Number.isFinite(control.transportStep) || control.transportStep <= 0)
+    )
+      diagnostics.push({
+        severity: "error",
+        code: "control-transport",
+        message: `control ${control.id} transportStep must be finite and positive`,
         path: control.id,
       });
   }

@@ -143,6 +143,148 @@ const liveScene: SceneDefinition = defineScene({
   },
 });
 
+const valueControlScene: SceneDefinition = defineScene({
+  schemaVersion: 2,
+  id: "value-controls",
+  title: "Value controls",
+  machine: {
+    id: "value-controls-machine",
+    initial: "ready",
+    variables: { enabled: false, speed: 2, mode: "a" },
+    states: {
+      ready: {
+        on: {
+          SET_ENABLED: {
+            target: "ready",
+            actions: [{ type: "set", var: "enabled", value: { fromEvent: true } }],
+          },
+          SET_SPEED: {
+            target: "ready",
+            actions: [{ type: "set", var: "speed", value: { fromEvent: true } }],
+          },
+          SET_MODE: {
+            target: "ready",
+            actions: [{ type: "set", var: "mode", value: { fromEvent: true } }],
+          },
+        },
+      },
+    },
+  },
+  root: {
+    id: "value-root",
+    type: "group",
+    children: [{ id: "value-label", type: "text", text: "Interactive values" }],
+  },
+  controls: [
+    { id: "enabled", kind: "toggle", label: "Enabled", event: "SET_ENABLED", bind: "enabled" },
+    {
+      id: "speed",
+      kind: "range",
+      label: "Speed",
+      event: "SET_SPEED",
+      bind: "speed",
+      min: 0,
+      max: 10,
+      step: 0.5,
+    },
+    {
+      id: "mode-select",
+      kind: "select",
+      label: "Mode",
+      event: "SET_MODE",
+      bind: "mode",
+      options: [
+        { label: "A", value: "a" },
+        { label: "B", value: "b" },
+      ],
+    },
+    {
+      id: "mode-radio",
+      kind: "radio",
+      label: "Mode buttons",
+      event: "SET_MODE",
+      bind: "mode",
+      options: [
+        { label: "A", value: "a" },
+        { label: "C", value: "c" },
+      ],
+    },
+  ],
+});
+
+const transportScene: SceneDefinition = defineScene({
+  schemaVersion: 2,
+  id: "transport",
+  title: "Transport",
+  root: {
+    id: "transport-root",
+    type: "group",
+    children: [{ id: "transport-mark", type: "rect", width: 40, height: 20, fill: "accent" }],
+  },
+  timeline: {
+    duration: 500,
+    tracks: [
+      {
+        id: "transport-mark:opacity",
+        target: "transport-mark",
+        property: "opacity",
+        keyframes: [
+          { time: 0, value: 0 },
+          { time: 500, value: 1 },
+        ],
+      },
+    ],
+  },
+  controls: [
+    { id: "transport-controls", kind: "transport", label: "Simulation", transportStep: 125 },
+  ],
+});
+
+const gestureScene: SceneDefinition = defineScene({
+  schemaVersion: 2,
+  id: "gestures",
+  title: "Gestures",
+  machine: {
+    id: "gesture-machine",
+    initial: "ready",
+    variables: { hovering: false, point: [0, 0] },
+    states: {
+      ready: {
+        on: {
+          HOVER: { target: "ready", actions: [{ type: "set", var: "hovering", value: true }] },
+          LEAVE: { target: "ready", actions: [{ type: "set", var: "hovering", value: false }] },
+          POINT: {
+            target: "ready",
+            actions: [{ type: "set", var: "point", value: { fromEvent: true } }],
+          },
+          DRAG: {
+            target: "ready",
+            actions: [{ type: "set", var: "point", value: { fromEvent: true } }],
+          },
+        },
+      },
+    },
+  },
+  root: {
+    id: "gesture-root",
+    type: "group",
+    children: [
+      {
+        id: "gesture-pad",
+        type: "rect",
+        width: 160,
+        height: 80,
+        fill: "surface",
+        label: "Gesture pad",
+        onHover: "HOVER",
+        onLeave: "LEAVE",
+        onPointer: "POINT",
+        onDrag: "DRAG",
+      },
+    ],
+  },
+});
+
 const mediaQuery = {
   matches: false,
   media: "(prefers-reduced-motion: reduce)",
@@ -178,6 +320,17 @@ function host(width = 900): HTMLDivElement {
 }
 
 describe("mountKineglyph", () => {
+  it("toggles the doctor overlay without remounting the SVG", () => {
+    const controller = mountKineglyph(host(), { scene, autoplay: false });
+    const svg = controller.stage.querySelector("svg");
+    expect(controller.stage.querySelector(".kg-doctor")).toBeNull();
+    controller.setDoctor(true);
+    expect(controller.stage.querySelector(".kg-doctor")).not.toBeNull();
+    expect(controller.stage.querySelector("svg")).toBe(svg);
+    controller.setDoctor(false);
+    expect(controller.stage.querySelector(".kg-doctor")).toBeNull();
+  });
+
   it("does not imply passive edges are clickable with a hover effect", () => {
     expect(FIGURE_STYLES).not.toContain(".kg-edge-group[role=img]:hover");
   });
@@ -293,6 +446,79 @@ describe("mountKineglyph", () => {
     controller.destroy();
   });
 
+  it("sends typed values from toggle, range, select, and radio controls", () => {
+    const controller = mountKineglyph(host(), { scene: valueControlScene, autoplay: false });
+    const rootBefore = controller.element.querySelector('[data-node-id="value-root"]');
+    const toggle = controller.element.querySelector<HTMLButtonElement>('[data-control="enabled"]');
+    const range = controller.element.querySelector<HTMLInputElement>('[data-control="speed"]');
+    const output = controller.element.querySelector<HTMLOutputElement>('[data-output-for="speed"]');
+    const select = controller.element.querySelector<HTMLSelectElement>(
+      '[data-control="mode-select"]',
+    );
+    const radio = controller.element.querySelector<HTMLElement>('[data-control="mode-radio"]');
+
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(range?.value).toBe("2");
+    expect(output?.value).toBe("2");
+    expect(select?.value).toBe("0");
+    expect(radio?.querySelector('[data-option="0"]')?.getAttribute("aria-checked")).toBe("true");
+
+    toggle?.click();
+    expect(controller.state.machineState?.variables.enabled).toBe(true);
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(controller.element.querySelector('[data-node-id="value-root"]')).toBe(rootBefore);
+
+    if (range !== null) {
+      range.value = "7.5";
+      range.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    expect(controller.state.machineState?.variables.speed).toBe(7.5);
+    expect(output?.value).toBe("7.5");
+
+    if (select !== null) {
+      select.value = "1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    expect(controller.state.machineState?.variables.mode).toBe("b");
+
+    radio?.querySelector<HTMLButtonElement>('[data-option="1"]')?.click();
+    expect(controller.state.machineState?.variables.mode).toBe("c");
+    expect(radio?.querySelector('[data-option="1"]')?.getAttribute("aria-checked")).toBe("true");
+    controller.destroy();
+  });
+
+  it("renders timeline transport without requiring a state machine", () => {
+    const controller = mountKineglyph(host(), { scene: transportScene, autoplay: false });
+    const transport = controller.element.querySelector<HTMLElement>(
+      '[data-control="transport-controls"]',
+    );
+    const play = transport?.querySelector<HTMLButtonElement>('[data-transport-action="play"]');
+    const step = transport?.querySelector<HTMLButtonElement>('[data-transport-action="step"]');
+    expect(transport?.getAttribute("aria-label")).toBe("Simulation");
+    expect(play?.textContent).toBe("Play");
+    step?.click();
+    expect(controller.state.time).toBe(125);
+    play?.click();
+    expect(controller.state.playing).toBe(true);
+    controller.destroy();
+  });
+
+  it("sends hover, pointer, and drag gestures as serializable machine events", async () => {
+    const controller = mountKineglyph(host(), { scene: gestureScene, autoplay: false });
+    const pad = controller.element.querySelector<SVGGElement>('[data-node-id="gesture-pad"]')!;
+    pad.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, clientX: 20, clientY: 10 }));
+    expect(controller.state.machineState?.variables.hovering).toBe(true);
+    pad.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 20, clientY: 10 }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(controller.state.machineState?.variables.point).toEqual([0.5, 0.5]);
+    pad.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 30, clientY: 20 }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(controller.state.machineState?.variables.point).toEqual([0.5, 0.5]);
+    pad.dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+    expect(controller.state.machineState?.variables.hovering).toBe(false);
+    controller.destroy();
+  });
+
   it("swaps themes, honours reduced motion, and follows the container width", () => {
     const element = host(1000);
     const controller = mountKineglyph(element, {
@@ -341,6 +567,9 @@ describe("mountKineglyph", () => {
     expect(stage?.querySelector("svg")).not.toBeNull();
     expect(stage?.style.aspectRatio).toBe("");
     expect(Number(stage?.style.getPropertyValue("--kg-stage-width"))).toBeGreaterThan(0);
+    const drawing = stage?.querySelector<SVGSVGElement>(":scope > svg");
+    expect(Number(drawing?.style.getPropertyValue("--kg-w"))).toBeGreaterThan(0);
+    expect(Number(drawing?.style.getPropertyValue("--kg-h"))).toBeGreaterThan(0);
     expect(Number(stage?.style.getPropertyValue("--kg-stage-height"))).toBeGreaterThan(0);
     // Still true after a re-render, which is where the pin was being re-applied.
     controller.resize(390);

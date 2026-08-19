@@ -194,6 +194,46 @@ describe("figure(): positioned text", () => {
       narrow.nodes.find((node) => node.id === "value")?.x,
     );
   });
+
+  it("derives a smooth spline from placed node positions", () => {
+    const scene = figure("spline", { title: "Spline" }, (f) => {
+      const source = f.place(f.circle({ id: "source" }), {
+        x: 0.1,
+        y: 0.7,
+        anchor: "center",
+      });
+      const middle = f.place(f.rect({ id: "middle" }), {
+        x: 0.5,
+        y: 0.3,
+        anchor: "center",
+      });
+      const output = f.place(f.circle({ id: "output" }), {
+        x: 0.9,
+        y: 0.6,
+        anchor: "center",
+      });
+      const spline = f.spline([source, middle, output], { id: "signal" });
+      f.root(f.coordinates([spline, source, middle, output]));
+    });
+
+    expect(scene.root.children.find((node) => node.id === "signal")).toMatchObject({
+      type: "polyline",
+      curve: "monotone",
+      points: [
+        [0.1, 0.7],
+        [0.5, 0.3],
+        [0.9, 0.6],
+      ],
+    });
+  });
+
+  it("explains when a spline anchor has not been placed", () => {
+    expect(() =>
+      figure("unplaced-spline", { title: "Unplaced spline" }, (f) => {
+        f.spline([f.circle({ id: "loose" })]);
+      }),
+    ).toThrow(/anchor "loose" needs a direct position/);
+  });
 });
 
 describe("figure(): root inference", () => {
@@ -234,6 +274,24 @@ describe("figure(): root inference", () => {
 });
 
 describe("figure(): terminal and file-tree authoring", () => {
+  it("authors highlighted code blocks with stable inferred ids", () => {
+    const scene = figure("code", { title: "Code" }, (f) => {
+      f.codeBlock("export const ready = true;", {
+        language: "typescript",
+        title: "state.ts",
+        highlightLines: [1],
+      });
+    });
+    expect(nodeIds(scene)).toEqual(
+      expect.arrayContaining([
+        "code-block-state-ts",
+        "code-block-state-ts-line-1-token-1",
+        "code-block-state-ts-line-1-number",
+      ]),
+    );
+    expect(validateScene(scene).ok).toBe(true);
+  });
+
   it("types every marked terminal line with one seekable motion step", () => {
     const scene = figure("terminal", { title: "Terminal" }, (f) => {
       const terminal = f.terminal([
@@ -437,6 +495,20 @@ describe("figure(): graph() and wire()", () => {
 });
 
 describe("figure(): motion", () => {
+  it("authors centre-origin rotation without dropping out of the figure DSL", () => {
+    const scene = figure("rotation", { title: "Rotation" }, (f) => {
+      const needle = f.rect({ id: "needle", width: 80, height: 4 });
+      f.root(f.coordinates([needle], { height: 80 }));
+      f.at(100, f.rotate(needle, { from: -20, to: 160, duration: 400, easing: "linear" }));
+    });
+
+    expect(track(scene, "needle:rotation:100").keyframes).toEqual([
+      { time: 0, value: -20 },
+      { time: 100, value: -20 },
+      { time: 500, value: 160, easing: "linear" },
+    ]);
+  });
+
   it("sequences steps with the documented timing math", () => {
     const scene = figure("seq", { title: "Seq", hold: 400 }, (f) => {
       const a = f.rect({ width: 40, height: 20 });
@@ -753,6 +825,59 @@ describe("figure(): machine and controls", () => {
         ]);
       }),
     ).toThrow(/duplicate control id "x"/);
+  });
+
+  it("keeps typed value-control options and validates their bindings", () => {
+    const scene = figure("control-values", { title: "Control values" }, (f) => {
+      f.heading("Values");
+      f.machine({
+        initial: "ready",
+        variables: { speed: 1, enabled: false, mode: "a" },
+        states: { ready: {} },
+      });
+      f.controls([
+        { label: "Enabled", kind: "toggle", event: "SET_ENABLED", bind: "enabled" },
+        {
+          label: "Speed",
+          kind: "range",
+          event: "SET_SPEED",
+          bind: "speed",
+          min: 0,
+          max: 4,
+          step: 0.25,
+        },
+        {
+          label: "Mode",
+          kind: "select",
+          event: "SET_MODE",
+          bind: "mode",
+          options: [
+            { label: "A", value: "a" },
+            { label: "B", value: "b" },
+          ],
+        },
+      ]);
+    });
+
+    expect(scene.controls).toMatchObject([
+      { id: "enabled", kind: "toggle", bind: "enabled" },
+      { id: "speed", kind: "range", min: 0, max: 4, step: 0.25 },
+      {
+        id: "mode",
+        kind: "select",
+        options: [
+          { label: "A", value: "a" },
+          { label: "B", value: "b" },
+        ],
+      },
+    ]);
+    expect(() =>
+      figure("bad-control-bind", { title: "Bad" }, (f) => {
+        f.heading("Bad");
+        f.machine({ initial: "ready", states: { ready: {} } });
+        f.controls([{ label: "Speed", kind: "range", event: "SET_SPEED", bind: "missing" }]);
+      }),
+    ).toThrow(/binds value to unknown signal "missing"/);
   });
 
   it("validates the machine and every binding at build time", () => {

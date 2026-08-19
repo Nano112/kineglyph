@@ -1,6 +1,7 @@
 export * from "./authoring.js";
 export * from "./asciicast.js";
 export * from "./connector.js";
+export * from "./doctor.js";
 export * from "./easing.js";
 export * from "./edges.js";
 export * from "./figure.js";
@@ -11,6 +12,7 @@ export * from "./machine.js";
 export * from "./material.js";
 export * from "./pipeline.js";
 export * from "./recipes.js";
+export * from "./relational.js";
 export * from "./resolve.js";
 export * from "./resolved.js";
 export * from "./runtime-need.js";
@@ -39,6 +41,7 @@ export {
 export * from "./seek.js";
 export * from "./spec.js";
 export * from "./text.js";
+export * from "./technical-diagrams.js";
 export * from "./theme.js";
 export * from "./theme-presets.js";
 export * from "./timeline.js";

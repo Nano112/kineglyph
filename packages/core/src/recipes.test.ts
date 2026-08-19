@@ -4,6 +4,7 @@ import {
   caption,
   card,
   code,
+  codeBlock,
   container,
   eyebrow,
   fileTree,
@@ -11,6 +12,7 @@ import {
   gate,
   grid,
   heading,
+  highlightCodeLine,
   keyValue,
   junction,
   motif,
@@ -135,6 +137,156 @@ describe("terminal and file tree recipes", () => {
     );
     expect(node.children.at(-1)).toMatchObject({ type: "group", layout: "stack" });
     expect(JSON.stringify(node)).toContain('"reveal":"characters"');
+  });
+
+  it("customizes terminal chrome, prompts, cursor, and line surfaces without special nodes", () => {
+    const node = terminal(
+      "custom",
+      [
+        {
+          kind: "command",
+          text: "kineglyph render",
+          prompt: "λ",
+          promptTone: "warning",
+          background: "surfaceMuted",
+        },
+        { text: "ready", tone: "success" },
+      ],
+      {
+        title: "build",
+        chrome: "minimal",
+        titleTone: "info",
+        cursor: { style: "bar", tone: "warning" },
+        lineGap: 8,
+      },
+    );
+    expect(ids(node)).not.toContain("custom-window-controls");
+    expect(ids(node)).toContain("custom-line-2-cursor");
+    expect(JSON.stringify(node)).toContain('"text":"▎"');
+    expect(JSON.stringify(node)).toContain('"fill":"surfaceMuted"');
+    expect(JSON.stringify(node)).toContain('"color":"warning"');
+  });
+
+  it("preserves styled spans and applies viewport, selection, status, and wrapping policies", () => {
+    const node = terminal(
+      "viewport",
+      [
+        { text: "old" },
+        { text: "queued" },
+        {
+          spans: [
+            { text: "green", tone: "success", bold: true, ansi: { foreground: 32, bold: true } },
+            { text: " warning", tone: "warning", underline: true },
+          ],
+          selected: true,
+          status: "running",
+        },
+        { text: "done", status: { label: "exit 0", tone: "success" } },
+      ],
+      {
+        title: "viewport",
+        visibleLines: 2,
+        scroll: "end",
+        wrap: "clip",
+        status: "success",
+      },
+    );
+    expect(ids(node)).not.toContain("viewport-line-1");
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "viewport-status",
+        "viewport-line-3-span-1-text",
+        "viewport-line-3-status",
+        "viewport-line-4-status",
+      ]),
+    );
+    expect(node.metadata).toMatchObject({
+      totalLines: 4,
+      visibleLines: 2,
+      scrollStart: 2,
+      wrap: "clip",
+    });
+    expect(JSON.stringify(node)).toContain('"ansiForeground":"32"');
+    expect(JSON.stringify(node)).toContain('"selected":true');
+  });
+
+  it("rejects invalid terminal viewport policies at authoring time", () => {
+    expect(() => terminal("bad", ["line"], { visibleLines: 0 })).toThrow(/visibleLines/);
+    expect(() => terminal("bad", ["line"], { scroll: Number.NaN })).toThrow(/numeric scroll/);
+  });
+
+  it("tokenizes common syntax and accepts exact caller-supplied code tokens", () => {
+    expect(highlightCodeLine("const answer = make(42); // done", "typescript")).toEqual(
+      expect.arrayContaining([
+        { text: "const", kind: "keyword" },
+        { text: "make", kind: "function" },
+        { text: "42", kind: "number" },
+        { text: "// done", kind: "comment" },
+      ]),
+    );
+    const node = codeBlock(
+      "source",
+      [
+        "const answer = 42;",
+        {
+          number: 9,
+          highlighted: true,
+          tokens: [
+            { text: "return", kind: "keyword" },
+            { text: " answer", tone: "danger" },
+          ],
+        },
+      ],
+      { language: "typescript", title: "answer.ts", startLine: 8 },
+    );
+    expect(node).toMatchObject({
+      metadata: { codeRole: "block", language: "typescript" },
+      label: "answer.ts",
+    });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining(["source-header", "source-line-1-number", "source-line-2-token-1"]),
+    );
+    expect(JSON.stringify(node)).toContain('"lineNumber":9,"highlighted":true');
+    expect(JSON.stringify(node)).toContain('"color":"danger"');
+
+    const resolved = resolveScene(
+      {
+        schemaVersion: 2,
+        id: "code-spacing",
+        title: "Code spacing",
+        root: codeBlock("spacing", "const answer = 42;", {
+          language: "typescript",
+          lineNumbers: false,
+        }),
+      },
+      { width: 640 },
+    );
+    expect(
+      resolved.nodes.find((entry) => entry.id === "spacing-line-1-token-2")?.width,
+    ).toBeGreaterThan(0);
+  });
+
+  it("authors code diffs, ranged emphasis, annotations, and typewrite targets", () => {
+    const node = codeBlock(
+      "diff",
+      [
+        { text: "const oldName = 1;", diff: "remove" },
+        {
+          text: "const newName = 1;",
+          diff: "add",
+          annotation: { text: "preferred", tone: "success" },
+        },
+        "return newName;",
+      ],
+      { language: "typescript", highlightRanges: [[2, 3]], typing: true },
+    );
+    expect(ids(node)).toEqual(
+      expect.arrayContaining(["diff-line-1-diff", "diff-line-2-annotation", "diff-line-3-token-1"]),
+    );
+    expect(JSON.stringify(node)).toContain('"diff":"remove"');
+    expect(JSON.stringify(node)).toContain('"annotation":true');
+    expect(JSON.stringify(node)).toContain('"reveal":"characters"');
+    expect(JSON.stringify(node)).toContain('"highlighted":true');
   });
 
   it("renders nested file entries with branch guides, details, and status", () => {

@@ -174,6 +174,57 @@ describe("coordinate space, percent lengths, and polylines", () => {
       seekTimeline(resolved, 1000).nodes.find((node) => node.id === "bar-a")?.state.revealY,
     ).toBe(1);
   });
+
+  it("tight-fits coordinate spaces and resolves nested groups from their allocated width", () => {
+    const fitted: SceneDefinition = {
+      schemaVersion: 2,
+      id: "local-responsive",
+      title: "Local responsiveness",
+      root: {
+        id: "root",
+        type: "group",
+        children: [
+          {
+            id: "fitted",
+            type: "group",
+            layout: "coordinates",
+            fit: "content",
+            children: [
+              {
+                id: "middle",
+                type: "rect",
+                position: { x: 0.5, y: 0.5, anchor: "center" },
+                width: 40,
+                height: 40,
+                fill: "accent",
+              },
+            ],
+          },
+          {
+            id: "local",
+            type: "group",
+            breakpoints: { wide: 600, compact: 300 },
+            layout: { wide: "row", compact: "stack", narrow: "stack" },
+            width: "fill",
+            children: [
+              { id: "local-a", type: "rect", width: 80, height: 30, fill: "chart1" },
+              { id: "local-b", type: "rect", width: 80, height: 30, fill: "chart2" },
+            ],
+          },
+        ],
+      },
+    };
+    const wide = resolveScene(fitted, { width: 720, theme });
+    const compact = resolveScene(fitted, { width: 500, theme });
+    expect(wide.nodes.find((node) => node.id === "fitted")?.height).toBeCloseTo(40, 3);
+    expect(wide.diagnostics?.some((entry) => entry.code === "coordinates-height")).toBe(false);
+    expect(wide.nodes.find((node) => node.id === "local-a")?.y).toBe(
+      wide.nodes.find((node) => node.id === "local-b")?.y,
+    );
+    expect(compact.nodes.find((node) => node.id === "local-b")?.y).toBeGreaterThan(
+      compact.nodes.find((node) => node.id === "local-a")?.y ?? 0,
+    );
+  });
 });
 
 describe("fragments", () => {

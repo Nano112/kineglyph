@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kineglyph in plain HTML</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #111318;
+        color: #f4f5f8;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        width: min(54rem, calc(100% - 2rem));
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>A live Kineglyph</h1>
+      <div id="glyph"></div>
+    </main>
+
+    <script type="module">
+      import {
+        figure,
+        kineglyphTheme,
+        mountKineglyph,
+      } from "https://esm.sh/@kineglyph/web@0.2.0/bundle?bundle";
+
+      const glyph = figure(
+        "html-request-flow",
+        {
+          title: "A browser request",
+          description: "A request travels from the browser to an API and returns as JSON.",
+        },
+        (f) => {
+          const browser = f.card({
+            eyebrow: "CLIENT",
+            title: "Browser",
+            body: "Fetch /api/status",
+            motif: "globe",
+            compact: true,
+          });
+          const api = f.card({
+            eyebrow: "SERVER",
+            title: "API",
+            body: "200 · application/json",
+            motif: "terminal",
+            tone: "success",
+            compact: true,
+          });
+          const request = f.connect(browser, api, {
+            label: "GET",
+            head: "arrow",
+            packets: { count: 1 },
+          });
+
+          f.root(
+            f.graph([browser, api], {
+              style: "flow",
+              direction: { wide: "horizontal", compact: "horizontal", narrow: "vertical" },
+              layerGap: 44,
+              padding: 20,
+            }),
+          );
+          f.sequence([f.reveal(browser), f.draw(request), f.reveal(api), f.flow(request)]);
+        },
+      );
+
+      const controller = mountKineglyph(document.querySelector("#glyph"), {
+        scene: glyph,
+        theme: kineglyphTheme,
+        controls: "auto",
+        readout: "auto",
+      });
+
+      // In an SPA, call controller.destroy() when this page or component is removed.
+      window.addEventListener("pagehide", () => controller.destroy(), { once: true });
+    </script>
+  </body>
+</html>

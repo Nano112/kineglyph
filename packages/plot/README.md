@@ -161,3 +161,48 @@ const result = plot(
 
 `compilePlot(spec, options)` is the named compiler behind this overload. Both entry points return
 `{ fragment, handles, domains, ticks, description, diagnostics, markIds }`.
+
+## Specialized families
+
+Specialized compilers cover geometry that does not fit Cartesian marks:
+
+- `pieChart()`, `donutChart()`, and `radialChart()`;
+- `gaugeChart()` for threshold-aware operational readings;
+- `histogram()` and `distributionPlot()`;
+- `rangeChart()`, `boxPlot()`, and `confidenceBand()`;
+- `ganttChart()` / `timelineChart()`;
+- `sankey()`, `treemap()`, and `topology()`.
+
+Each returns `{ fragment, handles, description }`. Marks are ordinary paths, rectangles, circles,
+polylines, nodes, and edges—not renderer plugins—so `f.add(result)` works exactly as it does for a
+Cartesian plot. Handles contain stable root, area, mark, and label ids. Automatic motion is a
+relative opacity/scale stagger; set `motion: "none"` for a static fragment.
+
+Current layout contracts are explicit: treemaps use deterministic recursive slice-and-dice,
+Sankey links expect an acyclic graph and infer ranks, and topology uses normalized authored
+positions or a stable circle. Equal data produces equal geometry under every renderer.
+
+## Keyed live snapshots
+
+`createKeyedLiveData()` is a transport-neutral store for high-frequency rows:
+
+```ts
+const stream = createKeyedLiveData<{ id: string; latency: number }>({
+  key: "id",
+  window: 240,
+  maxBatch: 500,
+});
+
+stream.subscribe((snapshot) => {
+  const chart = plot(snapshot.rows, { x: "id", y: "latency", marks: line() });
+  render(chart, snapshot.sequence);
+});
+
+stream.upsert({ id: "api", latency: 42 });
+```
+
+Synchronous patches publish once per microtask by default. Manual mode exposes `flush()` as an
+application transaction boundary. `replace`, `upsert`, and `remove` preserve keyed identity;
+bounded windows retain the newest keys and count drops. Snapshots are immutable and include their
+sequence, connection status, size, and rows. `reconnectDelay()` supplies bounded deterministic
+exponential backoff without coupling the store to WebSocket, SSE, or polling APIs.

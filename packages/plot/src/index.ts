@@ -20,6 +20,8 @@ import type {
 
 export * from "./marks.js";
 export * from "./editorial.js";
+export * from "./families.js";
+export * from "./live.js";
 export * from "./scales.js";
 export * from "./types.js";
 export { compilePlot } from "./compile.js";

@@ -3,7 +3,7 @@ import { figure } from "./figure.js";
 import { material } from "./material.js";
 import { resolveScene } from "./resolve.js";
 import { declaredColorRoles, defaultTheme } from "./theme.js";
-import { professionalThemes } from "./theme-presets.js";
+import { kineglyphTheme, professionalThemes } from "./theme-presets.js";
 
 const specimen = figure("theme-specimen", { title: "Release review" }, (f) => {
   const cards = [
@@ -22,6 +22,13 @@ const specimen = figure("theme-specimen", { title: "Release review" }, (f) => {
 });
 
 describe("professional theme presets", () => {
+  it("exposes the animated wordmark direction as the Kineglyph theme", () => {
+    expect(kineglyphTheme.name).toBe("kineglyph");
+    expect(kineglyphTheme.colors.canvas).toBe("#efede6");
+    expect(kineglyphTheme.colors.accent).toBe("#008f7a");
+    expect(kineglyphTheme.ornament.surface).toBe("flat");
+  });
+
   it("keeps every direction flat, fully scoped, and free of visual effects", () => {
     const allRoles = Object.keys(defaultTheme.colors);
     for (const theme of Object.values(professionalThemes)) {

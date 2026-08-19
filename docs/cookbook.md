@@ -324,7 +324,55 @@ the chart's root group as usual.
 
 Signals are serializable expressions evaluated in declaration order (`when`/`then`/`else`,
 `match`/`cases`, `concat`, `not`, `{ var }`, `{ signal }`, `{ state: true }`), and machines are
-plain data, so a scene can be exported at any state (`kineglyph-export png --state solo …`).
+plain data, so a scene can be exported at any state (`kineglyph-export png --state solo …`). The
+`expr` builders make arithmetic, bit operations, comparisons, and deterministic formatting terse
+without putting callbacks into that data:
+
+```ts
+import { expr } from "@kineglyph/core";
+
+f.machine({
+  initial: "ready",
+  variables: { a: 13, b: 3 },
+  states: { ready: {} },
+  signals: {
+    total: expr.add(expr.var("a"), expr.var("b")),
+    carry: expr.bit(expr.signal("total"), 4),
+    binary: expr.format(expr.signal("total"), { radix: 2, pad: 5 }),
+    selected: expr.eq(expr.signal("carry"), 1),
+  },
+});
+```
+
+Arithmetic includes `add`, `subtract`, `multiply`, `divide`, `modulo`, `power`, `min`, `max`,
+`clamp`, `abs`, `floor`, `ceil`, and `round`. Bitwise expressions include `bitAnd`, `bitOr`,
+`bitXor`, `bitNot`, the three shifts, and `bit(value, index)`; like JavaScript bitwise operators,
+they operate on 32-bit integers. Comparisons are `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`.
+`expr.format` supports radix 2–36, left padding, fixed precision, case, prefix, and suffix without
+locale-dependent output. Machine validation catches bad arity, known non-numeric operands,
+out-of-range bit indexes, literal division by zero, and incompatible format options. If a valid
+dynamic expression later receives an unusable value (for example a variable divisor becomes
+zero), it resolves to `null` instead of producing `NaN` or `Infinity`.
+
+Small collection and string operations use the same serializable IR. `expr.list(...)` creates a
+flat scalar collection; `at`, `length`, `join`, `includes`, `slice`, and `sum` consume collections
+without callbacks. `upper`, `lower`, `trim`, and literal `replace` cover display-oriented string
+cleanup. Lists may also live in machine variables, so a live feed can replace a small set of values
+and all dependent labels update deterministically:
+
+```ts
+signals: {
+  stages: expr.list("parse", expr.upper("execute"), "commit"),
+  breadcrumb: expr.join(expr.signal("stages"), " → "),
+  activeStage: expr.at(expr.signal("stages"), expr.var("step")),
+  total: expr.sum(expr.var("samples")),
+  command: expr.lower(expr.trim(expr.var("rawCommand"))),
+}
+```
+
+Collections are deliberately small and flat: the expression IR is for derived UI state, not a
+general data-processing language. Large tables and streams should stay in the live-data surface.
+
 `figure()` validates the machine against the nodes you created (`select` actions and `selection`
 conditions must name real nodes) and every binding against the machine's variables and signals.
 

@@ -473,7 +473,10 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
 const fallbackFont: TextFont = { family: "sans-serif", size: 12, weight: 400, lineHeight: 16 };
 
 function longestLineWidth(text: string, font: TextFont, measurer?: TextMeasurer): number {
-  return Math.max(0, ...text.split(/\n/).map((line) => measureText(line.trim(), font, measurer)));
+  // Authored whitespace is significant for code, terminals, and other monospace surfaces. Recipes
+  // may split one line into independently coloured text nodes, so trimming here would collapse a
+  // whitespace-only token to zero width and make adjacent syntax tokens run together.
+  return Math.max(0, ...text.split(/\n/).map((line) => measureText(line, font, measurer)));
 }
 
 function longestWordWidth(text: string, font: TextFont, measurer?: TextMeasurer): number {
@@ -638,6 +641,8 @@ interface LayoutContext {
   readonly layout: LayoutName;
   readonly theme: ThemeTokens;
   readonly diagnostics: SceneDiagnostic[];
+  readonly signals: Readonly<Record<string, VariableValue>>;
+  readonly textMeasurer?: TextMeasurer;
 }
 
 /** Fraction encoded as a percent length ("25%"), or undefined for other lengths. */
@@ -708,6 +713,20 @@ function layoutNode(
   /** True when a parent stretches this child (align: "stretch"): adopt the available height. */
   stretch = false,
 ): Placed {
+  if (view.node.type === "group" && view.node.breakpoints !== undefined) {
+    const localLayout = chooseLayout(width, view.node.breakpoints);
+    if (localLayout !== context.layout) {
+      view = buildView(
+        view.node,
+        localLayout,
+        context.theme,
+        context.signals,
+        view.z,
+        context.textMeasurer,
+      );
+      context = { ...context, layout: localLayout };
+    }
+  }
   const placed: Placed = { view, x: 0, y: 0, width, height: 0, children: [] };
   const heightPercent = percentFraction(view.height);
   const fixedHeight =
@@ -1148,13 +1167,37 @@ function layoutGroup(
       // Fractional placement in a normalised box; the box height must be known.
       let extent = innerHeight;
       if (extent === undefined) {
-        extent = Math.max(0, view.minHeight - pad.top - pad.bottom) || 160;
-        context.diagnostics.push({
-          severity: "warning",
-          code: "coordinates-height",
-          message: `coordinates group ${view.id} has no height; using ${round(extent, 1)}px`,
-          path: view.id,
-        });
+        if (
+          view.node.type === "group" &&
+          pickOr(view.node.fit, context.layout, "none") === "content"
+        ) {
+          extent = Math.max(
+            1,
+            ...children.map((child) => {
+              const position = child.position ?? { x: 0, y: 0, anchor: "top-left" as Anchor };
+              const childWidth = resolveChildWidth(child, innerWidth, false, context);
+              const natural = layoutNode(child, childWidth, undefined, context);
+              const anchor = position.anchor;
+              const factor =
+                anchor === "bottom-left" || anchor === "bottom" || anchor === "bottom-right"
+                  ? 1
+                  : anchor === "left" || anchor === "center" || anchor === "right"
+                    ? 0.5
+                    : 0;
+              const before = position.y > 0 ? (factor * natural.height) / position.y : 0;
+              const after = position.y < 1 ? ((1 - factor) * natural.height) / (1 - position.y) : 0;
+              return Math.max(before, after);
+            }),
+          );
+        } else {
+          extent = Math.max(0, view.minHeight - pad.top - pad.bottom) || 160;
+          context.diagnostics.push({
+            severity: "warning",
+            code: "coordinates-height",
+            message: `coordinates group ${view.id} has no height; using ${round(extent, 1)}px`,
+            path: view.id,
+          });
+        }
       }
       for (const child of children) {
         const position = child.position ?? { x: 0, y: 0, anchor: "top-left" as Anchor };
@@ -1622,6 +1665,17 @@ function emit(
     view.type === "icon"
       ? paintColor(view.tone ?? "accent", theme, "stroke", theme.colors.accent)
       : undefined;
+  const interactive =
+    node.interactive ??
+    [
+      node.onActivate,
+      node.onHover,
+      node.onLeave,
+      node.onFocus,
+      node.onBlur,
+      node.onPointer,
+      node.onDrag,
+    ].some((event) => event !== undefined);
   const resolved: ResolvedNode = {
     id: view.id,
     kind,
@@ -1637,14 +1691,20 @@ function emit(
       progress: view.progress,
       highlight: view.highlight,
     },
-    interactive: node.interactive ?? false,
-    focusable: node.interactive ?? false,
+    interactive,
+    focusable: interactive,
     metadata: node.metadata ?? {},
     ...(parent === undefined ? {} : { parent }),
     z: view.z,
     ...(view.hidden ? { hidden: true } : {}),
     ...(node.type === "group" && node.clip === true ? { clip: true } : {}),
     ...(node.onActivate === undefined ? {} : { onActivate: node.onActivate }),
+    ...(node.onHover === undefined ? {} : { onHover: node.onHover }),
+    ...(node.onLeave === undefined ? {} : { onLeave: node.onLeave }),
+    ...(node.onFocus === undefined ? {} : { onFocus: node.onFocus }),
+    ...(node.onBlur === undefined ? {} : { onBlur: node.onBlur }),
+    ...(node.onPointer === undefined ? {} : { onPointer: node.onPointer }),
+    ...(node.onDrag === undefined ? {} : { onDrag: node.onDrag }),
     ...(node.inspect === undefined ? {} : { inspect: node.inspect }),
     ...(node.focusGroup === true ? { focusGroup: true } : {}),
     ...(node.revealAnchor === undefined ? {} : { revealAnchor: node.revealAnchor }),
@@ -1759,7 +1819,13 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
   const padding = insets(pick(scene.padding, layout), layout === "narrow" ? 16 : 24);
   const rootView = buildView(scene.root, layout, theme, signals, 0, options.textMeasurer);
   const rootWidth = Math.max(0, options.width - padding.left - padding.right);
-  const context: LayoutContext = { layout, theme, diagnostics };
+  const context: LayoutContext = {
+    layout,
+    theme,
+    diagnostics,
+    signals,
+    ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
+  };
   const placedRoot = layoutNode(
     { ...rootView, width: rootView.width ?? "fill" },
     rootWidth,

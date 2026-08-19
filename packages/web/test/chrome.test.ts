@@ -152,7 +152,7 @@ describe('"auto" asks the scene', () => {
     expect(el.querySelector(".kg-figure__machine")).toBeNull();
   });
 
-  it("does not let an empty hidden machine bar reserve gutters or keep the shell frame", () => {
+  it("does not create an empty machine bar that could reserve gutters or keep the shell frame", () => {
     const el = host();
     mountKineglyph(el, {
       scene: machineOnly,
@@ -160,9 +160,7 @@ describe('"auto" asks the scene', () => {
       readout: false,
       machineControls: "auto",
     });
-    const bar = el.querySelector<HTMLElement>(".kg-figure__machine");
-    expect(bar?.hidden).toBe(true);
-    expect(getComputedStyle(bar as HTMLElement).display).toBe("none");
+    expect(el.querySelector(".kg-figure__machine")).toBeNull();
     expect(FIGURE_STYLES).toContain(".kg-figure__machine:not([hidden])");
   });
 });

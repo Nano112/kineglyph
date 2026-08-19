@@ -1207,9 +1207,10 @@ function renderStructuredNode(
   const translateX = finiteNumber(state.translateX, 0);
   const translateY = finiteNumber(state.translateY, 0);
   const scale = Math.max(0, finiteNumber(state.scale, 1));
+  const rotation = finiteNumber(state.rotation, 0);
   const geometry = nodeGeometry(node);
   const hidden = node.hidden === true;
-  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision);
+  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision, rotation);
   const revealX = unit(firstNumber(state.revealX), 1);
   const revealY = unit(firstNumber(state.revealY), 1);
   const revealAnchor = string(node.revealAnchor);
@@ -1265,6 +1266,12 @@ function renderStructuredNode(
     ["data-kind", kind],
     ["data-interactive", interactive ? "true" : undefined],
     ["data-activate", string(node.onActivate)],
+    ["data-hover", string(node.onHover)],
+    ["data-leave", string(node.onLeave)],
+    ["data-focus", string(node.onFocus)],
+    ["data-blur", string(node.onBlur)],
+    ["data-pointer", string(node.onPointer)],
+    ["data-drag", string(node.onDrag)],
     ["data-hidden", hidden ? "true" : undefined],
     ["data-progress", number(progress, precision)],
     ["data-highlight", highlight > 0 ? number(highlight, precision) : undefined],
@@ -1351,23 +1358,61 @@ export function nodeTransformParts(
   translateX: number,
   translateY: number,
   scale: number,
-): { tx: number; ty: number; scale: number } {
+  rotation = 0,
+): {
+  tx: number;
+  ty: number;
+  scale: number;
+  rotation: number;
+  cx: number;
+  cy: number;
+  translateX: number;
+  translateY: number;
+} {
   const cx = geometry.x + geometry.width / 2;
   const cy = geometry.y + geometry.height / 2;
-  return { tx: translateX + cx * (1 - scale), ty: translateY + cy * (1 - scale), scale };
+  return {
+    tx: translateX + cx * (1 - scale),
+    ty: translateY + cy * (1 - scale),
+    scale,
+    rotation,
+    cx,
+    cy,
+    translateX,
+    translateY,
+  };
 }
 
-/** SVG `transform` attribute: translate + scale about the node centre. */
+/** SVG `transform` attribute: translate, rotate, and scale about the node centre. */
 export function nodeTransform(
   geometry: { x: number; y: number; width: number; height: number },
   translateX: number,
   translateY: number,
   scale: number,
   precision: number,
+  rotation = 0,
 ): string {
-  const { tx, ty } = nodeTransformParts(geometry, translateX, translateY, scale);
+  const transform = nodeTransformParts(geometry, translateX, translateY, scale, rotation);
+  if (rotation !== 0) {
+    const centreScaleX = transform.cx * (1 - scale);
+    const centreScaleY = transform.cy * (1 - scale);
+    return [
+      translateX !== 0 || translateY !== 0
+        ? `translate(${number(translateX, precision)} ${number(translateY, precision)})`
+        : "",
+      `rotate(${number(rotation, precision)} ${number(transform.cx, precision)} ${number(transform.cy, precision)})`,
+      scale !== 1
+        ? `translate(${number(centreScaleX, precision)} ${number(centreScaleY, precision)})`
+        : "",
+      scale !== 1 ? `scale(${number(scale, precision)})` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
   const parts = [
-    tx !== 0 || ty !== 0 ? `translate(${number(tx, precision)} ${number(ty, precision)})` : "",
+    transform.tx !== 0 || transform.ty !== 0
+      ? `translate(${number(transform.tx, precision)} ${number(transform.ty, precision)})`
+      : "",
     scale !== 1 ? `scale(${number(scale, precision)})` : "",
   ].filter(Boolean);
   return parts.join(" ");
@@ -1940,8 +1985,9 @@ function renderLegacyNode(
   const translateX = finiteNumber(state.translateX, 0);
   const translateY = finiteNumber(state.translateY, 0);
   const scale = Math.max(0, finiteNumber(state.scale, 1));
+  const rotation = finiteNumber(state.rotation, 0);
   const geometry = nodeGeometry(node);
-  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision);
+  const transforms = nodeTransform(geometry, translateX, translateY, scale, precision, rotation);
   const labelledBy = [label && `${groupId}-title`, description && `${groupId}-description`]
     .filter(Boolean)
     .join(" ");

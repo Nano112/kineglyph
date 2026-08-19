@@ -71,6 +71,56 @@ function professionalTheme(override: ThemeOverride): ThemeTokens {
   });
 }
 
+/**
+ * Kineglyph's own visual language: warm drawing paper, ink-black geometry, and one teal pulse.
+ *
+ * It comes from the animated wordmark rather than from generic application chrome. The palette is
+ * deliberately broad enough for charts and state diagrams, but the accent remains scarce so a
+ * moving packet or selected mark still reads as the event in the picture.
+ */
+export const kineglyphTheme: ThemeTokens = professionalTheme({
+  name: "kineglyph",
+  colors: {
+    canvas: "#efede6",
+    surface: "#f7f5ee",
+    surfaceRaised: "#fffdf6",
+    surfaceMuted: "#e4e1d8",
+    text: "#171916",
+    textMuted: "#676a64",
+    accent: "#008f7a",
+    accentContrast: "#f7f5ee",
+    info: "#316c7a",
+    success: "#34705b",
+    warning: "#9b6a20",
+    danger: "#a8423e",
+    connector: "#252824",
+    border: "#bdbbb3",
+    chart1: "#008f7a",
+    chart2: "#316c7a",
+    chart3: "#b07a25",
+    chart4: "#6b5a8b",
+    chart5: "#a8423e",
+    chart6: "#777b74",
+    chartPositive: "#34705b",
+    chartNegative: "#a8423e",
+    chartNeutral: "#858881",
+  },
+  spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 34, "2xl": 48 },
+  radii: { sm: 3, md: 6, lg: 10, pill: 9999 },
+  typography: typeDirection({
+    family: '"Geist Mono", "SFMono-Regular", Menlo, monospace',
+    code: '"Geist Mono", "SFMono-Regular", Menlo, monospace',
+    displaySize: 48,
+    displayWeight: 700,
+    titleWeight: 700,
+    bodySize: 14,
+    labelSpacing: 0.9,
+  }),
+  motion: { fast: 110, normal: 260, slow: 620, easing: "easeInOut" },
+  strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 3 },
+  ornament: { grid: "none", surface: "flat", lineCap: "round", eyebrow: false },
+});
+
 /** International editorial graphics: hard alignment, restrained primaries, generous whitespace. */
 export const swissTheme: ThemeTokens = professionalTheme({
   name: "swiss",
@@ -329,10 +379,11 @@ export const civicTheme: ThemeTokens = professionalTheme({
 });
 
 export type ProfessionalThemeName =
-  "swiss" | "ledger" | "blueprint" | "fieldManual" | "studio" | "civic";
+  "kineglyph" | "swiss" | "ledger" | "blueprint" | "fieldManual" | "studio" | "civic";
 
 /** Curated presets for documentation galleries, product explainers, and exported figures. */
 export const professionalThemes: Readonly<Record<ProfessionalThemeName, ThemeTokens>> = {
+  kineglyph: kineglyphTheme,
   swiss: swissTheme,
   ledger: ledgerTheme,
   blueprint: blueprintTheme,

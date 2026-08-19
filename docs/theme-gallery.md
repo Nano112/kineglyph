@@ -1,6 +1,6 @@
 # Professional themes
 
-Kineglyph includes six complete themes with distinct typography, density, geometry, line weights,
+Kineglyph includes seven complete themes with distinct typography, density, geometry, line weights,
 motion, and semantic colours. None uses glow, blur, glass effects, or decorative gradients.
 
 Each example uses the same release-review specimen, so only the theme changes. The data, hierarchy,
@@ -9,12 +9,49 @@ change a preset or adjust any token.
 
 | Preset             | Style                              | Useful for                                     |
 | ------------------ | ---------------------------------- | ---------------------------------------------- |
+| `kineglyphTheme`   | warm paper, black ink, teal pulse  | product identity, technical explainers, covers |
 | `swissTheme`       | hard alignment and editorial scale | reports, launch stories, explanatory graphics  |
 | `ledgerTheme`      | warm stock and serif hierarchy     | finance, historical data, research summaries   |
 | `blueprintTheme`   | measured lines and technical type  | architecture, networks, engineering diagrams   |
 | `fieldManualTheme` | compact, utilitarian, durable      | operations, hardware, maintenance procedures   |
 | `studioTheme`      | calm contemporary product language | dashboards, product docs, application flows    |
 | `civicTheme`       | high-clarity public information    | service status, accessibility-first explainers |
+
+## Kineglyph
+
+_Warm paper · ink geometry · a single teal pulse_
+
+This is the visual system derived from the animated Kineglyph wordmark. It keeps surfaces quiet and
+uses teal for the active result rather than washing every connector in brand colour.
+
+```kineglyph live id=theme-kineglyph view=preview height=470
+import { figure, kineglyphTheme, material } from "kineglyph";
+
+export const theme = kineglyphTheme;
+
+export default figure("kineglyph-release", { title: "Release review" }, (f) => {
+  const stages = [
+    f.card({ eyebrow: "01", title: "COLLECT", body: "12 accepted changes", motif: "layers", tone: "info", compact: true, frame: material("raised") }),
+    f.card({ eyebrow: "02", title: "VERIFY", body: "48 checks passing", motif: "grid", tone: "warning", compact: true, frame: material("raised") }),
+    f.card({ eyebrow: "03", title: "PUBLISH", body: "Ready for readers", motif: "arrow-right", tone: "accent", compact: true, frame: material("floating") }),
+  ];
+  const facts = f.stack([
+    f.keyValue("Build", "1842", { valueTone: "accent" }),
+    f.keyValue("Median", "72 ms", { valueTone: "info" }),
+    f.keyValue("Confidence", "96.4%", { valueTone: "success" }),
+  ], { gap: 7, padding: 14, width: "fill", frame: material("inset") });
+  const palette = f.row(["chart1", "chart2", "chart3", "chart4", "chart5", "chart6"].map((fill) =>
+    f.rect({ width: "fill", height: 8, fill, stroke: "none", radius: 4 })
+  ), { gap: 5, width: "fill" });
+  f.root(f.stack([
+    f.row([f.stack([f.eyebrow("RELEASE 24.8"), f.title("One decision, three proofs")], { gap: 4 }), f.code("READY", { tone: "accent" })], { justify: "between", align: "end", width: "fill" }),
+    f.flow(stages, { gap: 12, align: "stretch", width: "fill" }),
+    facts,
+    palette,
+  ], { gap: 16, padding: 18, width: "fill", frame: material("flat") }));
+  f.sequence([f.reveal(stages, { stagger: 80 }), f.reveal(facts), f.reveal(palette)]);
+});
+```
 
 ## Swiss editorial
 

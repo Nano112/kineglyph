@@ -33,6 +33,7 @@ const controller = mountKineglyph(document.querySelector("#figure"), {
 controller.play();
 controller.pause();
 controller.restart();
+controller.setLoop(true);
 controller.seek(1200);
 controller.send("FOCUS_FIELD"); // state-machine event, when the scene has one
 controller.reset();
@@ -41,6 +42,39 @@ controller.setSignals({ rate: "1,284 req/s", status: "live" });
 controller.inspect("field"); // programmatic inspection; inspect(null) clears
 controller.on("state", ({ step }) => console.log(step.transition));
 controller.destroy(); // removes DOM, listeners, observers, and animations
+```
+
+## Use semantic value controls
+
+Scene controls can be push buttons or typed `toggle`, `range`, `select`, and `radio` inputs. Value
+controls reflect a machine variable/signal through `bind` and send their boolean, number, or option
+value as the event payload. A `{ fromEvent: true }` action stores that value without application DOM
+code, while the runtime supplies labels, focus treatment, pressed/checked state, and keyboard-native
+elements.
+
+```ts
+f.machine({
+  initial: "tuning",
+  variables: { speed: 1, enabled: false },
+  states: {
+    tuning: {
+      on: {
+        SET_SPEED: {
+          target: "tuning",
+          actions: [{ type: "set", var: "speed", value: { fromEvent: true } }],
+        },
+        SET_ENABLED: {
+          target: "tuning",
+          actions: [{ type: "set", var: "enabled", value: { fromEvent: true } }],
+        },
+      },
+    },
+  },
+});
+f.controls([
+  { label: "Speed", kind: "range", event: "SET_SPEED", bind: "speed", min: 0, max: 4, step: 0.25 },
+  { label: "Enabled", kind: "toggle", event: "SET_ENABLED", bind: "enabled" },
+]);
 ```
 
 `controller.state` reports time, duration, playing, reducedMotion, width, layout, machineState,
@@ -56,7 +90,8 @@ frame queue. Only visible charts retain SVG DOM, offscreen updates retain number
 updates to one cell before paint collapse into a single draw.
 
 Editable modules mounted through `@kineglyph/web/lab` may also export
-`setup(controller, element)`. It runs after each successful preview mount and may return a cleanup
+`loop = true` and/or `setup(controller, element)`. `loop` repeats the seekable scene timeline;
+`setup` runs after each successful preview mount and may return a cleanup
 function. The lab disposes the previous setup before rerunning edited source and on destroy, so a
 demo can safely own a timer, observer, or WebSocket while remaining hot-reloadable.
 
@@ -201,6 +236,7 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 | `layout`          | `"auto"`         | `auto`, `wide`, `compact`, `narrow` (or `stacked` for pipelines)    |
 | `width`           | measured         | Fixed width; otherwise the host is observed with ResizeObserver     |
 | `autoplay`        | `"in-view"`      | Viewport start; `true` is immediate and `false` is a finished still |
+| `loop`            | `false`          | Repeat the complete deterministic timeline until paused             |
 | `inView`          | `{ delay: 180 }` | Delay, threshold, root margin, and once/replay policy               |
 | `controls`        | `true`           | Compact play / restart / scrubber controls; `"auto"` if animated    |
 | `readout`         | `true`           | Inspection readout below the stage; `"auto"` if inspectable         |
@@ -290,7 +326,7 @@ Mounting hides the fallback and sets `data-kineglyph-mounted="true"`; a failed m
 fallback visible and records the message in `data-kineglyph-error`. Destroying a figure's
 controller restores the fallback and clears the mounted flag, so mounting is reversible.
 
-Per-element attributes `data-theme`, `data-autoplay`, `data-autoplay-delay`, `data-controls`,
+Per-element attributes `data-theme`, `data-autoplay`, `data-autoplay-delay`, `data-loop`, `data-controls`,
 `data-readout`, and `data-tooltips` feed the mount; `options.theme`, `options.load`, and
 `options.mountOptions` accept functions of the element when the host needs to override per figure. Elements already carrying
 `data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
@@ -343,6 +379,12 @@ the next update instead of staying dead.
 read-only source, a live editor beside its preview, and preview alone. Successful edits replace the
 scene in place; a broken edit leaves the last good preview visible and reports the module error.
 The CodeMirror editor is loaded as a separate chunk only when a source pane is opened.
+
+Preview mode also exposes a compact export menu for portable scenes. SVG and PNG capture the
+controller's current time and machine state; GIF samples the complete deterministic timeline in
+the browser. Terminal typing, asciicast playback, and file-tree reveals therefore export without a
+server. Modules that add external DOM in `setup()` or use a live image surface keep export hidden,
+because the scene alone would be an incomplete file.
 
 ```html
 <figure data-kineglyph-lab data-view="split" data-height="440">

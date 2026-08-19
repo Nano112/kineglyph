@@ -1,6 +1,14 @@
 import type { SceneFragment } from "./fragment.js";
-import { terminal, type TerminalOptions } from "./recipes.js";
+import {
+  terminal,
+  type TerminalAnsiStyle,
+  type TerminalLine,
+  type TerminalOptions,
+  type TerminalSpan,
+} from "./recipes.js";
 import type { TimelineKeyframe } from "./resolved.js";
+
+type NumericTimelineKeyframe = Omit<TimelineKeyframe, "value"> & { readonly value: number };
 
 export type AsciicastVersion = 2 | 3;
 export type AsciicastEventCode = "o" | "i" | "m" | "r" | "x" | (string & {});
@@ -44,6 +52,14 @@ export interface AsciicastOptions extends ParseAsciicastOptions, TerminalOptions
   readonly includeInput?: boolean;
   /** Override the number of visible transcript lines. */
   readonly visibleRows?: number;
+  /** Adds accessible play/pause, step, and restart controls for this recording's real timeline. */
+  readonly playbackControls?:
+    | boolean
+    | {
+        readonly label?: string;
+        readonly group?: string;
+        readonly step?: number;
+      };
 }
 
 export interface AsciicastResult {
@@ -53,6 +69,13 @@ export interface AsciicastResult {
     readonly root: string;
     readonly screen: string;
     readonly text: string;
+    readonly texts: readonly string[];
+  };
+  /** Controller-neutral transport facts used by web controls, exporters, and custom players. */
+  readonly playback: {
+    readonly duration: number;
+    readonly markers: AsciicastRecording["markers"];
+    readonly exitStatus?: number;
   };
 }
 
@@ -179,13 +202,31 @@ export function parseAsciicast(
   };
 }
 
-interface TranscriptState {
-  readonly lines: string[][];
-  row: number;
-  column: number;
+interface TranscriptStyle extends TerminalAnsiStyle {
+  foreground?: number | string;
+  background?: number | string;
+  tone?: TerminalSpan["tone"];
+  backgroundTone?: TerminalSpan["background"];
+  bold?: boolean;
+  dim?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  inverse?: boolean;
 }
 
-function ensureRow(state: TranscriptState): string[] {
+interface TranscriptCell {
+  readonly character: string;
+  readonly style: TranscriptStyle;
+}
+
+interface TranscriptState {
+  readonly lines: TranscriptCell[][];
+  row: number;
+  column: number;
+  style: TranscriptStyle;
+}
+
+function ensureRow(state: TranscriptState): TranscriptCell[] {
   while (state.lines.length <= state.row) state.lines.push([]);
   return state.lines[state.row] ?? [];
 }
@@ -213,16 +254,102 @@ function writeText(state: TranscriptState, value: string): void {
     }
     if (character < " ") continue;
     const line = ensureRow(state);
-    while (line.length < state.column) line.push(" ");
-    line[state.column] = character;
+    while (line.length < state.column) line.push({ character: " ", style: {} });
+    line[state.column] = { character, style: { ...state.style } };
     state.column += 1;
   }
 }
 
+const ANSI_TONES = [
+  "textMuted",
+  "danger",
+  "success",
+  "warning",
+  "info",
+  "accent",
+  "info",
+  "text",
+] as const;
+
+function indexedAnsiTone(index: number): TerminalSpan["tone"] {
+  return ANSI_TONES[Math.abs(index) % ANSI_TONES.length] ?? "text";
+}
+
+function rgbAnsiTone(red: number, green: number, blue: number): TerminalSpan["tone"] {
+  if (Math.max(red, green, blue) - Math.min(red, green, blue) < 28) return "textMuted";
+  if (red > green * 1.25 && red > blue * 1.25) return "danger";
+  if (green > red * 1.2 && green > blue * 1.1) return "success";
+  if (red > blue * 1.25 && green > blue * 1.25) return "warning";
+  if (blue > red * 1.15) return "info";
+  return "accent";
+}
+
+function applySgr(style: TranscriptStyle, params: readonly number[]): void {
+  const codes = params.length === 0 ? [0] : params;
+  for (let index = 0; index < codes.length; index += 1) {
+    const code = codes[index] ?? 0;
+    if (code === 0) {
+      for (const key of Object.keys(style)) delete style[key as keyof TranscriptStyle];
+    } else if (code === 1) style.bold = true;
+    else if (code === 2) style.dim = true;
+    else if (code === 3) style.italic = true;
+    else if (code === 4) style.underline = true;
+    else if (code === 7) style.inverse = true;
+    else if (code === 22) {
+      style.bold = false;
+      style.dim = false;
+    } else if (code === 23) style.italic = false;
+    else if (code === 24) style.underline = false;
+    else if (code === 27) style.inverse = false;
+    else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+      const color = code >= 90 ? code - 90 : code - 30;
+      style.foreground = code;
+      style.tone = indexedAnsiTone(color);
+    } else if (code === 39) {
+      delete style.foreground;
+      delete style.tone;
+    } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+      const color = code >= 100 ? code - 100 : code - 40;
+      style.background = code;
+      style.backgroundTone = indexedAnsiTone(color);
+    } else if (code === 49) {
+      delete style.background;
+      delete style.backgroundTone;
+    } else if ((code === 38 || code === 48) && codes[index + 1] === 5) {
+      const color = codes[index + 2];
+      if (color === undefined) continue;
+      const foreground = code === 38;
+      if (foreground) {
+        style.foreground = color;
+        style.tone = indexedAnsiTone(color);
+      } else {
+        style.background = color;
+        style.backgroundTone = indexedAnsiTone(color);
+      }
+      index += 2;
+    } else if ((code === 38 || code === 48) && codes[index + 1] === 2) {
+      const red = codes[index + 2];
+      const green = codes[index + 3];
+      const blue = codes[index + 4];
+      if (red === undefined || green === undefined || blue === undefined) continue;
+      const serialized = `rgb(${red},${green},${blue})`;
+      const tone = rgbAnsiTone(red, green, blue);
+      if (code === 38) {
+        style.foreground = serialized;
+        style.tone = tone;
+      } else {
+        style.background = serialized;
+        style.backgroundTone = tone;
+      }
+      index += 4;
+    }
+  }
+}
+
 /**
- * Applies common cursor/erase sequences and strips styling sequences while preserving the terminal
- * text they affect. This keeps carriage-return progress, prompts, and line rewrites readable in
- * SVG without shipping a browser terminal emulator.
+ * Applies common cursor/erase sequences and SGR styling while preserving the terminal cells they
+ * affect. This keeps carriage-return progress, prompts, and line rewrites readable in SVG without
+ * shipping a browser terminal emulator.
  */
 function applyOutput(state: TranscriptState, data: string): number {
   let printable = 0;
@@ -244,7 +371,8 @@ function applyOutput(state: TranscriptState, data: string): number {
       .split(";")
       .map((part) => (part.length === 0 ? 0 : Number.parseInt(part, 10)));
     const amount = Math.max(1, params[0] ?? 1);
-    if (final === "A") state.row = Math.max(0, state.row - amount);
+    if (final === "m") applySgr(state.style, params);
+    else if (final === "A") state.row = Math.max(0, state.row - amount);
     else if (final === "B") state.row += amount;
     else if (final === "C") state.column += amount;
     else if (final === "D") state.column = Math.max(0, state.column - amount);
@@ -256,7 +384,9 @@ function applyOutput(state: TranscriptState, data: string): number {
       const line = ensureRow(state);
       const mode = params[0] ?? 0;
       if (mode === 2) line.splice(0);
-      else if (mode === 1) for (let i = 0; i <= state.column; i += 1) line[i] = " ";
+      else if (mode === 1)
+        for (let i = 0; i <= state.column; i += 1)
+          line[i] = { character: " ", style: { ...state.style } };
       else line.splice(state.column);
     } else if (final === "J" && (params[0] ?? 0) === 2) {
       state.lines.splice(0, state.lines.length, []);
@@ -271,8 +401,12 @@ function applyOutput(state: TranscriptState, data: string): number {
 function recordingTranscript(
   recording: AsciicastRecording,
   includeInput: boolean,
-): { readonly text: string; readonly frames: readonly TimelineKeyframe[] } {
-  const state: TranscriptState = { lines: [[]], row: 0, column: 0 };
+): {
+  readonly lines: readonly TerminalLine[];
+  readonly frames: readonly NumericTimelineKeyframe[];
+  readonly characters: number;
+} {
+  const state: TranscriptState = { lines: [[]], row: 0, column: 0, style: {} };
   const events: { time: number; amount: number }[] = [];
   let total = 0;
   for (const event of recording.events) {
@@ -282,12 +416,61 @@ function recordingTranscript(
     total += amount;
     events.push({ time: event.time, amount });
   }
-  const text = state.lines
-    .map((line) => line.join("").replace(/\s+$/u, ""))
-    .join("\n")
-    .replace(/\n+$/u, "");
-  if (total === 0) return { text, frames: [{ time: 0, value: 1 }] };
-  const frames: TimelineKeyframe[] = [{ time: 0, value: 0 }];
+  const styledLines = state.lines.map((line): TerminalLine => {
+    let end = line.length;
+    while (end > 0 && line[end - 1]?.character.trim().length === 0) end -= 1;
+    const cells = line.slice(0, end);
+    const spans: TerminalSpan[] = [];
+    let currentStyle = "";
+    for (const cell of cells) {
+      const key = JSON.stringify(cell.style);
+      const previous = spans.at(-1);
+      if (previous !== undefined && key === currentStyle) {
+        spans[spans.length - 1] = { ...previous, text: previous.text + cell.character };
+        continue;
+      }
+      currentStyle = key;
+      const ansi: TerminalAnsiStyle = {
+        ...(cell.style.foreground === undefined ? {} : { foreground: cell.style.foreground }),
+        ...(cell.style.background === undefined ? {} : { background: cell.style.background }),
+        ...(cell.style.bold === undefined ? {} : { bold: cell.style.bold }),
+        ...(cell.style.dim === undefined ? {} : { dim: cell.style.dim }),
+        ...(cell.style.italic === undefined ? {} : { italic: cell.style.italic }),
+        ...(cell.style.underline === undefined ? {} : { underline: cell.style.underline }),
+        ...(cell.style.inverse === undefined ? {} : { inverse: cell.style.inverse }),
+      };
+      spans.push({
+        text: cell.character,
+        ...(cell.style.tone === undefined ? {} : { tone: cell.style.tone }),
+        ...(cell.style.backgroundTone === undefined
+          ? {}
+          : { background: cell.style.backgroundTone }),
+        ...(cell.style.bold === undefined ? {} : { bold: cell.style.bold }),
+        ...(cell.style.dim === undefined ? {} : { dim: cell.style.dim }),
+        ...(cell.style.italic === undefined ? {} : { italic: cell.style.italic }),
+        ...(cell.style.underline === undefined ? {} : { underline: cell.style.underline }),
+        ...(cell.style.inverse === undefined ? {} : { inverse: cell.style.inverse }),
+        ...(Object.keys(ansi).length === 0 ? {} : { ansi }),
+        typing: true,
+      });
+    }
+    return spans.length === 0 ? { text: " " } : { spans, typing: true };
+  });
+  while (
+    styledLines.length > 1 &&
+    styledLines.at(-1)?.text === " " &&
+    styledLines.at(-1)?.spans === undefined
+  )
+    styledLines.pop();
+  const characters = styledLines.reduce(
+    (sum, line) =>
+      sum +
+      (line.spans?.reduce((lineTotal, span) => lineTotal + Array.from(span.text).length, 0) ??
+        Array.from(line.text ?? "").length),
+    0,
+  );
+  if (total === 0) return { lines: styledLines, characters, frames: [{ time: 0, value: 1 }] };
+  const frames: NumericTimelineKeyframe[] = [{ time: 0, value: 0 }];
   let seen = 0;
   for (const event of events) {
     seen += event.amount;
@@ -298,7 +481,7 @@ function recordingTranscript(
   }
   const lastTime = Math.max(recording.duration, frames.at(-1)?.time ?? 0);
   if ((frames.at(-1)?.value ?? 0) < 1) frames.push({ time: lastTime, value: 1, easing: "linear" });
-  return { text, frames };
+  return { lines: styledLines, characters, frames };
 }
 
 /** Compiles an asciicast v2/v3 recording into an ordinary, seekable Kineglyph fragment. */
@@ -311,41 +494,131 @@ export function asciicast(
   const terminalId = `${id}:terminal`;
   const transcript = recordingTranscript(recording, options.includeInput ?? false);
   const visibleRows = options.visibleRows ?? Math.min(recording.rows, 18);
-  const root = terminal(
-    terminalId,
-    [{ text: transcript.text.length === 0 ? " " : transcript.text, kind: "output", typing: true }],
-    {
-      ...options,
-      title: options.title ?? recording.title ?? recording.command ?? "Terminal recording",
-      rows: visibleRows,
-      metadata: {
-        ...options.metadata,
-        asciicastVersion: recording.version,
-        terminalColumns: recording.columns,
-        terminalRows: recording.rows,
-        ...(recording.exitStatus === undefined ? {} : { exitStatus: recording.exitStatus }),
-      },
+  if (!Number.isInteger(visibleRows) || visibleRows <= 0)
+    throw new Error("asciicast: visibleRows must be a positive integer");
+  const maximumStart = Math.max(0, transcript.lines.length - visibleRows);
+  const scrollStart =
+    options.scroll === "start"
+      ? 0
+      : typeof options.scroll === "number"
+        ? Math.max(0, Math.min(maximumStart, Math.floor(options.scroll)))
+        : maximumStart;
+  const terminalStatus =
+    options.status ??
+    (recording.exitStatus === undefined
+      ? undefined
+      : recording.exitStatus === 0
+        ? "success"
+        : "error");
+  const root = terminal(terminalId, transcript.lines, {
+    ...options,
+    title: options.title ?? recording.title ?? recording.command ?? "Terminal recording",
+    visibleLines: visibleRows,
+    scroll: options.scroll ?? "end",
+    ...(terminalStatus === undefined ? {} : { status: terminalStatus }),
+    metadata: {
+      ...options.metadata,
+      asciicastVersion: recording.version,
+      terminalColumns: recording.columns,
+      terminalRows: recording.rows,
+      ...(recording.theme === undefined
+        ? {}
+        : {
+            ansiForeground: recording.theme.fg,
+            ansiBackground: recording.theme.bg,
+            ansiPalette: recording.theme.palette.join(":"),
+          }),
+      ...(recording.exitStatus === undefined ? {} : { exitStatus: recording.exitStatus }),
     },
-  );
-  const textId = `${terminalId}-line-1-text`;
+  });
+  const targets: { readonly id: string; readonly characters: number; readonly start: number }[] =
+    [];
+  let transcriptOffset = 0;
+  for (let lineIndex = 0; lineIndex < transcript.lines.length; lineIndex += 1) {
+    const line = transcript.lines[lineIndex];
+    if (line?.spans !== undefined) {
+      line.spans.forEach((span, spanIndex) => {
+        const characters = Array.from(span.text).length;
+        if (lineIndex >= scrollStart && lineIndex < scrollStart + visibleRows)
+          targets.push({
+            id: `${terminalId}-line-${lineIndex + 1}-span-${spanIndex + 1}-text`,
+            characters,
+            start: transcriptOffset,
+          });
+        transcriptOffset += characters;
+      });
+    } else {
+      const characters = Array.from(line?.text ?? " ").length;
+      if (lineIndex >= scrollStart && lineIndex < scrollStart + visibleRows)
+        targets.push({
+          id: `${terminalId}-line-${lineIndex + 1}-text`,
+          characters,
+          start: transcriptOffset,
+        });
+      transcriptOffset += characters;
+    }
+  }
+  const transcriptCharacters = Math.max(1, transcript.characters);
   const tracks =
     recording.duration === 0
       ? []
-      : [
-          {
-            id: `${textId}:progress`,
-            target: textId,
+      : targets.map((target) => {
+          const frames = transcript.frames.map((frame) => ({
+            ...frame,
+            value: Math.max(
+              0,
+              Math.min(1, (frame.value * transcriptCharacters - target.start) / target.characters),
+            ),
+          }));
+          return {
+            id: `${target.id}:progress`,
+            target: target.id,
             property: "progress" as const,
-            keyframes: transcript.frames,
-          },
-        ];
+            keyframes: frames,
+          };
+        });
+  const textId = targets[0]?.id ?? `${terminalId}-line-1-text`;
+  const playbackControls =
+    options.playbackControls === true
+      ? {}
+      : options.playbackControls === false || options.playbackControls === undefined
+        ? undefined
+        : options.playbackControls;
+  if (
+    playbackControls?.step !== undefined &&
+    (!Number.isFinite(playbackControls.step) || playbackControls.step <= 0)
+  )
+    throw new Error("asciicast: playbackControls.step must be a finite number greater than zero");
   return {
     fragment: {
       nodes: [root],
       ...(tracks.length === 0 ? {} : { tracks }),
+      ...(playbackControls === undefined
+        ? {}
+        : {
+            controls: [
+              {
+                id: `${id}:playback`,
+                kind: "transport" as const,
+                label: playbackControls.label ?? "Terminal playback",
+                group: playbackControls.group ?? "Recording",
+                transportStep: playbackControls.step ?? 250,
+              },
+            ],
+          }),
       summary: `${recording.title ?? "Terminal recording"}, ${recording.columns} by ${recording.rows}, asciicast v${recording.version}.`,
     },
     recording,
-    handles: { root: terminalId, screen: `${terminalId}-screen`, text: textId },
+    handles: {
+      root: terminalId,
+      screen: `${terminalId}-screen`,
+      text: textId,
+      texts: targets.map((target) => target.id),
+    },
+    playback: {
+      duration: recording.duration,
+      markers: recording.markers,
+      ...(recording.exitStatus === undefined ? {} : { exitStatus: recording.exitStatus }),
+    },
   };
 }

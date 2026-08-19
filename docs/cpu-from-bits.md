@@ -17,7 +17,7 @@ A bit answers one yes-or-no question. The voltage is physical; `0` and `1` are t
 two safe ranges of that voltage. Everything later on this page is built by composing this choice.
 
 ```kineglyph live id=cpu-bit-basics view=preview height=430
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
@@ -58,15 +58,13 @@ Click any bit to toggle it in place. The word, decimal value, and active-weight 
 together, so you can construct all sixteen combinations directly.
 
 ```kineglyph live id=cpu-binary-place-value view=preview height=560
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
 const values = Array.from({ length: 16 }, (_, value) => value);
 const weights = [8, 4, 2, 1];
 const tones = ["chart1", "chart3", "chart4", "chart6"];
-const bitCases = (bit) => Object.fromEntries(values.map((value) => [value, (value >> (3 - bit)) & 1 ? 1 : 0.12]));
-const binary = Object.fromEntries(values.map((value) => [value, value.toString(2).padStart(4, "0")]));
 const formula = Object.fromEntries(values.map((value) => {
   const terms = weights.filter((weight, bit) => (value >> (3 - bit)) & 1);
   return [value, terms.length ? `${terms.join(" + ")} = ${value}` : "no active weights = 0"];
@@ -112,11 +110,14 @@ export default figure("cpu-binary-place-value", {
     states: {
       choosing: { on: Object.fromEntries(weights.map((weight) => [`TOGGLE_${weight}`, toggleTransitions(weight)])) },
     },
-    signals: Object.fromEntries([
-      ["binary", { match: { var: "value" }, cases: binary, default: "0000" }],
-      ["formula", { match: { var: "value" }, cases: formula, default: "no active weights = 0" }],
-      ...tones.map((_, bit) => [`bit${bit}`, { match: { var: "value" }, cases: bitCases(bit), default: 0.12 }]),
-    ]),
+    signals: {
+      binary: expr.format(expr.var("value"), { radix: 2, pad: 4 }),
+      formula: { match: { var: "value" }, cases: formula, default: "no active weights = 0" },
+      ...Object.fromEntries(tones.map((_, bit) => [
+        `bit${bit}`,
+        expr.add(0.12, expr.multiply(expr.bit(expr.var("value"), 3 - bit), 0.88)),
+      ])),
+    },
   });
 });
 ```
@@ -130,7 +131,7 @@ them beside each other and the same two inputs produce the two answers needed fo
 sum bit and a carry bit.
 
 ```kineglyph live id=cpu-half-adder view=preview height=760
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
@@ -140,11 +141,14 @@ const states = [
   ["q10", "1", "0", "1", "0"],
   ["q11", "1", "1", "0", "1"],
 ];
-const cases = (column) => Object.fromEntries(states.map((row) => [row[0], row[column]]));
+const toggle = (name) => [
+  { target: "ready", guard: { var: name, op: "eq", value: 0 }, actions: [{ type: "set", var: name, value: 1 }] },
+  { target: "ready", actions: [{ type: "set", var: name, value: 0 }] },
+];
 
 export default figure("cpu-half-adder", { title: "Two gates make a half adder" }, (f) => {
-  const inputA = f.card({ eyebrow: "INPUT", title: "A", body: "0", bodyBind: { text: "a" }, motif: "circle", tone: "accent" });
-  const inputB = f.card({ eyebrow: "INPUT", title: "B", body: "0", bodyBind: { text: "b" }, motif: "circle", tone: "info" });
+  const inputA = f.card({ eyebrow: "INPUT", title: "A", body: "0", bodyBind: { text: "aValue" }, motif: "circle", tone: "accent", interactive: true, onActivate: "TOGGLE_A" });
+  const inputB = f.card({ eyebrow: "INPUT", title: "B", body: "0", bodyBind: { text: "bValue" }, motif: "circle", tone: "info", interactive: true, onActivate: "TOGGLE_B" });
   const xor = f.card({ eyebrow: "EXACTLY ONE", title: "XOR", body: "A ⊕ B", motif: "spark", tone: "info", frame: material("raised") });
   const and = f.card({ eyebrow: "BOTH", title: "AND", body: "A · B", motif: "grid", tone: "accent", frame: material("raised") });
   const sum = f.card({ eyebrow: "LOW BIT", title: "SUM", body: "0", bodyBind: { text: "sum" }, motif: "circle", tone: "warning", bind: { highlight: "sumOn" } });
@@ -175,19 +179,24 @@ export default figure("cpu-half-adder", { title: "Two gates make a half adder" }
   f.connect(and, carry, { head: "arrow" });
 
   f.machine({
-    initial: "q00",
-    states: Object.fromEntries(states.map(([state]) => [state, { on: Object.fromEntries(states.filter(([other]) => other !== state).map(([other]) => [other.toUpperCase(), other])) }])),
+    initial: "ready",
+    variables: { a: 0, b: 0 },
+    states: { ready: { on: { TOGGLE_A: toggle("a"), TOGGLE_B: toggle("b") } } },
     signals: {
-      a: { match: { state: true }, cases: cases(1), default: "0" },
-      b: { match: { state: true }, cases: cases(2), default: "0" },
-      sum: { match: { state: true }, cases: cases(3), default: "0" },
-      carry: { match: { state: true }, cases: cases(4), default: "0" },
-      sumOn: { when: { state: ["q01", "q10"] }, then: 1, else: 0 },
-      carryOn: { when: { state: "q11" }, then: 1, else: 0 },
-      ...Object.fromEntries(states.map(([state]) => [state, { when: { state }, then: 1, else: 0 }])),
+      sumBit: expr.bitXor(expr.var("a"), expr.var("b")),
+      carryBit: expr.bitAnd(expr.var("a"), expr.var("b")),
+      aValue: expr.format(expr.var("a")),
+      bValue: expr.format(expr.var("b")),
+      sum: expr.format(expr.signal("sumBit")),
+      carry: expr.format(expr.signal("carryBit")),
+      sumOn: expr.signal("sumBit"),
+      carryOn: expr.signal("carryBit"),
+      q00: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 0),
+      q01: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 1),
+      q10: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 2),
+      q11: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 3),
     },
   });
-  f.controls(states.map(([state, a, b]) => ({ label: `${a}${b}`, event: state.toUpperCase(), activeWhen: { state }, group: "inputs A B" })));
 });
 ```
 
@@ -201,38 +210,17 @@ gate outlines, junctions, and wires, while particles travel only along nets curr
 `1`. Each input lands on a distinct pin, and the whole schematic turns downward on a narrow screen.
 
 ```kineglyph live id=cpu-full-adder view=preview height=360
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
 const on = (name) => ({ var: name, op: "truthy" });
-const off = (name) => ({ var: name, op: "falsy" });
-const all = (...conditions) => ({ all: conditions });
-const any = (...conditions) => ({ any: conditions });
 
 const aOn = on("a");
 const bOn = on("b");
 const cinOn = on("cin");
-const aOff = off("a");
-const bOff = off("b");
-const cinOff = off("cin");
-const xor1High = any(all(aOn, bOff), all(aOff, bOn));
-const and1High = all(aOn, bOn);
-const sumHigh = any(
-  all(aOn, bOff, cinOff),
-  all(aOff, bOn, cinOff),
-  all(aOff, bOff, cinOn),
-  all(aOn, bOn, cinOn),
-);
-const and2High = any(all(aOn, bOff, cinOn), all(aOff, bOn, cinOn));
-const carryHigh = any(all(aOn, bOn), all(aOn, cinOn), all(bOn, cinOn));
-const valueSignal = (condition) => ({ when: condition, then: "1", else: "0" });
-const activeSignal = (condition) => ({ when: condition, then: 1, else: 0 });
-const toneSignal = (condition, activeTone) => ({
-  when: condition,
-  then: activeTone,
-  else: "connector",
-});
+const bit = (condition) => expr.when(condition, 1, 0);
+const tone = (signal, activeTone) => expr.match(expr.signal(signal), { 1: activeTone }, "connector");
 
 export default figure("cpu-full-adder", {
   title: "Interactive one-bit full adder",
@@ -398,27 +386,35 @@ export default figure("cpu-full-adder", {
       },
     },
     signals: {
-      aValue: valueSignal(aOn),
-      bValue: valueSignal(bOn),
-      cinValue: valueSignal(cinOn),
-      sumValue: valueSignal(sumHigh),
-      carryValue: valueSignal(carryHigh),
-      aOn: activeSignal(aOn),
-      bOn: activeSignal(bOn),
-      cinOn: activeSignal(cinOn),
-      xor1On: activeSignal(xor1High),
-      and1On: activeSignal(and1High),
-      and2On: activeSignal(and2High),
-      sumOn: activeSignal(sumHigh),
-      carryOn: activeSignal(carryHigh),
-      aTone: toneSignal(aOn, "info"),
-      bTone: toneSignal(bOn, "accent"),
-      cinTone: toneSignal(cinOn, "success"),
-      xor1Tone: toneSignal(xor1High, "info"),
-      and1Tone: toneSignal(and1High, "accent"),
-      and2Tone: toneSignal(and2High, "success"),
-      sumTone: toneSignal(sumHigh, "warning"),
-      carryTone: toneSignal(carryHigh, "success"),
+      aBit: bit(aOn),
+      bBit: bit(bOn),
+      cinBit: bit(cinOn),
+      xor1Bit: expr.bitXor(expr.signal("aBit"), expr.signal("bBit")),
+      and1Bit: expr.bitAnd(expr.signal("aBit"), expr.signal("bBit")),
+      sumBit: expr.bitXor(expr.signal("xor1Bit"), expr.signal("cinBit")),
+      and2Bit: expr.bitAnd(expr.signal("xor1Bit"), expr.signal("cinBit")),
+      carryBit: expr.bitOr(expr.signal("and1Bit"), expr.signal("and2Bit")),
+      aValue: expr.format(expr.signal("aBit")),
+      bValue: expr.format(expr.signal("bBit")),
+      cinValue: expr.format(expr.signal("cinBit")),
+      sumValue: expr.format(expr.signal("sumBit")),
+      carryValue: expr.format(expr.signal("carryBit")),
+      aOn: expr.signal("aBit"),
+      bOn: expr.signal("bBit"),
+      cinOn: expr.signal("cinBit"),
+      xor1On: expr.signal("xor1Bit"),
+      and1On: expr.signal("and1Bit"),
+      and2On: expr.signal("and2Bit"),
+      sumOn: expr.signal("sumBit"),
+      carryOn: expr.signal("carryBit"),
+      aTone: tone("aBit", "info"),
+      bTone: tone("bBit", "accent"),
+      cinTone: tone("cinBit", "success"),
+      xor1Tone: tone("xor1Bit", "info"),
+      and1Tone: tone("and1Bit", "accent"),
+      and2Tone: tone("and2Bit", "success"),
+      sumTone: tone("sumBit", "warning"),
+      carryTone: tone("carryBit", "success"),
     },
   });
 });
@@ -433,7 +429,7 @@ the carry travels to the next slice, which is why this simple design is called a
 adder**.
 
 ```kineglyph live id=cpu-ripple-adder view=preview height=600
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
@@ -482,15 +478,15 @@ carry words through the bank and multiplexer; the dashed control wire only choos
 separation keeps data flow and control flow visually distinct.
 
 ```kineglyph live id=cpu-alu view=preview height=650
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
 const operations = [
-  ["add", "ADD", "1000", "Z=0 · C=0"],
-  ["and", "AND", "0001", "Z=0 · C=0"],
-  ["or", "OR", "0111", "Z=0 · C=0"],
-  ["xor", "XOR", "0110", "Z=0 · C=0"],
+  ["add", "ADD"],
+  ["and", "AND"],
+  ["or", "OR"],
+  ["xor", "XOR"],
 ];
 
 export default figure("cpu-alu", { title: "A four-operation ALU" }, (f) => {
@@ -570,10 +566,21 @@ export default figure("cpu-alu", { title: "A four-operation ALU" }, (f) => {
     initial: "add",
     states: Object.fromEntries(operations.map(([state]) => [state, { on: Object.fromEntries(operations.filter(([other]) => other !== state).map(([other]) => [other.toUpperCase(), other])) }])),
     signals: {
-      result: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , result]) => [state, result])), default: "0000" },
-      flags: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , , flags]) => [state, flags])), default: "Z=1 · C=0" },
-      selector: { match: { state: true }, cases: Object.fromEntries(operations.map(([state, , , ], index) => [state, `SELECT ${index.toString(2).padStart(2, "0")}`])), default: "SELECT 00" },
-      ...Object.fromEntries(operations.map(([state]) => [state, { when: { state }, then: 1, else: 0 }])),
+      resultNumber: expr.match(expr.state(), {
+        add: expr.add(5, 3),
+        and: expr.bitAnd(5, 3),
+        or: expr.bitOr(5, 3),
+        xor: expr.bitXor(5, 3),
+      }, 0),
+      result: expr.format(expr.signal("resultNumber"), { radix: 2, pad: 4 }),
+      zeroFlag: expr.eq(expr.signal("resultNumber"), 0),
+      flags: expr.concat([
+        "Z=",
+        expr.match(expr.signal("zeroFlag"), { true: "1" }, "0"),
+        " · C=0",
+      ]),
+      selector: expr.match(expr.state(), Object.fromEntries(operations.map(([state], index) => [state, `SELECT ${index.toString(2).padStart(2, "0")}`])), "SELECT 00"),
+      ...Object.fromEntries(operations.map(([state]) => [state, expr.eq(expr.state(), state)])),
     },
   });
   f.controls(operations.map(([state, label]) => ({ label, event: state.toUpperCase(), activeWhen: { state }, group: "operation" })));

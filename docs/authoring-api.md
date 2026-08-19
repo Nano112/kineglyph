@@ -66,29 +66,29 @@ slug of the primary text (`heading-where-the-time-goes`), de-duplicated with a c
 across builds of the same figure. Ids are validated: duplicates and unknown references throw with
 the builder path in the message.
 
-| Helper                                                                                                                                                                                                                     | Returns                         | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                 | `TextMark`                      | Text plus every ordinary node placement/material option; `position` and `width` may be responsive                                                                                                                                                                                                                                                                                                                                                       |
-| `f.textAt(text, position, opts)`, `f.labelAt(text, position, opts)`                                                                                                                                                        | `TextMark`                      | Coordinate/absolute text without `f.raw`; `labelAt` defaults to `bodyStrong`, and `position` may provide `wide` / `compact` / `narrow` values                                                                                                                                                                                                                                                                                                           |
-| `f.badge(text, opts)`                                                                                                                                                                                                      | `BadgeMark`                     | `tone, variant, bind`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `f.icon(name, opts)`                                                                                                                                                                                                       | `IconMark`                      | motif name from `@kineglyph/svg`                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `f.rect(opts)`, `f.circle(opts)`, `f.polyline(points, opts)`, `f.path(d, viewBox, opts)`, `f.image(src, alt, opts)`, `f.legend(items, opts)`, `f.callout(text, opts)`                                                      | marks                           | thin typed wrappers over the schema                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `f.card(opts)`, `f.panel(children, opts)`, `f.pill(text, opts)`, `f.keyValue(k, v, opts)`, `f.rule(opts)`, `f.spacer(size, opts)`                                                                                          | groups/marks                    | the recipes formerly in `@kineglyph/scenes/recipes` (moved to core, re-exported by scenes)                                                                                                                                                                                                                                                                                                                                                              |
-| `f.gate(kind, opts)`, `f.junction(opts)`                                                                                                                                                                                   | group/mark                      | portable circuit symbols: AND, OR, XOR, their inverted forms, NOT, buffer, and mux; junctions make fan-out explicit                                                                                                                                                                                                                                                                                                                                     |
-| `f.terminal(lines, opts)`, `f.fileTree(entries, opts)`                                                                                                                                                                     | `GroupNode`                     | responsive, semantic terminal and recursive file-tree surfaces; terminal command lines are character-reveal targets, while files and folders may carry detail, status, and tone                                                                                                                                                                                                                                                                         |
-| `f.place(node, position)`                                                                                                                                                                                                  | the same node                   | assigns responsive placement before an existing node enters `coordinates` / `absolute`; preserves identity and ids                                                                                                                                                                                                                                                                                                                                      |
-| `f.stack`, `f.row`, `f.grid`, `f.overlay`, `f.flow`, `f.coordinates`, `f.absolute`                                                                                                                                         | `GroupNode`                     | `flow` = row on wide, stack otherwise                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `f.graph(layers, opts)`                                                                                                                                                                                                    | `GroupNode`                     | ranked node-link layout; presets are `flow`, `circuit`, and `tree`, with responsive `direction`, shared rank defaults, and per-rank layout/columns/gap overrides                                                                                                                                                                                                                                                                                        |
-| `f.add(fragment, opts)`                                                                                                                                                                                                    | `SceneNode` (the fragment root) | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
-| `f.raw(node)`                                                                                                                                                                                                              | the node                        | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `f.connect(from, to, opts)`                                                                                                                                                                                                | `EdgeDefinition`                | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
-| `f.wire(from, to, opts)`                                                                                                                                                                                                   | `EdgeDefinition`                | orthogonal connector presets for `signal`, `bus`, and `control`; every route, port, marker, stroke, label, and tone remains overridable                                                                                                                                                                                                                                                                                                                 |
-| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `pulse`/`highlight`/`progress` and plain `reveal` also accept edges, `rise`/`wipe`/slide/scale are node-only and throw otherwise; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                |
-| `f.typewrite(target, opts)`                                                                                                                                                                                                | `MotionStep`                    | character-level progress for terminal commands or any `TextMark` with `reveal: "characters"`; timing is seekable and uses the ordinary scene timeline                                                                                                                                                                                                                                                                                                   |
-| `f.sequence(steps, opts)`                                                                                                                                                                                                  | `void`                          | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
-| `f.at(time, ...steps)`                                                                                                                                                                                                     | `void`                          | absolute scheduling                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `f.machine(definition)`, `f.controls(list)`                                                                                                                                                                                | `void`                          | machine `id` defaults to `${figureId}-machine`; control ids default to a slug of the label                                                                                                                                                                                                                                                                                                                                                              |
-| `f.root(node)`                                                                                                                                                                                                             | `void`                          | sets the root; when omitted the root is a stack of top-level nodes in creation order                                                                                                                                                                                                                                                                                                                                                                    |
+| Helper                                                                                                                                                                                                                                               | Returns                         | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                                           | `TextMark`                      | Text plus every ordinary node placement/material option; `position` and `width` may be responsive                                                                                                                                                                                                                                                                                                                                                       |
+| `f.textAt(text, position, opts)`, `f.labelAt(text, position, opts)`                                                                                                                                                                                  | `TextMark`                      | Coordinate/absolute text without `f.raw`; `labelAt` defaults to `bodyStrong`, and `position` may provide `wide` / `compact` / `narrow` values                                                                                                                                                                                                                                                                                                           |
+| `f.badge(text, opts)`                                                                                                                                                                                                                                | `BadgeMark`                     | `tone, variant, bind`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `f.icon(name, opts)`                                                                                                                                                                                                                                 | `IconMark`                      | motif name from `@kineglyph/svg`                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `f.rect(opts)`, `f.circle(opts)`, `f.polyline(points, opts)`, `f.spline(nodes, opts)`, `f.path(d, viewBox, opts)`, `f.image(src, alt, opts)`, `f.legend(items, opts)`, `f.callout(text, opts)`                                                       | marks                           | thin typed wrappers over the schema; `spline` derives a smooth path from placed-node positions                                                                                                                                                                                                                                                                                                                                                          |
+| `f.card(opts)`, `f.panel(children, opts)`, `f.pill(text, opts)`, `f.keyValue(k, v, opts)`, `f.rule(opts)`, `f.spacer(size, opts)`                                                                                                                    | groups/marks                    | the recipes formerly in `@kineglyph/scenes/recipes` (moved to core, re-exported by scenes)                                                                                                                                                                                                                                                                                                                                                              |
+| `f.gate(kind, opts)`, `f.junction(opts)`                                                                                                                                                                                                             | group/mark                      | portable circuit symbols: AND, OR, XOR, their inverted forms, NOT, buffer, and mux; junctions make fan-out explicit                                                                                                                                                                                                                                                                                                                                     |
+| `f.terminal(lines, opts)`, `f.fileTree(entries, opts)`                                                                                                                                                                                               | `GroupNode`                     | responsive, semantic terminal and recursive file-tree surfaces; terminal command lines are character-reveal targets, while files and folders may carry detail, status, and tone                                                                                                                                                                                                                                                                         |
+| `f.place(node, position)`                                                                                                                                                                                                                            | the same node                   | assigns responsive placement before an existing node enters `coordinates` / `absolute`; preserves identity and ids                                                                                                                                                                                                                                                                                                                                      |
+| `f.stack`, `f.row`, `f.grid`, `f.overlay`, `f.flow`, `f.coordinates`, `f.absolute`                                                                                                                                                                   | `GroupNode`                     | `flow` = row on wide, stack otherwise                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `f.graph(layers, opts)`                                                                                                                                                                                                                              | `GroupNode`                     | ranked node-link layout; presets are `flow`, `circuit`, and `tree`, with responsive `direction`, shared rank defaults, and per-rank layout/columns/gap overrides                                                                                                                                                                                                                                                                                        |
+| `f.add(fragment, opts)`                                                                                                                                                                                                                              | `SceneNode` (the fragment root) | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
+| `f.raw(node)`                                                                                                                                                                                                                                        | the node                        | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `f.connect(from, to, opts)`                                                                                                                                                                                                                          | `EdgeDefinition`                | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
+| `f.wire(from, to, opts)`                                                                                                                                                                                                                             | `EdgeDefinition`                | orthogonal connector presets for `signal`, `bus`, and `control`; every route, port, marker, stroke, label, and tone remains overridable                                                                                                                                                                                                                                                                                                                 |
+| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rotate(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `rotate` uses clockwise `from` / `to` degrees; edge-capable presets reject node-only transforms; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                                                 |
+| `f.typewrite(target, opts)`                                                                                                                                                                                                                          | `MotionStep`                    | character-level progress for terminal commands or any `TextMark` with `reveal: "characters"`; timing is seekable and uses the ordinary scene timeline                                                                                                                                                                                                                                                                                                   |
+| `f.sequence(steps, opts)`                                                                                                                                                                                                                            | `void`                          | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
+| `f.at(time, ...steps)`                                                                                                                                                                                                                               | `void`                          | absolute scheduling                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `f.machine(definition)`, `f.controls(list)`                                                                                                                                                                                                          | `void`                          | machine `id` defaults to `${figureId}-machine`; control ids default to a slug of the label                                                                                                                                                                                                                                                                                                                                                              |
+| `f.root(node)`                                                                                                                                                                                                                                       | `void`                          | sets the root; when omitted the root is a stack of top-level nodes in creation order                                                                                                                                                                                                                                                                                                                                                                    |
 
 `figure()` returns a validated `SceneDefinition` (`defineScene` is applied). Diagnostics are
 actionable and thrown eagerly with the figure id and the originating helper:
@@ -143,6 +143,10 @@ For a schematic plane where topology must remain exact, use `f.place(gate, respo
 before adding the same node to `f.coordinates()`. Unlike an object spread, `f.place()` preserves
 the builder node's identity and makes accidental duplicate ids impossible.
 
+When a line should pass through positioned symbols, create and place the symbols first, then use
+`f.spline([source, stage, output])`. Their positions become the spline knots, so moving a symbol
+also reshapes the line; there is no second point array to keep in sync.
+
 ### Fill paint
 
 `FrameStyle.fill` and the fill on rectangles, circles, paths, and polylines accept theme-aware
@@ -196,6 +200,161 @@ const custom = track("path", "progress", [
 Named curves are `linear`, `easeIn`, `easeOut`, `easeInOut`, their cubic variants,
 `easeOutBack`, and `easeOutExpo`. Cubic Bézier x handles must remain between 0 and 1; y handles and
 springs may overshoot. Exact endpoints make loops and deterministic snapshots safe.
+
+### Deterministic transform motion
+
+Rotation is a first-class timeline property, measured clockwise in degrees around the resolved
+node centre. `rotateTo()` authors the serializable track; `seekTimeline()`, SVG frames, live browser
+playback, PNG, and GIF all evaluate the same angle. Values are not reduced modulo 360, so a track
+from `0` to `720` makes two complete turns instead of becoming a still.
+
+```kineglyph live id=authoring-rotation-parity view=preview height=250
+import { defineScene, kineglyphTheme, rotateTo, timeline } from "kineglyph";
+
+export const theme = kineglyphTheme;
+export const loop = true;
+
+export default defineScene({
+  schemaVersion: 2,
+  id: "rotation-parity",
+  title: "One deterministic turn",
+  description: "A square follows a circular guide while rotating twice around its own centre.",
+  root: {
+    id: "root",
+    type: "group",
+    layout: "coordinates",
+    height: 180,
+    children: [
+      {
+        id: "orbit",
+        type: "circle",
+        position: { x: 0.5, y: 0.5, anchor: "center" },
+        radius: 58,
+        fill: "none",
+        stroke: "border",
+        dash: "dotted",
+      },
+      {
+        id: "needle",
+        type: "path",
+        position: { x: 0.5, y: 0.5, anchor: "center" },
+        width: 140,
+        height: 56,
+        d: "M 8 28 L 124 28 L 107 12 M 124 28 L 107 44",
+        viewBox: { width: 140, height: 56 },
+        fill: "none",
+        stroke: "accent",
+        strokeWidth: 3,
+        lineCap: "round",
+      },
+      {
+        id: "hub",
+        type: "circle",
+        position: { x: 0.5, y: 0.5, anchor: "center" },
+        radius: 7,
+        fill: "text",
+        stroke: "canvas",
+        strokeWidth: 2,
+      },
+    ],
+  },
+  timeline: timeline([rotateTo("needle", 0, 1800, 0, 360)]),
+});
+```
+
+```ts
+import { rotateTo, timeline } from "@kineglyph/core";
+
+const motion = timeline([
+  rotateTo("needle", 0, 800, -30, 45),
+  rotateTo("needle", 900, 1_600, 45, 180),
+]);
+```
+
+The same deterministic track model now covers solid paint, geometry, numbers, paths, and motion
+paths. Helpers remain plain-data constructors:
+
+```ts
+import {
+  cue,
+  fillTo,
+  followPath,
+  layoutTo,
+  morphPath,
+  numericTextTo,
+  reusableTimeline,
+  strokeTo,
+  strokeWidthTo,
+  timeline,
+  useTimeline,
+} from "@kineglyph/core";
+
+const source = timeline(
+  [
+    fillTo("card", 0, 500, "#1d4ed8", "#0f766e"),
+    strokeTo("card", 0, 500, "#93c5fd", "#5eead4"),
+    strokeWidthTo("card", 0, 500, 1, 4),
+    numericTextTo("count", 0, 900, 0, 12_480, { thousands: true, suffix: " req/s" }),
+    morphPath("trend", 0, 900, "M 0 20 L 20 8 L 40 16", "M 0 8 L 20 18 L 40 4"),
+    layoutTo(
+      "card",
+      0,
+      700,
+      { x: 20, y: 30, width: 120, height: 60 },
+      { x: 180, y: 20, width: 180, height: 90 },
+    ),
+    followPath(
+      "packet",
+      0,
+      900,
+      [
+        { x: 0, y: 0 },
+        { x: 90, y: 0 },
+        { x: 140, y: 50 },
+      ],
+      { orient: true },
+    ),
+  ],
+  900,
+  [cue("settled", 900)],
+);
+
+const reusable = reusableTimeline(source);
+const secondCard = useTimeline(reusable, { prefix: "secondary", at: 250, speed: 1.25 });
+```
+
+Inside `figure()`, the same track is normally shorter:
+
+```ts
+f.sequence([f.rotate(needle, { from: -30, to: 180, duration: 1_600 })]);
+```
+
+Transform support is intentionally renderer-parity-first:
+
+| Property                           | Seek | Live browser | SVG | PNG/GIF | Reduced motion |
+| ---------------------------------- | ---- | ------------ | --- | ------- | -------------- |
+| opacity                            | Yes  | Yes          | Yes | Yes     | Final value    |
+| translate X/Y and scale            | Yes  | Yes          | Yes | Yes     | Final value    |
+| rotation about node centre         | Yes  | Yes          | Yes | Yes     | Final value    |
+| solid fill, stroke, and text color | Yes  | Yes          | Yes | Yes     | Final value    |
+| stroke width and corner radius     | Yes  | Yes          | Yes | Yes     | Final value    |
+| numeric text                       | Yes  | Yes          | Yes | Yes     | Final value    |
+| keyed x/y/width/height layout      | Yes  | Yes          | Yes | Yes     | Final value    |
+| compatible path morphs             | Yes  | Yes          | Yes | Yes     | Final value    |
+| follow path, optional orientation  | Yes  | Yes          | Yes | Yes     | Final value    |
+| progress, reveal, highlight, flow  | Yes  | Yes          | Yes | Yes     | Final value    |
+
+Reduced motion never leaves a rotating or partially transformed object in an indeterminate state:
+the runtime renders the deterministic terminal frame immediately, and manual seeks continue to
+hold that frame until reduced motion is disabled.
+
+Literal hex colours interpolate by channel. Semantic paint tokens deliberately hold until the end
+keyframe because their resolved values depend on the active theme. Path morphs interpolate only
+when both paths have matching command topology and numeric arity; incompatible paths hold the first
+shape and switch at the endpoint. Numeric text reuses its resolved box instead of reflowing every
+frame. Layout tracks animate one resolved node box; they do not rerun responsive layout or routing
+mid-frame. Named cues are metadata for transport/editor affordances, and reusable timelines remain
+ordinary serializable tracks after scoping and time scaling.
 
 ### Materials and effects
 
@@ -290,6 +449,10 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
   areas draw before their points appear, and heatmap cells sweep row by row. `duration` and
   `easing` control the generated tracks. `figure()` schedules those tracks with `f.sequence`;
   `none` emits no plot motion.
+- Specialized families: `pieChart`, `donutChart`, `radialChart`, threshold-aware `gaugeChart`,
+  `histogram`, `distributionPlot`, `rangeChart`, `boxPlot`, `confidenceBand`, `ganttChart` /
+  `timelineChart`, `treemap`, `sankey`, and `topology`. Each compiles to ordinary scene nodes and
+  stable handles, so it remains inspectable and exportable in every renderer.
 - Determinism: equal input → byte-identical fragment; category order and domains are frozen and
   reported in `domains`/`ticks`.
 
@@ -321,6 +484,75 @@ then external values supplied to `resolveScene(..., { signals })` or `setSignals
 lets a remote feed own measurements while a local machine still owns selection and controls.
 Text, tone, dimensions, visibility, progress, and path data can all be bound; path bindings let a
 rolling sparkline update without replacing its scene or restarting an entrance timeline.
+
+## Pointer, drag, hover, and focus are semantic events
+
+Gesture handlers name machine events; they are still plain scene data. Pointer and drag payloads
+are normalized `[x, y]` values within the owning node, coalesced to one event per animation frame.
+Hover/focus events have no payload. Drag targets are focusable and the arrow keys provide a coarse
+keyboard fallback, so the same explanation is not pointer-only.
+
+```kineglyph live id=authoring-gesture-pad view=preview height=360
+import { expr, figure, kineglyphTheme, material } from "kineglyph";
+
+export const theme = kineglyphTheme;
+
+export default figure("gesture-pad", { title: "Semantic gesture pad" }, (f) => {
+  const pad = f.rect({
+    id: "gesture-surface",
+    label: "Drag position",
+    description: "Drag, move the pointer, or use an arrow key to change normalized coordinates.",
+    width: "fill",
+    height: 150,
+    fill: "surfaceMuted",
+    stroke: "border",
+    strokeWidth: 1,
+    radius: 12,
+    onPointer: "POINT",
+    onDrag: "POINT",
+    onHover: "ENTER",
+    onLeave: "LEAVE",
+    onFocus: "ENTER",
+    onBlur: "LEAVE",
+    bind: { highlight: "engaged" },
+  });
+  const xBar = f.rect({ width: 130, height: 8, radius: 4, fill: "accent", bind: { width: "xWidth" } });
+  const yBar = f.rect({ width: 130, height: 8, radius: 4, fill: "info", bind: { width: "yWidth" } });
+  f.root(f.stack([
+    pad,
+    f.row([
+      f.stack([f.eyebrow("X"), f.code("0.50", { bind: { text: "x" } }), xBar], { gap: 5, width: "fill" }),
+      f.stack([f.eyebrow("Y"), f.code("0.50", { bind: { text: "y" } }), yBar], { gap: 5, width: "fill" }),
+      f.badge("READY", { bind: { text: "status", tone: "statusTone" } }),
+    ], { gap: 18, align: "center", width: "fill" }),
+  ], { gap: 16, padding: 16, width: "fill", frame: material("flat") }));
+  f.machine({
+    initial: "ready",
+    variables: { point: [0.5, 0.5], engaged: false },
+    states: { ready: { on: {
+      POINT: { target: "ready", actions: [{ type: "set", var: "point", value: { fromEvent: true } }] },
+      ENTER: { target: "ready", actions: [{ type: "set", var: "engaged", value: true }] },
+      LEAVE: { target: "ready", actions: [{ type: "set", var: "engaged", value: false }] },
+    } } },
+    signals: {
+      xValue: expr.at(expr.var("point"), 0),
+      yValue: expr.at(expr.var("point"), 1),
+      x: expr.format(expr.signal("xValue"), { precision: 2 }),
+      y: expr.format(expr.signal("yValue"), { precision: 2 }),
+      xWidth: expr.multiply(expr.signal("xValue"), 130),
+      yWidth: expr.multiply(expr.signal("yValue"), 130),
+      status: expr.when({ var: "engaged", op: "truthy" }, "TRACKING", "READY"),
+      statusTone: expr.when({ var: "engaged", op: "truthy" }, "success", "textMuted"),
+    },
+  });
+});
+```
+
+Use `onActivate` for click/Enter/Space actions. Use `onHover`/`onLeave` only for transient context,
+never as the sole route to information. `onFocus`/`onBlur` should mirror meaningful hover state.
+`onPointer` observes movement without capture; `onDrag` captures after pointer-down and continues
+until release. The event payload is a serializable number pair and may be stored with
+`{ fromEvent: true }`, replayed in tests, or snapshotted for export.
 
 For a complete WebSocket lifecycle and the separate runtime-free microchart renderer, see
 [Live data and microcharts](./live-data-and-microcharts.md).

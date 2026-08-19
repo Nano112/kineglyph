@@ -548,23 +548,450 @@ export function keyValue(
   );
 }
 
+export type CodeLanguage =
+  "text" | "typescript" | "javascript" | "tsx" | "jsx" | "json" | "shell" | "css" | "html";
+
+export type CodeTokenKind =
+  | "plain"
+  | "keyword"
+  | "string"
+  | "number"
+  | "comment"
+  | "operator"
+  | "punctuation"
+  | "function"
+  | "property"
+  | "tag";
+
+export interface CodeToken {
+  readonly text: string;
+  /** Semantic role used by the default palette and available to inspection tooling. */
+  readonly kind?: CodeTokenKind;
+  /** Per-token escape hatch for authored or externally tokenized code. */
+  readonly tone?: Paint;
+}
+
+export interface CodeBlockLine {
+  /** Plain source for this line. Ignored when `tokens` is supplied. */
+  readonly text?: string;
+  /** Caller-supplied tokens, useful when a full parser already exists upstream. */
+  readonly tokens?: readonly CodeToken[];
+  /** Highlights this line independently of `highlightLines`. */
+  readonly highlighted?: boolean;
+  /** Diff gutter and semantic surface for this source line. */
+  readonly diff?: "add" | "remove" | "context";
+  /** Short review note rendered beside the source. */
+  readonly annotation?: string | CodeAnnotation;
+  /** Overrides block-level character typing for this line. */
+  readonly typing?: boolean;
+  /** Overrides the displayed line number without changing source order. */
+  readonly number?: number;
+}
+
+export interface CodeAnnotation {
+  readonly text: string;
+  readonly tone?: Paint;
+}
+
+export type CodeBlockSource = string | readonly (string | CodeBlockLine)[];
+
+export interface CodeBlockOptions extends ContainerOptions {
+  readonly language?: CodeLanguage;
+  readonly title?: string;
+  readonly chrome?: "header" | "plain";
+  readonly lineNumbers?: boolean;
+  readonly startLine?: number;
+  readonly highlightLines?: readonly number[];
+  readonly highlightRanges?: readonly (readonly [start: number, end: number])[];
+  readonly highlightTone?: FillPaint;
+  readonly lineGap?: Responsive<number>;
+  readonly tabSize?: number;
+  /** Marks generated token text for `f.typewrite(codeBlock)`. */
+  readonly typing?: boolean;
+  /** Re-theme syntax roles without changing or post-processing the generated scene. */
+  readonly tokenTones?: Partial<Readonly<Record<CodeTokenKind, Paint>>>;
+}
+
+const SCRIPT_KEYWORDS = new Set([
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "from",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "keyof",
+  "let",
+  "new",
+  "null",
+  "of",
+  "readonly",
+  "return",
+  "satisfies",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "type",
+  "typeof",
+  "undefined",
+  "var",
+  "void",
+  "while",
+  "yield",
+]);
+
+const CODE_KEYWORDS: Readonly<Record<CodeLanguage, ReadonlySet<string>>> = {
+  text: new Set(),
+  typescript: SCRIPT_KEYWORDS,
+  javascript: SCRIPT_KEYWORDS,
+  tsx: SCRIPT_KEYWORDS,
+  jsx: SCRIPT_KEYWORDS,
+  json: new Set(["false", "null", "true"]),
+  shell: new Set([
+    "case",
+    "do",
+    "done",
+    "elif",
+    "else",
+    "esac",
+    "export",
+    "fi",
+    "for",
+    "function",
+    "if",
+    "in",
+    "then",
+    "while",
+  ]),
+  css: new Set(["@import", "@keyframes", "@media", "from", "to"]),
+  html: new Set(),
+};
+
+const DEFAULT_CODE_TONES: Readonly<Record<CodeTokenKind, Paint>> = {
+  plain: "text",
+  keyword: "accent",
+  string: "success",
+  number: "warning",
+  comment: "textMuted",
+  operator: "info",
+  punctuation: "textMuted",
+  function: "info",
+  property: "warning",
+  tag: "accent",
+};
+
+/**
+ * Small deterministic tokenizer for documentation snippets. It deliberately covers common lexical
+ * roles rather than pretending to be a parser; callers can pass exact tokens through `codeBlock`.
+ */
+export function highlightCodeLine(
+  source: string,
+  language: CodeLanguage = "text",
+): readonly CodeToken[] {
+  if (source.length === 0) return [];
+  const tokens: CodeToken[] = [];
+  const pattern =
+    /\s+|<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|\/\/.*|#[^!].*|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:0x[\da-f]+|\d+(?:\.\d+)?)(?:e[+-]?\d+)?|[A-Za-z_$@][\w$@-]*|===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\*\*|\?\?|\?\.|[+\-*/%=!<>?:&|~^]+|[{}()[\],.;]|./gi;
+  const pieces = source.match(pattern) ?? [source];
+  let offset = 0;
+  for (const text of pieces) {
+    const start = offset;
+    offset += text.length;
+    const rest = source.slice(offset);
+    let kind: CodeTokenKind = "plain";
+    if (/^(?:\/\/|\/\*|<!--)/.test(text) || (language === "shell" && text.startsWith("#")))
+      kind = "comment";
+    else if (/^[`'"]/.test(text))
+      kind =
+        language === "json" && /^\s*:/.test(rest) && text.startsWith('"') ? "property" : "string";
+    else if (/^(?:0x[\da-f]+|\d)/i.test(text)) kind = "number";
+    else if (/^[A-Za-z_$@]/.test(text)) {
+      if (CODE_KEYWORDS[language].has(text)) kind = "keyword";
+      else if (/^\s*\(/.test(rest)) kind = "function";
+      else if ((language === "css" || language === "json") && /^\s*:/.test(rest)) kind = "property";
+      else if (language === "html" && /<\/?\s*$/.test(source.slice(0, start))) kind = "tag";
+    } else if (/^[{}()[\],.;]$/.test(text)) kind = "punctuation";
+    else if (!/^\s+$/.test(text)) kind = "operator";
+    tokens.push({ text, kind });
+  }
+  return tokens;
+}
+
+function visibleCodeToken(text: string, tabSize: number): string {
+  return text.replaceAll("\t", " ".repeat(tabSize)).replaceAll(" ", "\u00a0");
+}
+
+/** Syntax-highlighted code made exclusively from portable scene nodes. */
+export function codeBlock(
+  id: string,
+  source: CodeBlockSource,
+  options: CodeBlockOptions = {},
+): GroupNode {
+  const language = options.language ?? "text";
+  const sourceLines =
+    typeof source === "string" ? source.replaceAll("\r\n", "\n").split("\n") : source;
+  const startLine = options.startLine ?? 1;
+  const highlighted = new Set(options.highlightLines ?? []);
+  const inHighlightedRange = (line: number): boolean =>
+    (options.highlightRanges ?? []).some(([start, end]) => line >= start && line <= end);
+  const tabSize = Math.max(1, options.tabSize ?? 2);
+  const rows = sourceLines.map((entry, index) => {
+    const line: CodeBlockLine = typeof entry === "string" ? { text: entry } : entry;
+    const lineNumber = line.number ?? startLine + index;
+    const tokens = line.tokens ?? highlightCodeLine(line.text ?? "", language);
+    const typing = line.typing ?? options.typing ?? false;
+    const tokenNodes: SceneNode[] = tokens.map((token, tokenIndex) => ({
+      ...code(
+        `${id}-line-${index + 1}-token-${tokenIndex + 1}`,
+        visibleCodeToken(token.text, tabSize),
+        {
+          tone:
+            token.tone ??
+            options.tokenTones?.[token.kind ?? "plain"] ??
+            DEFAULT_CODE_TONES[token.kind ?? "plain"],
+        },
+      ),
+      ...(typing ? { reveal: "characters" as const } : {}),
+      metadata: {
+        codeRole: "token",
+        tokenKind: token.kind ?? "plain",
+        typing,
+        typingOrder: index * 10_000 + tokenIndex,
+      },
+    }));
+    if (tokenNodes.length === 0)
+      tokenNodes.push(code(`${id}-line-${index + 1}-empty`, "\u00a0", { tone: "text" }));
+    const content = row(`${id}-line-${index + 1}-content`, tokenNodes, {
+      gap: 0,
+      align: "center",
+      grow: 1,
+    });
+    const children: SceneNode[] = [];
+    const diff = line.diff ?? "context";
+    if (line.diff !== undefined)
+      children.push(
+        code(`${id}-line-${index + 1}-diff`, diff === "add" ? "+" : diff === "remove" ? "−" : " ", {
+          tone: diff === "add" ? "success" : diff === "remove" ? "danger" : "textMuted",
+        }),
+      );
+    if (options.lineNumbers !== false)
+      children.push(
+        code(`${id}-line-${index + 1}-number`, String(lineNumber), {
+          tone: "textMuted",
+          align: "end",
+          width: 28,
+        }),
+      );
+    children.push(content);
+    if (line.annotation !== undefined) {
+      const annotation =
+        typeof line.annotation === "string" ? { text: line.annotation } : line.annotation;
+      children.push(
+        pill(`${id}-line-${index + 1}-annotation`, annotation.text, {
+          tone: annotation.tone ?? "info",
+          variant: "outline",
+        }),
+      );
+    }
+    const isHighlighted =
+      line.highlighted === true || highlighted.has(lineNumber) || inHighlightedRange(lineNumber);
+    const diffFill: FillPaint | undefined =
+      line.diff === "add" ? "surfaceMuted" : line.diff === "remove" ? "surfaceMuted" : undefined;
+    return row(`${id}-line-${index + 1}`, children, {
+      gap: options.lineNumbers === false && line.diff === undefined ? 0 : 14,
+      padding: [3, 8],
+      align: "center",
+      width: "fill",
+      ...(isHighlighted || diffFill !== undefined
+        ? {
+            frame: {
+              fill: isHighlighted
+                ? (options.highlightTone ?? "surfaceMuted")
+                : (diffFill ?? "surfaceMuted"),
+              stroke: "none" as const,
+              radius: 4,
+            },
+          }
+        : {}),
+      metadata: {
+        codeRole: "line",
+        lineNumber,
+        highlighted: isHighlighted,
+        diff,
+        typing,
+        annotation: line.annotation !== undefined,
+      },
+    });
+  });
+
+  const header: SceneNode[] = [];
+  if ((options.chrome ?? "header") === "header") {
+    const titleText = options.title ?? "Code";
+    header.push(
+      row(
+        `${id}-header`,
+        [
+          code(`${id}-title`, titleText, { tone: "text" }),
+          pill(`${id}-language`, language.toUpperCase(), { tone: "textMuted", variant: "outline" }),
+        ],
+        { gap: 12, justify: "between", align: "center", width: "fill" },
+      ),
+      rule(`${id}-header-rule`),
+    );
+  }
+
+  const {
+    language: _language,
+    title: _title,
+    chrome: _chrome,
+    lineNumbers: _lineNumbers,
+    startLine: _startLine,
+    highlightLines: _highlightLines,
+    highlightRanges: _highlightRanges,
+    highlightTone: _highlightTone,
+    lineGap: _lineGap,
+    tabSize: _tabSize,
+    typing: _typing,
+    tokenTones: _tokenTones,
+    ...container
+  } = options;
+  void _language;
+  void _title;
+  void _chrome;
+  void _lineNumbers;
+  void _startLine;
+  void _highlightLines;
+  void _highlightRanges;
+  void _highlightTone;
+  void _lineGap;
+  void _tabSize;
+  void _typing;
+  void _tokenTones;
+  return stack(
+    id,
+    [...header, stack(`${id}-source`, rows, { gap: options.lineGap ?? 1, width: "fill" })],
+    {
+      ...containerOptions(container),
+      gap: options.gap ?? 10,
+      padding: options.padding ?? [12, 14],
+      width: options.width ?? "fill",
+      frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
+      label: options.label ?? options.title ?? `${language} code`,
+      metadata: { ...options.metadata, codeRole: "block", language },
+    },
+  );
+}
+
 export type TerminalLineKind = "command" | "output" | "success" | "warning" | "error" | "comment";
 
-export interface TerminalLine {
+export interface TerminalAnsiStyle {
+  readonly foreground?: number | string;
+  readonly background?: number | string;
+  readonly bold?: boolean;
+  readonly dim?: boolean;
+  readonly italic?: boolean;
+  readonly underline?: boolean;
+  readonly inverse?: boolean;
+}
+
+export interface TerminalSpan {
   readonly text: string;
+  readonly tone?: Paint;
+  readonly background?: FillPaint;
+  readonly bold?: boolean;
+  readonly dim?: boolean;
+  readonly italic?: boolean;
+  readonly underline?: boolean;
+  readonly inverse?: boolean;
+  readonly selected?: boolean;
+  /** Original ANSI state when this span came from an asciicast. */
+  readonly ansi?: TerminalAnsiStyle;
+  readonly typing?: boolean;
+}
+
+export type TerminalStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "warning"
+  | "error"
+  | { readonly label: string; readonly tone?: Paint };
+
+export interface TerminalLine {
+  readonly text?: string;
+  /** Styled runs; takes precedence over `text`. */
+  readonly spans?: readonly TerminalSpan[];
   readonly kind?: TerminalLineKind;
   /** Prompt shown before command text. Defaults to `$`. */
   readonly prompt?: string;
+  /** Overrides the semantic colour selected by `kind`. */
+  readonly tone?: Paint;
+  readonly promptTone?: Paint;
+  /** Optional line-level surface, useful for selections and active commands. */
+  readonly background?: FillPaint;
+  readonly selected?: boolean;
+  readonly status?: TerminalStatus;
+  /** Places a cursor after this line; `false` suppresses a terminal-level cursor here. */
+  readonly cursor?: boolean | TerminalCursorOptions;
   /** Marks this line for `f.typewrite(terminal)`. Commands default to true. */
   readonly typing?: boolean;
+}
+
+export type TerminalCursorStyle = "block" | "bar" | "underline";
+
+export interface TerminalCursorOptions {
+  readonly style?: TerminalCursorStyle;
+  readonly tone?: Paint;
+  /** One-based source line; defaults to the final line. */
+  readonly line?: number;
 }
 
 export interface TerminalOptions extends ContainerOptions {
   readonly title?: string;
   readonly cwd?: string;
   readonly prompt?: string;
+  readonly promptTone?: Paint;
+  readonly titleTone?: Paint;
+  readonly cwdTone?: Paint;
   readonly rows?: Responsive<number>;
-  readonly chrome?: "window" | "plain";
+  readonly chrome?: "window" | "minimal" | "plain";
+  /** Window control colours from left to right; pass an empty array to hide the controls. */
+  readonly chromeControls?: readonly Paint[];
+  readonly cursor?: boolean | TerminalCursorOptions;
+  readonly lineGap?: Responsive<number>;
+  /** Horizontal text policy. `clip` is the compact terminal default. */
+  readonly wrap?: "wrap" | "clip" | "overflow";
+  /** Number of authored rows kept in the static viewport. */
+  readonly visibleLines?: number;
+  /** First visible row (zero-based), or pin the viewport to either end. */
+  readonly scroll?: "start" | "end" | number;
+  readonly selectionTone?: FillPaint;
+  /** Optional session-level status shown in the chrome. */
+  readonly status?: TerminalStatus;
 }
 
 function terminalLineTone(kind: TerminalLineKind): Paint {
@@ -584,6 +1011,56 @@ function terminalLineTone(kind: TerminalLineKind): Paint {
   }
 }
 
+function terminalStatus(status: TerminalStatus): { readonly label: string; readonly tone: Paint } {
+  if (typeof status !== "string") return { label: status.label, tone: status.tone ?? "info" };
+  if (status === "success") return { label: "passed", tone: "success" };
+  if (status === "error") return { label: "failed", tone: "danger" };
+  return {
+    label: status,
+    tone: status === "warning" ? "warning" : status === "running" ? "info" : "textMuted",
+  };
+}
+
+function terminalSpan(
+  id: string,
+  span: TerminalSpan,
+  options: { readonly typing: boolean; readonly selectionTone: FillPaint },
+): GroupNode {
+  const inverse = span.inverse ?? span.ansi?.inverse ?? false;
+  const selected = span.selected ?? false;
+  const background = selected
+    ? options.selectionTone
+    : (span.background ?? (inverse ? "text" : undefined));
+  const text = {
+    ...code(`${id}-text`, span.text.length === 0 ? "\u00a0" : span.text, {
+      tone: span.tone ?? (inverse ? "canvas" : "text"),
+      reveal: (span.typing ?? options.typing) ? "characters" : "lines",
+    }),
+    ...((span.dim ?? span.ansi?.dim) === true ? { opacity: 0.58 } : {}),
+    metadata: {
+      terminalRole: "span",
+      bold: span.bold ?? span.ansi?.bold ?? false,
+      dim: span.dim ?? span.ansi?.dim ?? false,
+      italic: span.italic ?? span.ansi?.italic ?? false,
+      underline: span.underline ?? span.ansi?.underline ?? false,
+      inverse,
+      selected,
+      ...(span.ansi?.foreground === undefined
+        ? {}
+        : { ansiForeground: String(span.ansi.foreground) }),
+      ...(span.ansi?.background === undefined
+        ? {}
+        : { ansiBackground: String(span.ansi.background) }),
+    },
+  };
+  return row(id, [text], {
+    gap: 0,
+    padding: background === undefined ? 0 : [1, 2],
+    ...(background === undefined ? {} : { frame: { fill: background, stroke: "none", radius: 2 } }),
+    metadata: { terminalRole: "spanContainer" },
+  });
+}
+
 /**
  * A structured terminal surface. Lines remain ordinary text nodes, so they are selectable,
  * inspectable, responsive, and exportable. `f.typewrite(terminal)` animates command lines (or any
@@ -594,83 +1071,235 @@ export function terminal(
   lines: readonly (string | TerminalLine)[],
   options: TerminalOptions = {},
 ): GroupNode {
-  const rows = lines.map((entry, index): GroupNode => {
+  if (
+    options.visibleLines !== undefined &&
+    (!Number.isInteger(options.visibleLines) || options.visibleLines <= 0)
+  )
+    throw new Error("terminal: visibleLines must be a positive integer");
+  if (
+    typeof options.scroll === "number" &&
+    (!Number.isFinite(options.scroll) || options.scroll < 0)
+  )
+    throw new Error("terminal: numeric scroll must be a finite, non-negative row index");
+  const wrapPolicy = options.wrap ?? "clip";
+  const selectionTone = options.selectionTone ?? "surfaceMuted";
+  const allRows = lines.map((entry, index): GroupNode => {
     const line: TerminalLine = typeof entry === "string" ? { text: entry } : entry;
     const kind = line.kind ?? "output";
     const typing = line.typing ?? kind === "command";
-    const content = code(`${id}-line-${index + 1}-text`, line.text, {
-      tone: terminalLineTone(kind),
-      reveal: typing ? "characters" : "lines",
-      width: "fill",
-      ...(options.rows === undefined ? {} : { maxLines: options.rows }),
-    });
+    const terminalCursor =
+      options.cursor === true
+        ? {}
+        : options.cursor === false || options.cursor === undefined
+          ? undefined
+          : options.cursor;
+    const cursorLine = terminalCursor?.line ?? lines.length;
+    const lineCursor =
+      line.cursor === false
+        ? undefined
+        : line.cursor === true
+          ? {}
+          : (line.cursor ?? (index + 1 === cursorLine ? terminalCursor : undefined));
     const children: SceneNode[] = [];
     if (kind === "command") {
       children.push(
         code(`${id}-line-${index + 1}-prompt`, line.prompt ?? options.prompt ?? "$", {
-          tone: "accent",
+          tone: line.promptTone ?? options.promptTone ?? "accent",
         }),
       );
     }
-    children.push(content);
+    if (line.spans !== undefined) {
+      children.push(
+        row(
+          `${id}-line-${index + 1}-content`,
+          line.spans.map((span, spanIndex) =>
+            terminalSpan(`${id}-line-${index + 1}-span-${spanIndex + 1}`, span, {
+              typing,
+              selectionTone,
+            }),
+          ),
+          {
+            gap: 0,
+            width: "fill",
+            align: "start",
+            clip: wrapPolicy === "clip",
+            allowOverflow: wrapPolicy === "overflow",
+          },
+        ),
+      );
+    } else {
+      children.push({
+        ...code(`${id}-line-${index + 1}-text`, line.text ?? " ", {
+          tone: line.tone ?? terminalLineTone(kind),
+          reveal: typing ? "characters" : "lines",
+          width: "fill",
+          ...(options.rows === undefined ? {} : { maxLines: options.rows }),
+        }),
+        wrap: wrapPolicy === "wrap",
+      });
+    }
+    if (lineCursor !== undefined) {
+      const style = lineCursor.style ?? "block";
+      children.push(
+        code(
+          `${id}-line-${index + 1}-cursor`,
+          style === "bar" ? "▎" : style === "underline" ? "_" : "█",
+          { tone: lineCursor.tone ?? "accent" },
+        ),
+      );
+    }
+    if (line.status !== undefined) {
+      const status = terminalStatus(line.status);
+      children.push(
+        pill(`${id}-line-${index + 1}-status`, status.label, {
+          tone: status.tone,
+          variant: "outline",
+        }),
+      );
+    }
+    const selected = line.selected ?? false;
     return row(`${id}-line-${index + 1}`, children, {
       gap: kind === "command" ? 8 : 0,
+      padding: line.background === undefined && !selected ? 0 : [2, 5],
       width: "fill",
       align: "start",
-      metadata: { terminalRole: "line", terminalLineKind: kind, typing },
+      clip: wrapPolicy === "clip",
+      allowOverflow: wrapPolicy === "overflow",
+      ...(line.background === undefined && !selected
+        ? {}
+        : {
+            frame: {
+              fill: selected ? selectionTone : (line.background ?? "surfaceMuted"),
+              stroke: "none",
+              radius: 3,
+            },
+          }),
+      metadata: {
+        terminalRole: "line",
+        terminalLineKind: kind,
+        typing,
+        cursor: lineCursor !== undefined,
+        selected,
+        status: line.status === undefined ? false : terminalStatus(line.status).label,
+      },
     });
   });
 
+  const visibleLines = Math.max(1, Math.floor(options.visibleLines ?? allRows.length));
+  const maximumStart = Math.max(0, allRows.length - visibleLines);
+  const scrollStart =
+    options.scroll === "end"
+      ? maximumStart
+      : options.scroll === "start" || options.scroll === undefined
+        ? 0
+        : Math.max(0, Math.min(maximumStart, Math.floor(options.scroll)));
+  const rows = allRows.slice(scrollStart, scrollStart + visibleLines);
+
   const chrome: SceneNode[] = [];
-  if ((options.chrome ?? "window") === "window") {
+  const chromeStyle = options.chrome ?? "window";
+  if (chromeStyle !== "plain") {
     const dots = row(
       `${id}-window-controls`,
-      (["danger", "warning", "success"] as const).map((tone, index) => ({
-        id: `${id}-window-control-${index + 1}`,
-        type: "circle" as const,
-        radius: 4,
-        width: 8,
-        height: 8,
-        fill: tone,
-        stroke: "none" as const,
-      })),
+      (options.chromeControls ?? (["danger", "warning", "success"] as const)).map(
+        (tone, index) => ({
+          id: `${id}-window-control-${index + 1}`,
+          type: "circle" as const,
+          radius: 4,
+          width: 8,
+          height: 8,
+          fill: tone,
+          stroke: "none" as const,
+        }),
+      ),
       { gap: 6, align: "center" },
     );
-    const titleText = code(`${id}-title`, options.title ?? "Terminal", { tone: "textMuted" });
+    const titleText = code(`${id}-title`, options.title ?? "Terminal", {
+      tone: options.titleTone ?? "textMuted",
+      width: "fill",
+    });
+    const sessionStatus = options.status === undefined ? undefined : terminalStatus(options.status);
     chrome.push(
-      row(`${id}-chrome`, [dots, titleText], {
-        gap: 12,
-        align: "center",
-        width: "fill",
-      }),
+      row(
+        `${id}-chrome`,
+        [
+          ...(chromeStyle === "window" ? [dots] : []),
+          titleText,
+          ...(sessionStatus === undefined
+            ? []
+            : [
+                pill(`${id}-status`, sessionStatus.label, {
+                  tone: sessionStatus.tone,
+                  variant: "outline",
+                }),
+              ]),
+        ],
+        {
+          gap: 12,
+          align: "center",
+          width: "fill",
+        },
+      ),
       rule(`${id}-chrome-rule`),
     );
   }
   if (options.cwd !== undefined)
-    chrome.push(eyebrow(`${id}-cwd`, options.cwd, { tone: "textMuted" }));
+    chrome.push(eyebrow(`${id}-cwd`, options.cwd, { tone: options.cwdTone ?? "textMuted" }));
 
   const {
     title: _title,
     cwd: _cwd,
     prompt: _prompt,
+    promptTone: _promptTone,
+    titleTone: _titleTone,
+    cwdTone: _cwdTone,
     rows: _rows,
     chrome: _chrome,
+    chromeControls: _chromeControls,
+    cursor: _cursor,
+    lineGap: _lineGap,
+    wrap: _wrap,
+    visibleLines: _visibleLines,
+    scroll: _scroll,
+    selectionTone: _selectionTone,
+    status: _status,
     ...container
   } = options;
   void _title;
   void _cwd;
   void _prompt;
+  void _promptTone;
+  void _titleTone;
+  void _cwdTone;
   void _rows;
   void _chrome;
-  return stack(id, [...chrome, stack(`${id}-screen`, rows, { gap: 5, width: "fill" })], {
-    ...containerOptions(container),
-    gap: options.gap ?? 10,
-    padding: options.padding ?? [14, 16],
-    width: options.width ?? "fill",
-    frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
-    label: options.label ?? options.title ?? "Terminal session",
-    metadata: { ...options.metadata, terminalRole: "terminal" },
-  });
+  void _chromeControls;
+  void _cursor;
+  void _lineGap;
+  void _wrap;
+  void _visibleLines;
+  void _scroll;
+  void _selectionTone;
+  void _status;
+  return stack(
+    id,
+    [...chrome, stack(`${id}-screen`, rows, { gap: options.lineGap ?? 5, width: "fill" })],
+    {
+      ...containerOptions(container),
+      gap: options.gap ?? 10,
+      padding: options.padding ?? [14, 16],
+      width: options.width ?? "fill",
+      frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
+      label: options.label ?? options.title ?? "Terminal session",
+      metadata: {
+        ...options.metadata,
+        terminalRole: "terminal",
+        totalLines: allRows.length,
+        visibleLines: rows.length,
+        scrollStart,
+        wrap: wrapPolicy,
+      },
+    },
+  );
 }
 
 export interface FileTreeEntry {

@@ -7,6 +7,7 @@
  */
 import {
   defaultTheme,
+  seekTimeline,
   type FigureSource,
   type ResolvedScene,
   type ThemeTokens,
@@ -31,6 +32,8 @@ export type KineglyphLabSetup = (
 export interface KineglyphLabModuleResult {
   readonly scene: FigureSource;
   readonly theme?: ThemeTokens;
+  /** Repeat the deterministic timeline while the figure is active. */
+  readonly loop?: boolean;
   /** Starts optional live example behaviour after mount. The returned disposer runs before reruns. */
   readonly setup?: KineglyphLabSetup;
 }
@@ -45,11 +48,14 @@ export interface MountKineglyphLabOptions {
   readonly theme?: ThemeTokens;
   readonly debounceMs?: number;
   readonly autoplay?: AutoplaySetting;
+  readonly loop?: boolean;
   readonly inView?: StartWhenVisibleOptions;
   readonly controls?: ChromeSetting;
   readonly readout?: ChromeSetting;
   readonly tooltips?: boolean;
   readonly machineControls?: ChromeSetting;
+  /** Starts the development bounds/quality overlay; the editor toolbar can toggle it later. */
+  readonly doctor?: boolean;
   readonly load?: KineglyphLabLoader;
   readonly onError?: (error: unknown) => void;
   readonly onSourceChange?: (source: string) => void;
@@ -93,7 +99,7 @@ const LAB_STYLES = `
 .kg-lab__workspace{display:grid;min-width:0;min-height:var(--kg-lab-height,420px);grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kg-lab__editor,.kg-lab__preview{min-width:0;min-height:0}.kg-lab__editor{height:var(--kg-lab-height,420px);overflow:hidden;border-right:1px solid var(--kg-lab-border);background:var(--kg-lab-code-bg)}.kg-lab__preview{display:grid;align-content:center;overflow:auto;padding:16px;background:var(--kg-lab-bg)}.kg-lab__preview-host{width:100%;min-width:0}.kg-lab__loading{display:grid;height:100%;place-items:center;color:var(--kg-lab-muted);font:12px/1.5 var(--kg-lab-font)}
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
 .kg-lab__preview-actions{display:none}.kg-lab__edit,.kg-lab__export-toggle{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__export{position:relative}.kg-lab__export[hidden],.kg-lab__export-menu[hidden]{display:none!important}.kg-lab__export-toggle[aria-expanded=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__export-chevron{display:inline-block;margin-left:3px;font-size:9px;transform:translateY(-1px)}.kg-lab__export-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:max-content;min-width:138px;padding:4px;border:1px solid var(--kg-lab-border);border-radius:9px;background:var(--kg-lab-surface);box-shadow:0 10px 28px color-mix(in srgb,#000 24%,transparent)}.kg-lab__export-menu button{display:block;width:100%;padding:8px 10px;text-align:left;white-space:nowrap}.kg-lab__export-menu small{display:block;margin-top:3px;color:var(--kg-lab-muted);font:10px/1.2 var(--kg-lab-mono)}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
-.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-canvas{fill:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0 0;background:transparent}
+.kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0 0;background:transparent}
 @container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
 `;
@@ -135,13 +141,13 @@ function message(error: unknown): string {
 }
 
 /** A still scene can be exported in-browser without asking which moment or machine state to use. */
-function isStaticExportScene(scene: ResolvedScene): boolean {
-  if ((scene.timeline?.duration ?? 0) > 0) return false;
-  if (scene.machine !== undefined || (scene.controls?.length ?? 0) > 0) return false;
+function isPortableExportScene(scene: ResolvedScene): boolean {
   return !scene.nodes.some((node) => node.image?.live === true);
 }
 
-function exportFileName(scene: ResolvedScene, extension: "svg" | "png"): string {
+type LabExportFormat = "svg" | "png" | "gif";
+
+function exportFileName(scene: ResolvedScene, extension: LabExportFormat): string {
   const stem = scene.id
     .trim()
     .toLowerCase()
@@ -195,6 +201,100 @@ async function pngBlob(doc: Document, svg: string, width: number, height: number
   }
 }
 
+const GIF_MAX_WIDTH = 960;
+const GIF_MAX_HEIGHT = 720;
+const GIF_MAX_FRAMES = 180;
+const GIF_FPS = 12;
+
+function gifFrameTimes(duration: number): number[] {
+  if (duration <= 0) return [0];
+  const count = Math.max(2, Math.min(GIF_MAX_FRAMES, Math.floor((duration * GIF_FPS) / 1_000) + 1));
+  return Array.from({ length: count }, (_, index) =>
+    index === count - 1 ? duration : (index / (count - 1)) * duration,
+  );
+}
+
+async function drawSvgFrame(
+  doc: Document,
+  context: CanvasRenderingContext2D,
+  svg: string,
+  width: number,
+  height: number,
+  background: string,
+): Promise<Uint8ClampedArray> {
+  const view = doc.defaultView;
+  if (view === null) throw new Error("GIF export needs a browser window");
+  const urlApi = view.URL;
+  const source = new view.Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const href = urlApi.createObjectURL(source);
+  try {
+    const image = new view.Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("The browser could not rasterize a GIF frame"));
+      image.src = href;
+    });
+    context.save();
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    context.restore();
+    return context.getImageData(0, 0, width, height).data;
+  } finally {
+    urlApi.revokeObjectURL(href);
+  }
+}
+
+/** Browser-native GIF export: the same seekable scene is sampled without a server round-trip. */
+async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
+  const view = doc.defaultView;
+  if (view === null) throw new Error("GIF export needs a browser window");
+  const { GIFEncoder, applyPalette, quantize } = await import("gifenc");
+  const scale = Math.min(
+    1,
+    GIF_MAX_WIDTH / Math.max(1, scene.width),
+    GIF_MAX_HEIGHT / Math.max(1, scene.height),
+  );
+  const width = Math.max(1, Math.round(scene.width * scale));
+  const height = Math.max(1, Math.round(scene.height * scale));
+  const canvas = doc.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (context === null) throw new Error("Canvas is unavailable for GIF export");
+  const duration = scene.timeline?.duration ?? 0;
+  const times = gifFrameTimes(duration);
+  const delay =
+    times.length <= 1 ? 1_000 : Math.max(20, Math.round(duration / (times.length - 1) / 10) * 10);
+  const encoder = GIFEncoder({ auto: true });
+
+  for (const [index, time] of times.entries()) {
+    const frame = seekTimeline(scene, time);
+    const svg = renderSvg(frame, {
+      idPrefix: `export-${scene.id}-frame-${index}`,
+      background: "none",
+      animateFlow: false,
+      effects: "portable",
+    });
+    const rgba = await drawSvgFrame(doc, context, svg, width, height, scene.theme.background);
+    const palette = quantize(rgba, 256);
+    const indexed = applyPalette(rgba, palette);
+    encoder.writeFrame(indexed, width, height, {
+      palette,
+      delay: index === times.length - 1 ? delay + 800 : delay,
+      repeat: 0,
+    });
+    // Let the editor, progress text, and page remain responsive during longer timelines.
+    if (index % 4 === 3) await new Promise<void>((resolve) => view.setTimeout(resolve, 0));
+  }
+  encoder.finish();
+  const bytes = encoder.bytes();
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return new view.Blob([buffer], { type: "image/gif" });
+}
+
 /** In a lab, `auto` is deliberately quiet; only `true` opts into persistent figure chrome. */
 function quietChrome(value: ChromeSetting | undefined): ChromeSetting | undefined {
   return value === "auto" ? undefined : value;
@@ -216,17 +316,21 @@ export async function loadKineglyphLabModule(
     const mod = (await import(/* @vite-ignore */ url)) as {
       default?: unknown;
       theme?: unknown;
+      loop?: unknown;
       setup?: unknown;
     };
     if (mod.default === null || typeof mod.default !== "object")
       throw new Error("inline scene: no default export");
     if (mod.setup !== undefined && typeof mod.setup !== "function")
       throw new Error("inline scene: setup export must be a function");
+    if (mod.loop !== undefined && typeof mod.loop !== "boolean")
+      throw new Error("inline scene: loop export must be a boolean");
     const theme =
       mod.theme !== null && typeof mod.theme === "object" ? (mod.theme as ThemeTokens) : undefined;
     return {
       scene: mod.default as FigureSource,
       ...(theme === undefined ? {} : { theme }),
+      ...(mod.loop === undefined ? {} : { loop: mod.loop }),
       ...(mod.setup === undefined ? {} : { setup: mod.setup as KineglyphLabSetup }),
     };
   } finally {
@@ -247,6 +351,7 @@ class LabRuntime implements KineglyphLabController {
   #hostTheme: ThemeTokens | undefined;
   #moduleTheme: ThemeTokens | undefined;
   #moduleHasSetup = false;
+  #doctorEnabled: boolean;
   readonly #moduleColorVars = new Set<string>();
   #theme: ThemeTokens | undefined;
   #figure: KineglyphController | undefined;
@@ -266,6 +371,7 @@ class LabRuntime implements KineglyphLabController {
   readonly #exportGroup: HTMLElement;
   readonly #exportToggle: HTMLButtonElement;
   readonly #exportMenu: HTMLElement;
+  readonly #exportItems = new Map<LabExportFormat, HTMLButtonElement>();
   readonly #onDocumentClick = (event: Event): void => {
     if (event.target !== null && !this.#exportGroup.contains(event.target as Node))
       this.#closeExportMenu();
@@ -274,6 +380,7 @@ class LabRuntime implements KineglyphLabController {
   constructor(element: HTMLElement, options: MountKineglyphLabOptions) {
     this.element = element;
     this.#options = options;
+    this.#doctorEnabled = options.doctor ?? false;
     this.#script = sourceScript(element);
     this.#source = options.source ?? this.#script?.textContent?.trim() ?? "";
     this.#initialSource = this.#source;
@@ -309,6 +416,16 @@ class LabRuntime implements KineglyphLabController {
     }
     const actions = doc.createElement("div");
     actions.className = "kg-lab__actions";
+    const inspect = doc.createElement("button");
+    inspect.type = "button";
+    inspect.className = "kg-lab__doctor";
+    inspect.textContent = "Inspect layout";
+    inspect.setAttribute("aria-pressed", String(this.#doctorEnabled));
+    inspect.addEventListener("click", () => {
+      this.#doctorEnabled = !this.#doctorEnabled;
+      inspect.setAttribute("aria-pressed", String(this.#doctorEnabled));
+      this.#figure?.setDoctor(this.#doctorEnabled);
+    });
     const reset = doc.createElement("button");
     reset.type = "button";
     reset.textContent = "Reset";
@@ -318,7 +435,7 @@ class LabRuntime implements KineglyphLabController {
     run.className = "kg-lab__run";
     run.innerHTML = 'Run <span class="kg-lab__shortcut">⌘↵</span>';
     run.addEventListener("click", () => void this.run());
-    actions.append(reset, run);
+    actions.append(inspect, reset, run);
     bar.append(tabs, actions);
 
     const workspace = doc.createElement("div");
@@ -368,6 +485,7 @@ class LabRuntime implements KineglyphLabController {
     const formats = [
       ["svg", "Download SVG", "vector · transparent"],
       ["png", "Download PNG", "2× · transparent"],
+      ["gif", "Download GIF", "full timeline · themed"],
     ] as const;
     for (const [format, label, detail] of formats) {
       const button = doc.createElement("button");
@@ -377,6 +495,7 @@ class LabRuntime implements KineglyphLabController {
       button.innerHTML = `${label}<small>${detail}</small>`;
       button.addEventListener("click", () => void this.#export(format));
       this.#exportMenu.append(button);
+      this.#exportItems.set(format, button);
     }
     this.#exportToggle.addEventListener("click", () => {
       this.#setExportMenu(this.#exportMenu.hidden);
@@ -453,6 +572,7 @@ class LabRuntime implements KineglyphLabController {
         await (this.#options.load ?? loadKineglyphLabModule)(this.#source, this.element),
       );
       const scene = loaded.scene;
+      const loop = loaded.loop ?? this.#options.loop ?? false;
       this.#moduleTheme = loaded.theme;
       this.#applyModuleTheme(loaded.theme);
       const nextTheme = loaded.theme ?? this.#hostTheme ?? defaultTheme;
@@ -463,21 +583,22 @@ class LabRuntime implements KineglyphLabController {
           scene,
           ...(this.#theme === undefined ? {} : { theme: this.#theme }),
           autoplay: this.#options.autoplay ?? "in-view",
+          loop,
           ...(this.#options.inView === undefined ? {} : { inView: this.#options.inView }),
           controls: this.#options.controls ?? false,
           readout: this.#options.readout ?? false,
           tooltips: this.#options.tooltips ?? true,
           machineControls: this.#options.machineControls ?? "auto",
+          doctor: this.#doctorEnabled,
         });
       } else {
-        const { playing, time, duration } = this.#figure.state;
-        const position = duration === 0 ? 0 : time / duration;
         if (nextTheme !== this.#theme) this.#figure.setTheme(nextTheme);
         this.#theme = nextTheme;
+        this.#figure.setLoop(loop);
+        // A successful edit is a new performance. setScene() restarts it when the lab is already
+        // in view and otherwise leaves it waiting at frame zero for the normal viewport trigger.
+        // Preserving a completed timeline made hot-reloaded animations look permanently static.
         this.#figure.setScene(scene);
-        if (position > 0) this.#figure.seek(position * this.#figure.state.duration);
-        if (playing) this.#figure.play();
-        else this.#figure.pause();
       }
       this.#moduleCleanup?.();
       this.#moduleCleanup = loaded.setup?.(this.#figure, this.element) ?? undefined;
@@ -572,17 +693,21 @@ class LabRuntime implements KineglyphLabController {
     this.#exportGroup.hidden =
       this.#figure === undefined ||
       this.#moduleHasSetup ||
-      !isStaticExportScene(this.#figure.scene);
+      !isPortableExportScene(this.#figure.scene);
+    const gif = this.#exportItems.get("gif");
+    if (gif !== undefined) gif.hidden = (this.#figure?.scene.timeline?.duration ?? 0) <= 0;
     if (this.#exportGroup.hidden) this.#closeExportMenu();
   }
 
-  async #export(format: "svg" | "png"): Promise<void> {
+  async #export(format: LabExportFormat): Promise<void> {
     this.#closeExportMenu();
     const scene = this.#figure?.scene;
-    if (scene === undefined || !isStaticExportScene(scene)) return;
+    if (scene === undefined || !isPortableExportScene(scene) || this.#moduleHasSetup) return;
     this.#setStatus(`Preparing ${format.toUpperCase()}…`, "pending");
     try {
-      const svg = renderSvg(scene, {
+      const time = this.#figure?.state.time ?? scene.timeline?.duration ?? 0;
+      const frame = seekTimeline(scene, time);
+      const svg = renderSvg(frame, {
         idPrefix: `export-${scene.id}`,
         background: "none",
         animateFlow: false,
@@ -596,13 +721,13 @@ class LabRuntime implements KineglyphLabController {
           new BlobConstructor([svg], { type: "image/svg+xml;charset=utf-8" }),
           exportFileName(scene, format),
         );
-      } else {
+      } else if (format === "png") {
         downloadBlob(
           doc,
           await pngBlob(doc, svg, scene.width, scene.height),
           exportFileName(scene, format),
         );
-      }
+      } else downloadBlob(doc, await gifBlob(doc, scene), exportFileName(scene, format));
       this.#setStatus(`${format.toUpperCase()} downloaded`, "success");
     } catch (error) {
       this.#setStatus(message(error), "error");
@@ -664,6 +789,7 @@ export async function mountAllKineglyphLabs(
         ? (local.autoplay ?? shared.autoplay ?? "in-view")
         : autoplayAttr(element.dataset.autoplay);
     const autoplayDelay = Number(element.dataset.autoplayDelay);
+    const loop = element.dataset.loop === "true" || local.loop === true || shared.loop === true;
     const inView =
       Number.isFinite(autoplayDelay) && autoplayDelay >= 0
         ? { ...(shared.inView ?? {}), ...(local.inView ?? {}), delay: autoplayDelay }
@@ -682,6 +808,7 @@ export async function mountAllKineglyphLabs(
       ...(view === undefined ? {} : { view }),
       ...(theme === undefined ? {} : { theme }),
       ...(autoplay === undefined ? {} : { autoplay }),
+      loop,
       ...(inView === undefined ? {} : { inView }),
       controls,
       readout,

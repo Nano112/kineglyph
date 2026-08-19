@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as bundle from "../src/bundle.js";
+import * as runtime from "../src/runtime.js";
 
 const DIST = fileURLToPath(new URL("../dist/kineglyph-web.js", import.meta.url));
 
@@ -10,6 +11,12 @@ const DIST = fileURLToPath(new URL("../dist/kineglyph-web.js", import.meta.url))
  * ship BOTH: core's under the bare names, plot's under `plotRule` / `formatPlotNumber`.
  */
 describe("bundle export disambiguation", () => {
+  it("keeps the runtime entry focused on mounting rather than authoring and editing", () => {
+    expect(typeof runtime.mountKineglyph).toBe("function");
+    expect("mountKineglyphLab" in runtime).toBe(false);
+    expect("figure" in runtime).toBe(false);
+    expect("plot" in runtime).toBe(false);
+  });
   it("exposes core's rule under the bare name", () => {
     const mark = bundle.rule("x");
     expect(mark.type).toBe("rect");
@@ -32,6 +39,7 @@ describe("bundle export disambiguation", () => {
 
   it("exposes the professional theme presets from the browser bundle", () => {
     expect(Object.keys(bundle.professionalThemes)).toEqual([
+      "kineglyph",
       "swiss",
       "ledger",
       "blueprint",

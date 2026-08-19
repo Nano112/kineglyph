@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "examples/operational-dashboard/**"
       - "packages/**"
       - "tools/build-docs-site.sh"
       - ".github/workflows/docs.yml"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "examples/operational-dashboard/**"
       - "packages/**"
       - "tools/build-docs-site.sh"
       - ".github/workflows/docs.yml"
@@ -69,6 +71,7 @@ jobs:
         working-directory: kineglyph
         run: |
           npm ci --no-audit --no-fund
+          npm run docs:check
           npm run bootstrap
 
       - name: Install and build Pagina

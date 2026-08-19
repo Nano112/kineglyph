@@ -35,7 +35,9 @@
     }
   },
   "bin": {
-    "kineglyph-export": "./dist/cli.js"
+    "kineglyph-export": "./dist/cli.js",
+    "kineglyph": "./dist/doctor-cli.js",
+    "kineglyph-doctor": "./dist/doctor-cli.js"
   },
   "files": [
     "dist",

@@ -20,6 +20,15 @@ export interface MicrochartOptions {
   readonly label?: string;
 }
 
+const MICRO_PALETTE = [
+  "var(--kg-color-chart1,currentColor)",
+  "var(--kg-color-chart2,#2f7bd9)",
+  "var(--kg-color-chart3,#b26200)",
+  "var(--kg-color-chart4,#16835d)",
+  "var(--kg-color-chart5,#c9363e)",
+  "var(--kg-color-chart6,#7a8290)",
+] as const;
+
 const round = (value: number): string => {
   const result = Math.round(value * 100) / 100;
   return String(Object.is(result, -0) ? 0 : result);
@@ -85,13 +94,13 @@ function cartesian(
   const [min, max] = bounds(values, options, type === "bar" || type === "area");
   const y = (value: number): number => ((max - value) / (max - min)) * height;
   const baseline = y(Math.max(min, Math.min(max, 0)));
-  const stroke = escape(options.stroke ?? "currentColor");
-  const fill = escape(options.fill ?? "currentColor");
+  const stroke = escape(options.stroke ?? MICRO_PALETTE[0]);
+  const fill = escape(options.fill ?? MICRO_PALETTE[0]);
   if (type === "bar") {
     const padding = Math.max(0, Math.min(0.8, options.padding ?? 0.18));
     const step = width / values.length;
     const barWidth = Math.max(0.5, step * (1 - padding));
-    const negative = escape(options.negativeFill ?? fill);
+    const negative = escape(options.negativeFill ?? "var(--kg-color-chart-negative,#c9363e)");
     const bars = values
       .map((value, index) => {
         const valueY = y(value);
@@ -142,9 +151,7 @@ function polar(
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.max(0.5, Math.min(width, height) / 2);
-  const fills = options.fills?.length
-    ? options.fills
-    : ["currentColor", "#cbd5e1", "#94a3b8", "#64748b"];
+  const fills = options.fills?.length ? options.fills : MICRO_PALETTE;
   const inner =
     (options.type ?? "pie") === "donut"
       ? radius * Math.max(0.05, Math.min(0.9, options.innerRadius ?? 0.55))
@@ -154,11 +161,11 @@ function polar(
       width,
       height,
       options.label,
-      `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round((radius + inner) / 2)}" fill="none" stroke="${escape(fills[1] ?? "#cbd5e1")}" stroke-width="${round(Math.max(1, radius - inner))}"/>`,
+      `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round((radius + inner) / 2)}" fill="none" stroke="${escape(fills[1] ?? MICRO_PALETTE[1])}" stroke-width="${round(Math.max(1, radius - inner))}"/>`,
     );
   if (positive.filter((value) => value > 0).length === 1) {
     const color = escape(
-      fills[positive.findIndex((value) => value > 0) % fills.length] ?? "currentColor",
+      fills[positive.findIndex((value) => value > 0) % fills.length] ?? MICRO_PALETTE[0],
     );
     const body =
       inner > 0
@@ -176,7 +183,7 @@ function polar(
     const x2 = cx + Math.cos(end) * radius;
     const y2 = cy + Math.sin(end) * radius;
     const large = end - angle > Math.PI ? 1 : 0;
-    const color = escape(fills[index % fills.length] ?? "currentColor");
+    const color = escape(fills[index % fills.length] ?? MICRO_PALETTE[0]);
     if (inner <= 0) {
       paths.push(
         `<path d="M${round(cx)} ${round(cy)}L${round(x1)} ${round(y1)}A${round(radius)} ${round(radius)} 0 ${large} 1 ${round(x2)} ${round(y2)}Z" fill="${color}"/>`,

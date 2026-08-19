@@ -5,7 +5,7 @@ Typed scene, theme, layout, timeline, and material primitives. Scenes are plain 
 `card`, `panel`, …) compose it, `resolveFigure()` lays it out for a width and theme, and
 `seekTimeline()` produces a frame that any renderer can draw.
 
-Six restrained, effect-free theme presets are included for figures that need an immediate visual
+Seven restrained, effect-free theme presets are included for figures that need an immediate visual
 direction without becoming a palette exercise:
 
 ```ts
@@ -13,6 +13,7 @@ import {
   blueprintTheme,
   civicTheme,
   fieldManualTheme,
+  kineglyphTheme,
   ledgerTheme,
   professionalThemes,
   studioTheme,

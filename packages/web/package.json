@@ -40,6 +40,61 @@
       "development": "./src/lab.ts",
       "import": "./dist/lab.js"
     },
+    "./editor": {
+      "types": "./dist/lab.d.ts",
+      "development": "./src/lab.ts",
+      "import": "./dist/lab.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "development": "./src/runtime.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./canvas": {
+      "types": "./dist/canvas.d.ts",
+      "development": "./src/canvas.ts",
+      "import": "./dist/canvas.js"
+    },
+    "./micro": {
+      "types": "./dist/micro.d.ts",
+      "development": "./src/micro.ts",
+      "import": "./dist/micro.js"
+    },
+    "./stream": {
+      "types": "./dist/stream.d.ts",
+      "development": "./src/stream.ts",
+      "import": "./dist/stream.js"
+    },
+    "./surfaces": {
+      "types": "./dist/surfaces.d.ts",
+      "development": "./src/surfaces.ts",
+      "import": "./dist/surfaces.js"
+    },
+    "./controls": {
+      "types": "./dist/controls.d.ts",
+      "development": "./src/controls.ts",
+      "import": "./dist/controls.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "development": "./src/worker.ts",
+      "import": "./dist/worker.js"
+    },
+    "./doctor": {
+      "types": "./dist/doctor.d.ts",
+      "development": "./src/doctor.ts",
+      "import": "./dist/doctor.js"
+    },
+    "./export": {
+      "types": "./dist/export.d.ts",
+      "development": "./src/export.ts",
+      "import": "./dist/export.js"
+    },
+    "./shaders": {
+      "types": "./dist/shaders.d.ts",
+      "development": "./src/shaders.ts",
+      "import": "./dist/shaders.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -70,7 +125,8 @@
     "@kineglyph/plot": "^0.2.0",
     "@kineglyph/svg": "^0.2.0",
     "@lezer/highlight": "^1.2.3",
-    "codemirror": "^6.0.2"
+    "codemirror": "^6.0.2",
+    "gifenc": "^1.0.3"
   },
   "devDependencies": {
     "vite": "^8.2.1"

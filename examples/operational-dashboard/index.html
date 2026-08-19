@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kineglyph operational dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="dashboard">
+      <header class="dashboard__header">
+        <div>
+          <p class="eyebrow">OPERATIONS / PRODUCTION</p>
+          <h1>Service health</h1>
+          <p class="lede">Live request, latency, availability, and error telemetry.</p>
+        </div>
+        <div class="dashboard__actions">
+          <label>
+            Region
+            <select id="region-filter">
+              <option value="all">All regions</option>
+              <option value="us-east">US East</option>
+              <option value="eu-west">EU West</option>
+              <option value="ap-southeast">AP Southeast</option>
+            </select>
+          </label>
+          <button id="pause-feed" type="button" aria-pressed="false">Pause feed</button>
+        </div>
+      </header>
+
+      <section aria-labelledby="overview-heading">
+        <h2 id="overview-heading" class="visually-hidden">Production overview</h2>
+        <div id="overview-glyph"></div>
+      </section>
+
+      <div class="instrument-grid">
+        <section class="panel" aria-labelledby="latency-heading">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">ROLLING WINDOW</p>
+              <h2 id="latency-heading">Latency percentiles</h2>
+            </div>
+          </div>
+          <div id="latency-glyph" class="glyph-host"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="topology-heading">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">DEPENDENCY MAP</p>
+              <h2 id="topology-heading">Request path</h2>
+            </div>
+          </div>
+          <div id="topology-glyph" class="glyph-host"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="capacity-heading">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">HEADROOM</p>
+              <h2 id="capacity-heading">Resource saturation</h2>
+            </div>
+          </div>
+          <div id="capacity-glyph" class="glyph-host"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="events-heading">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">CORRELATION</p>
+              <h2 id="events-heading">Deployments and incidents</h2>
+            </div>
+          </div>
+          <div id="events-glyph" class="glyph-host"></div>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="services-heading">
+        <div class="panel__heading">
+          <div>
+            <p class="eyebrow">LIVE SERVICES</p>
+            <h2 id="services-heading">Latency by service</h2>
+          </div>
+          <p id="feed-status" role="status">Demo feed · live</p>
+        </div>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Service</th>
+                <th scope="col">Region</th>
+                <th scope="col">24-sample trend</th>
+                <th scope="col">p95</th>
+                <th scope="col">Errors</th>
+                <th scope="col">State</th>
+              </tr>
+            </thead>
+            <tbody id="service-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./dashboard.js"></script>
+  </body>
+</html>

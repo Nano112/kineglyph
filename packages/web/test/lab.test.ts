@@ -68,9 +68,19 @@ describe("mountKineglyphLab", () => {
       Array.from(host.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) =>
         item.textContent?.trim(),
       ),
-    ).toEqual(["Download SVGvector · transparent", "Download PNG2× · transparent"]);
+    ).toEqual([
+      "Download SVGvector · transparent",
+      "Download PNG2× · transparent",
+      "Download GIFfull timeline · themed",
+    ]);
+    expect(host.querySelector<HTMLButtonElement>('[data-format="gif"]')?.hidden).toBe(true);
     edit?.click();
     expect(lab.view).toBe("split");
+    const doctor = host.querySelector<HTMLButtonElement>(".kg-lab__doctor");
+    expect(doctor?.getAttribute("aria-pressed")).toBe("false");
+    doctor?.click();
+    expect(doctor?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector(".kg-doctor")).not.toBeNull();
 
     lab.setSource("second", { run: false });
     expect(await lab.run()).toBe(true);
@@ -86,29 +96,52 @@ describe("mountKineglyphLab", () => {
     expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
       ".kg-lab[data-view=preview] .kg-lab__workspace",
     );
-    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).toContain(
+    expect(document.querySelector("#kineglyph-lab-styles")?.textContent).not.toContain(
       ".kg-lab[data-view=preview] .kg-canvas{fill:transparent}",
     );
   });
 
-  it("offers export for still figures and removes it when an edit adds animation", async () => {
+  it("keeps an explicitly declared scene canvas in the unobtrusive preview", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    const lab = mountKineglyphLab(host, {
+      source: "paper",
+      view: "preview",
+      load: () =>
+        Promise.resolve(
+          defineScene({
+            schemaVersion: 2,
+            id: "paper-scene",
+            title: "Paper scene",
+            background: "canvas",
+            root: stack("root", [heading("title", "Paper")], { padding: 12, width: "fill" }),
+          }),
+        ),
+    });
+
+    expect(await lab.ready).toBe(true);
+    expect(host.querySelector(".kg-canvas")?.getAttribute("fill")).toContain("--kg-color-canvas");
+  });
+
+  it("offers frame exports for still figures and adds GIF when an edit adds animation", async () => {
     const host = document.createElement("figure");
     document.body.append(host);
     const lab = mountKineglyphLab(host, {
       source: "still",
       view: "preview",
+      autoplay: true,
       load: (source) => Promise.resolve(source === "animated" ? animatedScene : scene(source)),
     });
     await lab.ready;
     const exportGroup = host.querySelector<HTMLElement>(".kg-lab__export");
     expect(exportGroup?.hidden).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>('[data-format="gif"]')?.hidden).toBe(true);
 
     lab.setSource("animated", { run: false });
     expect(await lab.run()).toBe(true);
-    expect(exportGroup?.hidden).toBe(true);
-    expect(host.querySelector<HTMLButtonElement>(".kg-lab__export-toggle")?.ariaExpanded).toBe(
-      "false",
-    );
+    expect(exportGroup?.hidden).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>('[data-format="gif"]')?.hidden).toBe(false);
+    expect(lab.figure?.state.playing).toBe(true);
   });
 
   it("keeps the last good preview visible and reports a bad edit", async () => {

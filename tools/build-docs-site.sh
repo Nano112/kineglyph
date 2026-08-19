@@ -34,5 +34,15 @@ node "$PAGINA_CLI" build "$WORK/article" \
   --strict-assets \
   --site-url "$SITE_URL"
 
+# Ship the complete framework-free operational dashboard beside the Pagina article. It imports
+# the same locally built workspace bundle as the live documentation, so Pages never demonstrates
+# a stale npm release while a new primitive is being published.
+DASHBOARD_OUT="$OUT/examples/operational-dashboard"
+echo "==> dashboard ${BASE}examples/operational-dashboard/"
+npx vite build "$REPO_ROOT/examples/operational-dashboard" \
+  --outDir "$DASHBOARD_OUT" \
+  --base "${BASE}examples/operational-dashboard/" \
+  --emptyOutDir
+
 cp "$WORK/kineglyph.pgz" "$OUT.pgz"
 echo "==> wrote $OUT and $OUT.pgz"

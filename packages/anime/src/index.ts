@@ -98,6 +98,8 @@ export interface KineglyphAnimatorOptions {
   readonly root: HTMLElement | SVGElement;
   readonly program: AnimationProgram;
   readonly reducedMotion?: boolean;
+  /** Repeat the complete deterministic program until paused. */
+  readonly loop?: boolean;
   readonly onTimeChange?: (time: number, progress: number) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
 }
@@ -115,6 +117,7 @@ export class KineglyphAnimator {
   readonly #scope: Scope;
   readonly #onTimeChange: KineglyphAnimatorOptions["onTimeChange"];
   readonly #onPlaybackChange: KineglyphAnimatorOptions["onPlaybackChange"];
+  readonly #loop: boolean;
   #timer: Timer | undefined;
   #reducedMotion: boolean;
   #holdTerminal = false;
@@ -126,15 +129,23 @@ export class KineglyphAnimator {
     this.#reducedMotion = options.reducedMotion ?? false;
     this.#onTimeChange = options.onTimeChange;
     this.#onPlaybackChange = options.onPlaybackChange;
+    this.#loop = options.loop ?? false;
     this.duration = options.program.duration;
     this.#scope = createScope({ root: options.root });
     this.#scope.add(() => {
       const timer = createTimer({
         autoplay: false,
         duration: Math.max(1, this.duration),
+        loop: this.#loop,
         onUpdate: (currentTimer) => {
           if (this.#disposed) return;
-          this.#apply(this.#holdTerminal ? this.duration : currentTimer.currentTime);
+          this.#apply(
+            this.#holdTerminal
+              ? this.duration
+              : this.#loop
+                ? currentTimer.iterationCurrentTime
+                : currentTimer.currentTime,
+          );
         },
         onComplete: () => {
           if (this.#disposed) return;
@@ -154,7 +165,11 @@ export class KineglyphAnimator {
   }
 
   get time(): number {
-    return this.#reducedMotion ? this.duration : (this.#timer?.currentTime ?? 0);
+    return this.#reducedMotion
+      ? this.duration
+      : this.#loop
+        ? (this.#timer?.iterationCurrentTime ?? 0)
+        : (this.#timer?.currentTime ?? 0);
   }
 
   get playing(): boolean {
@@ -277,6 +292,8 @@ export interface KineglyphSceneAnimatorOptions {
   readonly root: HTMLElement | SVGElement;
   readonly scene: ResolvedScene;
   readonly reducedMotion?: boolean;
+  /** Repeat the complete deterministic timeline until paused. */
+  readonly loop?: boolean;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
 }
@@ -288,6 +305,7 @@ export class KineglyphSceneAnimator {
   readonly #scope: Scope;
   readonly #onFrame: KineglyphSceneAnimatorOptions["onFrame"];
   readonly #onPlaybackChange: KineglyphSceneAnimatorOptions["onPlaybackChange"];
+  readonly #loop: boolean;
   #timer: Timer | undefined;
   #reducedMotion: boolean;
   #holdTerminal = false;
@@ -300,15 +318,23 @@ export class KineglyphSceneAnimator {
     this.#reducedMotion = options.reducedMotion ?? false;
     this.#onFrame = options.onFrame;
     this.#onPlaybackChange = options.onPlaybackChange;
+    this.#loop = options.loop ?? false;
     this.#duration = options.scene.timeline?.duration ?? 0;
     this.#scope = createScope({ root: options.root });
     this.#scope.add(() => {
       const timer = createTimer({
         autoplay: false,
         duration: Math.max(1, this.#duration),
+        loop: this.#loop,
         onUpdate: (currentTimer) => {
           if (this.#disposed) return;
-          this.#apply(this.#holdTerminal ? this.#duration : currentTimer.currentTime);
+          this.#apply(
+            this.#holdTerminal
+              ? this.#duration
+              : this.#loop
+                ? currentTimer.iterationCurrentTime
+                : currentTimer.currentTime,
+          );
         },
         onComplete: () => {
           if (this.#disposed) return;
@@ -340,7 +366,11 @@ export class KineglyphSceneAnimator {
   }
 
   get time(): number {
-    return this.#reducedMotion ? this.#duration : (this.#timer?.currentTime ?? 0);
+    return this.#reducedMotion
+      ? this.#duration
+      : this.#loop
+        ? (this.#timer?.iterationCurrentTime ?? 0)
+        : (this.#timer?.currentTime ?? 0);
   }
 
   get playing(): boolean {
@@ -361,9 +391,16 @@ export class KineglyphSceneAnimator {
         const timer = createTimer({
           autoplay: false,
           duration: Math.max(1, nextDuration),
+          loop: this.#loop,
           onUpdate: (currentTimer) => {
             if (this.#disposed) return;
-            this.#apply(this.#holdTerminal ? this.#duration : currentTimer.currentTime);
+            this.#apply(
+              this.#holdTerminal
+                ? this.#duration
+                : this.#loop
+                  ? currentTimer.iterationCurrentTime
+                  : currentTimer.currentTime,
+            );
           },
           onComplete: () => {
             if (this.#disposed) return;
@@ -428,6 +465,14 @@ export class KineglyphSceneAnimator {
     if (this.#holdTerminal) this.#timer?.pause();
     this.#timer?.seek(next, true);
     this.#apply(next);
+  }
+
+  /** Seeks to a serializable named cue on the current scene timeline. */
+  seekCue(name: string): void {
+    this.#assertLive();
+    const cue = this.#scene.timeline?.cues?.find((entry) => entry.name === name);
+    if (cue === undefined) throw new Error(`unknown timeline cue: ${name}`);
+    this.seek(cue.time);
   }
 
   setReducedMotion(reduced: boolean): void {
@@ -499,13 +544,28 @@ export class KineglyphSceneAnimator {
         node.state.translateX,
         node.state.translateY,
         node.state.scale,
+        node.state.rotation ?? 0,
       );
-      const css = [
-        parts.tx !== 0 || parts.ty !== 0
-          ? `translate(${round(parts.tx)}px, ${round(parts.ty)}px)`
-          : "",
-        parts.scale !== 1 ? `scale(${round(parts.scale)})` : "",
-      ]
+      const rotating = parts.rotation !== 0;
+      element.style.transformOrigin = rotating
+        ? `${round(parts.cx)}px ${round(parts.cy)}px`
+        : "0 0";
+      const css = (
+        rotating
+          ? [
+              parts.translateX !== 0 || parts.translateY !== 0
+                ? `translate(${round(parts.translateX)}px, ${round(parts.translateY)}px)`
+                : "",
+              `rotate(${round(parts.rotation)}deg)`,
+              parts.scale !== 1 ? `scale(${round(parts.scale)})` : "",
+            ]
+          : [
+              parts.tx !== 0 || parts.ty !== 0
+                ? `translate(${round(parts.tx)}px, ${round(parts.ty)}px)`
+                : "",
+              parts.scale !== 1 ? `scale(${round(parts.scale)})` : "",
+            ]
+      )
         .filter(Boolean)
         .join(" ");
       element.style.transform = css.length > 0 ? css : "none";
@@ -528,10 +588,44 @@ export class KineglyphSceneAnimator {
       else element.removeAttribute("data-highlight");
       const shape = element.querySelector(`.kg-node-shape[data-shape-of="${cssEscape(node.id)}"]`);
       if (shape instanceof SVGElement) {
+        const shapeTag = shape.tagName.toLowerCase();
+        if (typeof node.appearance.fill === "string")
+          shape.setAttribute("fill", paint(node.appearance.fill));
+        if (shapeTag === "rect") {
+          shape.setAttribute("x", String(round(node.x)));
+          shape.setAttribute("y", String(round(node.y)));
+          shape.setAttribute("width", String(round(node.width)));
+          shape.setAttribute("height", String(round(node.height)));
+          shape.setAttribute(
+            "rx",
+            String(round(Math.min(node.appearance.radius, node.width / 2, node.height / 2))),
+          );
+        } else if (shapeTag === "circle") {
+          shape.setAttribute("cx", String(round(node.x + node.width / 2)));
+          shape.setAttribute("cy", String(round(node.y + node.height / 2)));
+          shape.setAttribute("r", String(round(Math.min(node.width, node.height) / 2)));
+        } else if (shapeTag === "ellipse") {
+          shape.setAttribute("cx", String(round(node.x + node.width / 2)));
+          shape.setAttribute("cy", String(round(node.y + node.height / 2)));
+          shape.setAttribute("rx", String(round(node.width / 2)));
+          shape.setAttribute("ry", String(round(node.height / 2)));
+        }
         // Path shapes are drawn in their own viewBox units, so stroke widths (and therefore dash
         // patterns) are divided by the same scale the static renderer uses.
-        const isPath = isSvgTag(shape, "path");
+        const isPath = shapeTag === "path";
         const unitScale = isPath ? pathUnitScale(node) : 1;
+        if (isPath && node.path !== undefined) {
+          shape.setAttribute("d", node.path.d);
+          const vw = Math.max(1e-6, node.path.viewBox.width);
+          const vh = Math.max(1e-6, node.path.viewBox.height);
+          const scale = Math.max(1e-6, Math.min(node.width / vw, node.height / vh));
+          const offsetX = node.x + (node.width - vw * scale) / 2;
+          const offsetY = node.y + (node.height - vh * scale) / 2;
+          shape.setAttribute(
+            "transform",
+            `translate(${round(offsetX)} ${round(offsetY)}) scale(${round(scale)})`,
+          );
+        }
         const base = node.appearance.stroke === "none" ? accent : node.appearance.stroke;
         const width = node.appearance.stroke === "none" ? 0 : node.appearance.strokeWidth;
         let strokeWidth = width;
@@ -563,6 +657,7 @@ export class KineglyphSceneAnimator {
       const text = element.querySelector(`text[data-text-of="${cssEscape(node.id)}"]`);
       if (text instanceof SVGElement) {
         const spans = [...text.querySelectorAll("tspan")];
+        if (node.text !== undefined) text.setAttribute("fill", paint(node.text.color));
         if (text.getAttribute("data-text-reveal") === "characters") {
           const full = spans.map((span) => span.getAttribute("data-full-text") ?? "");
           const total = full.reduce((sum, value) => sum + Array.from(value).length, 0);
@@ -587,6 +682,12 @@ export class KineglyphSceneAnimator {
           });
           continue;
         }
+        node.text?.lines.forEach((line, index) => {
+          const span = spans[index];
+          if (span === undefined) return;
+          span.textContent = line.text;
+          span.setAttribute("data-full-text", line.text);
+        });
         const visible =
           node.state.progress >= 1
             ? spans.length

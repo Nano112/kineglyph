@@ -186,6 +186,29 @@ describe("renderSvg", () => {
     expect(svg).toContain('data-icon="build"');
   });
 
+  it("rotates around the node centre while preserving translation and scale", () => {
+    const svg = renderSvg({
+      width: 200,
+      height: 100,
+      nodes: [
+        {
+          id: "dial",
+          x: 10,
+          y: 20,
+          width: 80,
+          height: 40,
+          state: { translateX: 6, translateY: -3, scale: 0.5, rotation: 45 },
+        },
+      ],
+      edges: [],
+    } as never);
+
+    // Centre is (50, 40); centre-scale compensation follows rotation in SVG transform order.
+    expect(svg).toContain(
+      'transform="translate(6 -3) rotate(45 50 40) translate(25 20) scale(0.5)"',
+    );
+  });
+
   it("uses semantic theme tokens and has stable metadata ordering", () => {
     const svg = renderSvg({
       width: 100,

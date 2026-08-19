@@ -113,6 +113,8 @@ export interface ResolvedNodeState {
   readonly translateX: number;
   readonly translateY: number;
   readonly scale: number;
+  /** Clockwise rotation in degrees about the resolved node centre. */
+  readonly rotation?: number;
   readonly progress: number;
   /** Emphasis 0..1 driven by timelines, state machines, or inspection. */
   readonly highlight?: number;
@@ -184,6 +186,12 @@ export interface ResolvedNode extends Rect {
   readonly clip?: boolean;
   /** Machine event to send when activated. */
   readonly onActivate?: string;
+  readonly onHover?: string;
+  readonly onLeave?: string;
+  readonly onFocus?: string;
+  readonly onBlur?: string;
+  readonly onPointer?: string;
+  readonly onDrag?: string;
   /** Structured inspection copy. */
   readonly inspect?: InspectInfo;
   /** Single tab stop whose interactive descendants are reached with arrow keys. */
@@ -324,6 +332,19 @@ export type TimelineProperty =
   | "translateX"
   | "translateY"
   | "scale"
+  | "rotation"
+  | "x"
+  | "y"
+  | "width"
+  | "height"
+  | "fill"
+  | "stroke"
+  | "color"
+  | "strokeWidth"
+  | "radius"
+  | "numericText"
+  | "pathMorph"
+  | "followPath"
   | "progress"
   | "edgeReveal"
   | "highlight"
@@ -331,10 +352,19 @@ export type TimelineProperty =
   | "revealX"
   | "revealY";
 
+export type TimelineValue = number | string;
+
 export interface TimelineKeyframe {
   readonly time: number;
-  readonly value: number;
+  readonly value: TimelineValue;
   readonly easing?: Easing;
+}
+
+export interface TimelineNumberFormat {
+  readonly digits?: number;
+  readonly prefix?: string;
+  readonly suffix?: string;
+  readonly thousands?: boolean;
 }
 
 export interface TimelineTrack {
@@ -343,11 +373,23 @@ export interface TimelineTrack {
   readonly target: string;
   readonly property: TimelineProperty;
   readonly keyframes: readonly TimelineKeyframe[];
+  /** Polyline in scene pixels used by `followPath`; the first point is the zero offset. */
+  readonly path?: readonly Point[];
+  /** Rotate the node to the current path tangent while following it. */
+  readonly orient?: boolean;
+  /** Stable formatting for `numericText`. */
+  readonly format?: TimelineNumberFormat;
+}
+
+export interface TimelineCue {
+  readonly name: string;
+  readonly time: number;
 }
 
 export interface AnimationTimeline {
   readonly duration: number;
   readonly tracks: readonly TimelineTrack[];
+  readonly cues?: readonly TimelineCue[];
 }
 
 export interface ResolvedFrame extends Omit<ResolvedScene, "nodes" | "edges"> {

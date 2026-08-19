@@ -14,6 +14,7 @@ describe("micro SVG charts", () => {
     expect(line).toContain('role="img" aria-label="Five recent builds"');
     expect(line).toContain("<title>Five recent builds</title>");
     expect(line).toContain("<path");
+    expect(line).toContain("var(--kg-color-chart1,currentColor)");
     expect(line.length).toBeLessThan(500);
 
     const area = renderMicroSvg([2, 4, 3], { type: "area", fill: "#7c3aed" });
@@ -41,6 +42,7 @@ describe("micro SVG charts", () => {
     const pie = renderMicroSvg("1,2,3", { type: "pie" });
     const donut = renderMicroSvg("3/5", { type: "donut", label: "Three of five" });
     expect(pie.match(/<path/g)).toHaveLength(3);
+    expect(pie).toContain("var(--kg-color-chart2,#2f7bd9)");
     expect(donut).toContain("A8 8");
     expect(donut).toContain('aria-label="Three of five"');
   });

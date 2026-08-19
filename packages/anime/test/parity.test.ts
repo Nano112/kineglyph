@@ -55,6 +55,13 @@ const definition: SceneDefinition = {
         fill: "chart2",
         revealAnchor: "bottom",
       },
+      {
+        id: "spinner",
+        type: "rect",
+        width: 52,
+        height: 28,
+        fill: "chart3",
+      },
     ],
   },
   timeline: {
@@ -103,6 +110,15 @@ const definition: SceneDefinition = {
         keyframes: [
           { time: 0, value: 0 },
           { time: 1000, value: 1 },
+        ],
+      },
+      {
+        id: "spinner-rotation",
+        target: "spinner",
+        property: "rotation",
+        keyframes: [
+          { time: 0, value: 0 },
+          { time: 1000, value: 90 },
         ],
       },
     ],
@@ -217,6 +233,192 @@ describe("live playback matches static frames", () => {
     const clipHeight = Number(attr(fixed, clip, "height"));
     const boxHeight = Number(attr(fixed, '.kg-node-shape[data-shape-of="box"]', "height"));
     expect(clipHeight).toBeCloseTo(boxHeight / 2, 1);
+    animator.dispose();
+  });
+
+  it.each([0, 500, 1000])("rotation has live/static visual parity at %i ms", (time) => {
+    const { live, static: fixed, animator } = mountAt(time);
+    const liveSpinner = live.querySelector<SVGElement>('[data-node-id="spinner"]');
+    const staticSpinner = fixed.querySelector<SVGElement>('[data-node-id="spinner"]');
+    const node = seekTimeline(resolved, time).nodes.find((entry) => entry.id === "spinner");
+    expect(liveSpinner).not.toBeNull();
+    expect(staticSpinner).not.toBeNull();
+    expect(node).toBeDefined();
+    if (node === undefined) throw new Error("missing resolved spinner");
+
+    const angle = node.state.rotation ?? 0;
+    if (angle === 0) {
+      expect(liveSpinner?.style.transform).toBe("none");
+      expect(staticSpinner?.getAttribute("transform")).toBeNull();
+      expect(liveSpinner?.style.transformOrigin).toBe("0 0");
+    } else {
+      expect(liveSpinner?.style.transform).toContain(`rotate(${angle}deg)`);
+      expect(staticSpinner?.getAttribute("transform")).toContain(`rotate(${angle} `);
+      expect(liveSpinner?.style.transformOrigin).toBe(
+        `${node.x + node.width / 2}px ${node.y + node.height / 2}px`,
+      );
+    }
+    animator.dispose();
+  });
+
+  it("keeps rich paint, geometry, numeric text, and path morphs in frame parity", () => {
+    const richDefinition: SceneDefinition = {
+      schemaVersion: 2,
+      id: "rich-parity",
+      title: "Rich parity",
+      root: {
+        id: "root",
+        type: "group",
+        layout: "coordinates",
+        height: 240,
+        children: [
+          { id: "dial", type: "rect", position: { x: 0.1, y: 0.1 }, width: 80, height: 40 },
+          { id: "count", type: "text", text: "0%", position: { x: 0.1, y: 0.5 }, width: 120 },
+          {
+            id: "morph",
+            type: "path",
+            d: "M 0 10 L 10 0 L 20 10 Z",
+            viewBox: { width: 20, height: 20 },
+            position: { x: 0.7, y: 0.5 },
+            width: 60,
+            height: 60,
+          },
+        ],
+      },
+      edges: [{ id: "rich-edge", from: "dial", to: "morph", route: "curve" }],
+      timeline: {
+        duration: 1_000,
+        tracks: [
+          {
+            id: "fill",
+            target: "dial",
+            property: "fill",
+            keyframes: [
+              { time: 0, value: "#000000" },
+              { time: 1_000, value: "#ffffff" },
+            ],
+          },
+          {
+            id: "stroke",
+            target: "dial",
+            property: "stroke",
+            keyframes: [
+              { time: 0, value: "#ff0000" },
+              { time: 1_000, value: "#0000ff" },
+            ],
+          },
+          {
+            id: "width",
+            target: "dial",
+            property: "strokeWidth",
+            keyframes: [
+              { time: 0, value: 1 },
+              { time: 1_000, value: 9 },
+            ],
+          },
+          {
+            id: "radius",
+            target: "dial",
+            property: "radius",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 1_000, value: 16 },
+            ],
+          },
+          {
+            id: "x",
+            target: "dial",
+            property: "x",
+            keyframes: [
+              { time: 0, value: 20 },
+              { time: 1_000, value: 60 },
+            ],
+          },
+          {
+            id: "height",
+            target: "dial",
+            property: "height",
+            keyframes: [
+              { time: 0, value: 40 },
+              { time: 1_000, value: 80 },
+            ],
+          },
+          {
+            id: "number",
+            target: "count",
+            property: "numericText",
+            format: { suffix: "%" },
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 1_000, value: 100 },
+            ],
+          },
+          {
+            id: "text-color",
+            target: "count",
+            property: "color",
+            keyframes: [
+              { time: 0, value: "#000000" },
+              { time: 1_000, value: "#00ff00" },
+            ],
+          },
+          {
+            id: "path",
+            target: "morph",
+            property: "pathMorph",
+            keyframes: [
+              { time: 0, value: "M 0 10 L 10 0 L 20 10 Z" },
+              { time: 1_000, value: "M 0 20 L 10 10 L 20 20 Z" },
+            ],
+          },
+          {
+            id: "edge-stroke",
+            target: "rich-edge",
+            property: "stroke",
+            keyframes: [
+              { time: 0, value: "#111111" },
+              { time: 1_000, value: "#eeeeee" },
+            ],
+          },
+          {
+            id: "edge-width",
+            target: "rich-edge",
+            property: "strokeWidth",
+            keyframes: [
+              { time: 0, value: 1 },
+              { time: 1_000, value: 7 },
+            ],
+          },
+        ],
+      },
+    };
+    const rich = resolveScene(richDefinition, { width: 500, theme });
+    const live = document.createElement("div");
+    live.innerHTML = renderSvg(seekTimeline(rich, 0), { idPrefix: "rich-live" });
+    document.body.append(live);
+    const animator = new KineglyphSceneAnimator({ root: live, scene: rich });
+    animator.applyFrame(500);
+    const fixed = document.createElement("div");
+    fixed.innerHTML = renderSvg(seekTimeline(rich, 500), { idPrefix: "rich-fixed" });
+    document.body.append(fixed);
+
+    const dial = '.kg-node-shape[data-shape-of="dial"]';
+    for (const name of ["x", "y", "width", "height", "rx", "fill", "stroke", "stroke-width"])
+      expect(attr(live, dial, name)).toBe(attr(fixed, dial, name));
+    expect(live.querySelector('text[data-text-of="count"]')?.getAttribute("fill")).toBe(
+      fixed.querySelector('text[data-text-of="count"]')?.getAttribute("fill"),
+    );
+    expect(live.querySelector('text[data-text-of="count"] tspan')?.textContent).toBe("50%");
+    expect(attr(live, '.kg-node-shape[data-shape-of="morph"]', "d")).toBe(
+      attr(fixed, '.kg-node-shape[data-shape-of="morph"]', "d"),
+    );
+    expect(attr(live, '.kg-node-shape[data-shape-of="morph"]', "transform")).toBe(
+      attr(fixed, '.kg-node-shape[data-shape-of="morph"]', "transform"),
+    );
+    for (const name of ["stroke", "stroke-width"])
+      expect(attr(live, '[data-edge-id="rich-edge"]', name)).toBe(
+        attr(fixed, '[data-edge-id="rich-edge"]', name),
+      );
     animator.dispose();
   });
 });

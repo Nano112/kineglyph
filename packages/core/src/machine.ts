@@ -5,7 +5,8 @@
  * machine state and the event, so any state can be reconstructed without transition history.
  */
 
-export type VariableValue = string | number | boolean | null;
+export type ScalarValue = string | number | boolean | null;
+export type VariableValue = ScalarValue | readonly ScalarValue[];
 export type Variables = Readonly<Record<string, VariableValue>>;
 
 export type ComparisonOperator =
@@ -15,7 +16,7 @@ export type Condition =
   | {
       readonly var: string;
       readonly op?: ComparisonOperator;
-      readonly value?: VariableValue | readonly VariableValue[];
+      readonly value?: VariableValue;
     }
   | { readonly state: string | readonly string[] }
   | { readonly selection: string | null }
@@ -55,6 +56,69 @@ export interface MachineStateDefinition {
   readonly on?: Readonly<Record<string, TransitionSpec>>;
 }
 
+export type ArithmeticExpressionOperator =
+  | "add"
+  | "subtract"
+  | "multiply"
+  | "divide"
+  | "modulo"
+  | "power"
+  | "min"
+  | "max"
+  | "clamp"
+  | "abs"
+  | "floor"
+  | "ceil"
+  | "round";
+
+export type BitwiseExpressionOperator =
+  | "bitAnd"
+  | "bitOr"
+  | "bitXor"
+  | "bitNot"
+  | "shiftLeft"
+  | "shiftRight"
+  | "unsignedShiftRight"
+  | "bit";
+
+export type ComparisonExpressionOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte";
+
+export type CollectionExpressionOperator = "at" | "length" | "join" | "includes" | "slice" | "sum";
+
+export type StringExpressionOperator = "upper" | "lower" | "trim" | "replace";
+
+export type SignalExpressionOperator =
+  | ArithmeticExpressionOperator
+  | BitwiseExpressionOperator
+  | ComparisonExpressionOperator
+  | CollectionExpressionOperator
+  | StringExpressionOperator;
+
+export interface OperationExpression {
+  readonly op: SignalExpressionOperator;
+  readonly args: readonly SignalExpression[];
+}
+
+/** Deterministic, locale-independent scalar formatting. */
+export interface FormatExpression {
+  readonly format: SignalExpression;
+  /** Integer radix, from 2 through 36. Omit for ordinary decimal formatting. */
+  readonly radix?: number;
+  /** Minimum character count, padded on the left. */
+  readonly pad?: number;
+  /** A single padding character. Defaults to `0`. */
+  readonly padWith?: string;
+  /** Fixed decimal places. Cannot be combined with `radix`. */
+  readonly precision?: number;
+  readonly uppercase?: boolean;
+  readonly prefix?: string;
+  readonly suffix?: string;
+}
+
+export interface ListExpression {
+  readonly list: readonly SignalExpression[];
+}
+
 /** Serializable derived-value expressions evaluated against the current machine state. */
 export type SignalExpression =
   | VariableValue
@@ -69,7 +133,121 @@ export type SignalExpression =
       readonly default?: SignalExpression;
     }
   | { readonly concat: readonly SignalExpression[]; readonly separator?: string }
-  | { readonly not: SignalExpression };
+  | { readonly not: SignalExpression }
+  | OperationExpression
+  | FormatExpression
+  | ListExpression;
+
+export type FormatExpressionOptions = Omit<FormatExpression, "format">;
+
+function operation(
+  op: SignalExpressionOperator,
+  args: readonly SignalExpression[],
+): OperationExpression {
+  return { op, args };
+}
+
+/**
+ * Typed builders for the serializable signal-expression IR. The returned values are plain data:
+ * they contain no callbacks and survive JSON serialization unchanged.
+ */
+export const expr = {
+  var: (name: string): SignalExpression => ({ var: name }),
+  signal: (name: string): SignalExpression => ({ signal: name }),
+  state: (): SignalExpression => ({ state: true }),
+  selection: (): SignalExpression => ({ selection: true }),
+  when: (
+    when: Condition,
+    then: SignalExpression,
+    otherwise?: SignalExpression,
+  ): SignalExpression => ({ when, then, ...(otherwise === undefined ? {} : { else: otherwise }) }),
+  match: (
+    match: SignalExpression,
+    cases: Readonly<Record<string, SignalExpression>>,
+    fallback?: SignalExpression,
+  ): SignalExpression => ({
+    match,
+    cases,
+    ...(fallback === undefined ? {} : { default: fallback }),
+  }),
+  concat: (parts: readonly SignalExpression[], separator?: string): SignalExpression => ({
+    concat: parts,
+    ...(separator === undefined ? {} : { separator }),
+  }),
+  not: (value: SignalExpression): SignalExpression => ({ not: value }),
+  list: (...items: readonly SignalExpression[]): SignalExpression => ({ list: items }),
+  add: (...args: readonly SignalExpression[]): SignalExpression => operation("add", args),
+  subtract: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("subtract", [left, right]),
+  multiply: (...args: readonly SignalExpression[]): SignalExpression => operation("multiply", args),
+  divide: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("divide", [left, right]),
+  modulo: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("modulo", [left, right]),
+  power: (base: SignalExpression, exponent: SignalExpression): SignalExpression =>
+    operation("power", [base, exponent]),
+  min: (...args: readonly SignalExpression[]): SignalExpression => operation("min", args),
+  max: (...args: readonly SignalExpression[]): SignalExpression => operation("max", args),
+  clamp: (
+    value: SignalExpression,
+    minimum: SignalExpression,
+    maximum: SignalExpression,
+  ): SignalExpression => operation("clamp", [value, minimum, maximum]),
+  abs: (value: SignalExpression): SignalExpression => operation("abs", [value]),
+  floor: (value: SignalExpression): SignalExpression => operation("floor", [value]),
+  ceil: (value: SignalExpression): SignalExpression => operation("ceil", [value]),
+  round: (value: SignalExpression): SignalExpression => operation("round", [value]),
+  bitAnd: (...args: readonly SignalExpression[]): SignalExpression => operation("bitAnd", args),
+  bitOr: (...args: readonly SignalExpression[]): SignalExpression => operation("bitOr", args),
+  bitXor: (...args: readonly SignalExpression[]): SignalExpression => operation("bitXor", args),
+  bitNot: (value: SignalExpression): SignalExpression => operation("bitNot", [value]),
+  shiftLeft: (value: SignalExpression, count: SignalExpression): SignalExpression =>
+    operation("shiftLeft", [value, count]),
+  shiftRight: (value: SignalExpression, count: SignalExpression): SignalExpression =>
+    operation("shiftRight", [value, count]),
+  unsignedShiftRight: (value: SignalExpression, count: SignalExpression): SignalExpression =>
+    operation("unsignedShiftRight", [value, count]),
+  bit: (value: SignalExpression, index: SignalExpression): SignalExpression =>
+    operation("bit", [value, index]),
+  eq: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("eq", [left, right]),
+  neq: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("neq", [left, right]),
+  gt: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("gt", [left, right]),
+  gte: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("gte", [left, right]),
+  lt: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("lt", [left, right]),
+  lte: (left: SignalExpression, right: SignalExpression): SignalExpression =>
+    operation("lte", [left, right]),
+  at: (collection: SignalExpression, index: SignalExpression): SignalExpression =>
+    operation("at", [collection, index]),
+  length: (collection: SignalExpression): SignalExpression => operation("length", [collection]),
+  join: (collection: SignalExpression, separator: SignalExpression = ", "): SignalExpression =>
+    operation("join", [collection, separator]),
+  includes: (collection: SignalExpression, value: SignalExpression): SignalExpression =>
+    operation("includes", [collection, value]),
+  slice: (
+    collection: SignalExpression,
+    start: SignalExpression,
+    end?: SignalExpression,
+  ): SignalExpression =>
+    operation("slice", end === undefined ? [collection, start] : [collection, start, end]),
+  sum: (collection: SignalExpression): SignalExpression => operation("sum", [collection]),
+  upper: (value: SignalExpression): SignalExpression => operation("upper", [value]),
+  lower: (value: SignalExpression): SignalExpression => operation("lower", [value]),
+  trim: (value: SignalExpression): SignalExpression => operation("trim", [value]),
+  replace: (
+    value: SignalExpression,
+    search: SignalExpression,
+    replacement: SignalExpression,
+  ): SignalExpression => operation("replace", [value, search, replacement]),
+  format: (value: SignalExpression, options: FormatExpressionOptions = {}): SignalExpression => ({
+    format: value,
+    ...options,
+  }),
+} as const;
 
 export interface StateMachineDefinition {
   readonly id: string;
@@ -157,7 +335,11 @@ function conditionSelections(condition: Condition, out: string[]): void {
 function isExpressionObject(
   expression: SignalExpression,
 ): expression is Exclude<SignalExpression, VariableValue> {
-  return typeof expression === "object" && expression !== null;
+  return typeof expression === "object" && expression !== null && !Array.isArray(expression);
+}
+
+function isExpressionArray(value: unknown): value is readonly SignalExpression[] {
+  return Array.isArray(value);
 }
 
 function expressionReferences(
@@ -178,6 +360,325 @@ function expressionReferences(
   } else if ("concat" in expression) {
     for (const part of expression.concat) expressionReferences(part, refs);
   } else if ("not" in expression) expressionReferences(expression.not, refs);
+  else if ("op" in expression) {
+    if (isExpressionArray(expression.args))
+      for (const argument of expression.args) expressionReferences(argument, refs);
+  } else if ("format" in expression) expressionReferences(expression.format, refs);
+  else if ("list" in expression)
+    for (const item of expression.list) expressionReferences(item, refs);
+}
+
+type ExpressionKind = "string" | "number" | "boolean" | "null" | "collection" | "unknown";
+
+interface OperationRule {
+  readonly minArgs: number;
+  readonly maxArgs: number;
+  readonly numeric: boolean;
+  readonly result: ExpressionKind;
+}
+
+const OPERATION_RULES: Readonly<Record<SignalExpressionOperator, OperationRule>> = {
+  add: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  subtract: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  multiply: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  divide: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  modulo: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  power: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  min: { minArgs: 1, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  max: { minArgs: 1, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  clamp: { minArgs: 3, maxArgs: 3, numeric: true, result: "number" },
+  abs: { minArgs: 1, maxArgs: 1, numeric: true, result: "number" },
+  floor: { minArgs: 1, maxArgs: 1, numeric: true, result: "number" },
+  ceil: { minArgs: 1, maxArgs: 1, numeric: true, result: "number" },
+  round: { minArgs: 1, maxArgs: 1, numeric: true, result: "number" },
+  bitAnd: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  bitOr: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  bitXor: { minArgs: 2, maxArgs: Number.POSITIVE_INFINITY, numeric: true, result: "number" },
+  bitNot: { minArgs: 1, maxArgs: 1, numeric: true, result: "number" },
+  shiftLeft: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  shiftRight: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  unsignedShiftRight: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  bit: { minArgs: 2, maxArgs: 2, numeric: true, result: "number" },
+  eq: { minArgs: 2, maxArgs: 2, numeric: false, result: "boolean" },
+  neq: { minArgs: 2, maxArgs: 2, numeric: false, result: "boolean" },
+  gt: { minArgs: 2, maxArgs: 2, numeric: true, result: "boolean" },
+  gte: { minArgs: 2, maxArgs: 2, numeric: true, result: "boolean" },
+  lt: { minArgs: 2, maxArgs: 2, numeric: true, result: "boolean" },
+  lte: { minArgs: 2, maxArgs: 2, numeric: true, result: "boolean" },
+  at: { minArgs: 2, maxArgs: 2, numeric: false, result: "unknown" },
+  length: { minArgs: 1, maxArgs: 1, numeric: false, result: "number" },
+  join: { minArgs: 2, maxArgs: 2, numeric: false, result: "string" },
+  includes: { minArgs: 2, maxArgs: 2, numeric: false, result: "boolean" },
+  slice: { minArgs: 2, maxArgs: 3, numeric: false, result: "unknown" },
+  sum: { minArgs: 1, maxArgs: 1, numeric: false, result: "number" },
+  upper: { minArgs: 1, maxArgs: 1, numeric: false, result: "string" },
+  lower: { minArgs: 1, maxArgs: 1, numeric: false, result: "string" },
+  trim: { minArgs: 1, maxArgs: 1, numeric: false, result: "string" },
+  replace: { minArgs: 3, maxArgs: 3, numeric: false, result: "string" },
+};
+
+function valueKind(value: VariableValue | undefined): ExpressionKind {
+  if (value === undefined) return "unknown";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "collection";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  return "string";
+}
+
+function sharedKind(kinds: readonly ExpressionKind[]): ExpressionKind {
+  const known = kinds.filter((kind) => kind !== "unknown");
+  if (known.length === 0) return "unknown";
+  return known.every((kind) => kind === known[0]) ? (known[0] ?? "unknown") : "unknown";
+}
+
+function validateExpressionOperands(
+  expression: SignalExpression,
+  path: string,
+  variableKinds: ReadonlyMap<string, ExpressionKind>,
+  signalKinds: ReadonlyMap<string, ExpressionKind>,
+  error: (code: string, message: string, path?: string) => void,
+): ExpressionKind {
+  if (!isExpressionObject(expression)) {
+    if (typeof expression === "number" && !Number.isFinite(expression))
+      error("invalid-operand", `${path} contains a non-finite number`, path);
+    return valueKind(expression);
+  }
+  if ("var" in expression) return variableKinds.get(expression.var) ?? "unknown";
+  if ("signal" in expression) return signalKinds.get(expression.signal) ?? "unknown";
+  if ("state" in expression || "selection" in expression)
+    return "state" in expression ? "string" : "unknown";
+  if ("when" in expression) {
+    const thenKind = validateExpressionOperands(
+      expression.then,
+      `${path}.then`,
+      variableKinds,
+      signalKinds,
+      error,
+    );
+    const elseKind =
+      expression.else === undefined
+        ? "null"
+        : validateExpressionOperands(
+            expression.else,
+            `${path}.else`,
+            variableKinds,
+            signalKinds,
+            error,
+          );
+    return sharedKind([thenKind, elseKind]);
+  }
+  if ("match" in expression) {
+    validateExpressionOperands(
+      expression.match,
+      `${path}.match`,
+      variableKinds,
+      signalKinds,
+      error,
+    );
+    const branchKinds = Object.entries(expression.cases).map(([key, branch]) =>
+      validateExpressionOperands(branch, `${path}.cases.${key}`, variableKinds, signalKinds, error),
+    );
+    if (expression.default !== undefined)
+      branchKinds.push(
+        validateExpressionOperands(
+          expression.default,
+          `${path}.default`,
+          variableKinds,
+          signalKinds,
+          error,
+        ),
+      );
+    return sharedKind(branchKinds);
+  }
+  if ("concat" in expression) {
+    expression.concat.forEach((part, index) =>
+      validateExpressionOperands(
+        part,
+        `${path}.concat[${index}]`,
+        variableKinds,
+        signalKinds,
+        error,
+      ),
+    );
+    return "string";
+  }
+  if ("not" in expression) {
+    validateExpressionOperands(expression.not, `${path}.not`, variableKinds, signalKinds, error);
+    return "boolean";
+  }
+  if ("list" in expression) {
+    expression.list.forEach((item, index) => {
+      const kind = validateExpressionOperands(
+        item,
+        `${path}.list[${index}]`,
+        variableKinds,
+        signalKinds,
+        error,
+      );
+      if (kind === "collection")
+        error(
+          "invalid-operand",
+          `${path}.list[${index}] must be a scalar; nested collections are not supported`,
+          `${path}.list[${index}]`,
+        );
+    });
+    return "collection";
+  }
+  if ("op" in expression) {
+    const rule = OPERATION_RULES[expression.op];
+    if (rule === undefined) {
+      error("invalid-expression", `${path} uses unknown operator "${String(expression.op)}"`, path);
+      return "unknown";
+    }
+    const args = isExpressionArray(expression.args) ? expression.args : [];
+    if (!isExpressionArray(expression.args))
+      error("invalid-expression", `${path}.${expression.op} args must be an array`, path);
+    if (args.length < rule.minArgs || args.length > rule.maxArgs) {
+      const wanted =
+        rule.minArgs === rule.maxArgs
+          ? `${rule.minArgs}`
+          : rule.maxArgs === Number.POSITIVE_INFINITY
+            ? `at least ${rule.minArgs}`
+            : `${rule.minArgs}–${rule.maxArgs}`;
+      error(
+        "invalid-operand",
+        `${path}.${expression.op} expects ${wanted} operand${rule.maxArgs === 1 ? "" : "s"}, received ${args.length}`,
+        path,
+      );
+    }
+    const kinds = args.map((argument, index) =>
+      validateExpressionOperands(
+        argument,
+        `${path}.args[${index}]`,
+        variableKinds,
+        signalKinds,
+        error,
+      ),
+    );
+    if (rule.numeric)
+      kinds.forEach((kind, index) => {
+        if (kind !== "number" && kind !== "unknown")
+          error(
+            "invalid-operand",
+            `${path}.${expression.op} operand ${index + 1} must be a number, received ${kind}`,
+            `${path}.args[${index}]`,
+          );
+      });
+    const expectOperand = (
+      index: number,
+      accepted: readonly ExpressionKind[],
+      description: string,
+    ): void => {
+      const kind = kinds[index] ?? "unknown";
+      if (kind !== "unknown" && !accepted.includes(kind))
+        error(
+          "invalid-operand",
+          `${path}.${expression.op} operand ${index + 1} must be ${description}, received ${kind}`,
+          `${path}.args[${index}]`,
+        );
+    };
+    switch (expression.op) {
+      case "at":
+        expectOperand(0, ["collection", "string"], "a collection or string");
+        expectOperand(1, ["number"], "a number");
+        break;
+      case "length":
+        expectOperand(0, ["collection", "string"], "a collection or string");
+        break;
+      case "join":
+        expectOperand(0, ["collection"], "a collection");
+        expectOperand(1, ["string"], "a string");
+        break;
+      case "includes":
+        expectOperand(0, ["collection", "string"], "a collection or string");
+        if (kinds[0] === "string") expectOperand(1, ["string"], "a string");
+        break;
+      case "slice":
+        expectOperand(0, ["collection", "string"], "a collection or string");
+        expectOperand(1, ["number"], "a number");
+        if (args.length === 3) expectOperand(2, ["number"], "a number");
+        break;
+      case "sum":
+        expectOperand(0, ["collection"], "a collection");
+        break;
+      case "upper":
+      case "lower":
+      case "trim":
+        expectOperand(0, ["string"], "a string");
+        break;
+      case "replace":
+        expectOperand(0, ["string"], "a string");
+        expectOperand(1, ["string"], "a string");
+        expectOperand(2, ["string"], "a string");
+        break;
+    }
+    const second = args[1];
+    if (
+      (expression.op === "divide" || expression.op === "modulo") &&
+      typeof second === "number" &&
+      second === 0
+    )
+      error(
+        "invalid-operand",
+        `${path}.${expression.op} divisor must not be zero`,
+        `${path}.args[1]`,
+      );
+    if (
+      (expression.op === "bit" ||
+        expression.op === "shiftLeft" ||
+        expression.op === "shiftRight" ||
+        expression.op === "unsignedShiftRight") &&
+      typeof second === "number" &&
+      (!Number.isInteger(second) || second < 0 || second > 31)
+    )
+      error(
+        "invalid-operand",
+        `${path}.${expression.op} index/count must be an integer from 0 through 31`,
+        `${path}.args[1]`,
+      );
+    return rule.result;
+  }
+  if ("format" in expression) {
+    const inputKind = validateExpressionOperands(
+      expression.format,
+      `${path}.format`,
+      variableKinds,
+      signalKinds,
+      error,
+    );
+    if (
+      expression.radix !== undefined &&
+      (!Number.isInteger(expression.radix) || expression.radix < 2 || expression.radix > 36)
+    )
+      error("invalid-format", `${path}.radix must be an integer from 2 through 36`, path);
+    if (expression.pad !== undefined && (!Number.isInteger(expression.pad) || expression.pad < 0))
+      error("invalid-format", `${path}.pad must be a non-negative integer`, path);
+    if (expression.padWith !== undefined && [...expression.padWith].length !== 1)
+      error("invalid-format", `${path}.padWith must be exactly one character`, path);
+    if (
+      expression.precision !== undefined &&
+      (!Number.isInteger(expression.precision) ||
+        expression.precision < 0 ||
+        expression.precision > 100)
+    )
+      error("invalid-format", `${path}.precision must be an integer from 0 through 100`, path);
+    if (expression.radix !== undefined && expression.precision !== undefined)
+      error("invalid-format", `${path} cannot combine radix and precision`, path);
+    if (
+      (expression.radix !== undefined || expression.precision !== undefined) &&
+      inputKind !== "number" &&
+      inputKind !== "unknown"
+    )
+      error(
+        "invalid-operand",
+        `${path}.format must be numeric when radix or precision is set, received ${inputKind}`,
+        `${path}.format`,
+      );
+    return "string";
+  }
+  error("invalid-expression", `${path} is not a recognised signal expression`, path);
+  return "unknown";
 }
 
 /** Validates a machine definition and returns every diagnostic rather than the first failure. */
@@ -204,6 +705,9 @@ export function validateStateMachine(
         ? options.nodeIds
         : new Set(options.nodeIds as readonly string[]);
   const variables = new Set(Object.keys(machine.variables ?? {}));
+  const variableKinds = new Map<string, ExpressionKind>(
+    Object.entries(machine.variables ?? {}).map(([name, value]) => [name, valueKind(value)]),
+  );
   const stateIds = Object.keys(machine.states);
   const signalIds = Object.keys(machine.signals ?? {});
   const stateSet = new Set(stateIds);
@@ -325,6 +829,7 @@ export function validateStateMachine(
       );
 
   const declaredSignals = new Set<string>();
+  const signalKinds = new Map<string, ExpressionKind>();
   for (const [signalId, expression] of Object.entries(machine.signals ?? {})) {
     const path = `signals.${signalId}`;
     const refs = { vars: [] as string[], signals: [] as string[], conditions: [] as Condition[] };
@@ -342,6 +847,10 @@ export function validateStateMachine(
         );
     }
     for (const condition of refs.conditions) checkCondition(condition, path);
+    signalKinds.set(
+      signalId,
+      validateExpressionOperands(expression, path, variableKinds, signalKinds, error),
+    );
     declaredSignals.add(signalId);
   }
 
@@ -413,7 +922,201 @@ export function evaluateCondition(condition: Condition, state: MachineState): bo
 
 function stringify(value: VariableValue | undefined): string {
   if (value === undefined || value === null) return "";
+  if (isScalarCollection(value)) return value.map((item) => stringify(item)).join(",");
   return typeof value === "string" ? value : String(value);
+}
+
+function isScalarCollection(value: VariableValue | undefined): value is readonly ScalarValue[] {
+  return Array.isArray(value);
+}
+
+function isFiniteNumberCollection(value: VariableValue | undefined): value is readonly number[] {
+  return (
+    isScalarCollection(value) &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+  );
+}
+
+function finiteNumbers(values: readonly VariableValue[]): readonly number[] | undefined {
+  if (values.some((value) => typeof value !== "number" || !Number.isFinite(value)))
+    return undefined;
+  return values as readonly number[];
+}
+
+function finiteResult(value: number): number | null {
+  return Number.isFinite(value) ? value : null;
+}
+
+function evaluateOperation(
+  expression: OperationExpression,
+  state: MachineState,
+  signals: Record<string, VariableValue>,
+): VariableValue {
+  const values = expression.args.map((argument) => evaluateExpression(argument, state, signals));
+  if (expression.op === "eq") return values[0] === values[1];
+  if (expression.op === "neq") return values[0] !== values[1];
+  const collection = values[0];
+  const operand = values[1];
+  switch (expression.op) {
+    case "at": {
+      if (typeof operand !== "number" || !Number.isInteger(operand)) return null;
+      if (typeof collection === "string") return collection.at(operand) ?? null;
+      return isScalarCollection(collection) ? (collection.at(operand) ?? null) : null;
+    }
+    case "length":
+      return typeof collection === "string" || isScalarCollection(collection)
+        ? collection.length
+        : null;
+    case "join":
+      return isScalarCollection(collection) && typeof operand === "string"
+        ? collection.map((value) => stringify(value)).join(operand)
+        : null;
+    case "includes":
+      if (typeof collection === "string")
+        return typeof operand === "string" && collection.includes(operand);
+      return (
+        isScalarCollection(collection) &&
+        operand !== undefined &&
+        !isScalarCollection(operand) &&
+        collection.includes(operand)
+      );
+    case "slice": {
+      const end = values[2];
+      if (
+        typeof operand !== "number" ||
+        !Number.isInteger(operand) ||
+        (end !== undefined && (typeof end !== "number" || !Number.isInteger(end)))
+      )
+        return null;
+      if (typeof collection === "string") return collection.slice(operand, end);
+      return isScalarCollection(collection) ? collection.slice(operand, end) : null;
+    }
+    case "sum":
+      return isFiniteNumberCollection(collection)
+        ? finiteResult(collection.reduce((sum, value) => sum + value, 0))
+        : null;
+    case "upper":
+      return typeof collection === "string" ? collection.toUpperCase() : null;
+    case "lower":
+      return typeof collection === "string" ? collection.toLowerCase() : null;
+    case "trim":
+      return typeof collection === "string" ? collection.trim() : null;
+    case "replace": {
+      const replacement = values[2];
+      return typeof collection === "string" &&
+        typeof operand === "string" &&
+        typeof replacement === "string"
+        ? collection.replaceAll(operand, replacement)
+        : null;
+    }
+  }
+  const numbers = finiteNumbers(values);
+  if (numbers === undefined) return null;
+  const first = numbers[0];
+  const second = numbers[1];
+  if (first === undefined) return null;
+  switch (expression.op) {
+    case "add":
+      return finiteResult(numbers.reduce((sum, value) => sum + value, 0));
+    case "subtract":
+      return second === undefined ? null : finiteResult(first - second);
+    case "multiply":
+      return finiteResult(numbers.reduce((product, value) => product * value, 1));
+    case "divide":
+      return second === undefined || second === 0 ? null : finiteResult(first / second);
+    case "modulo":
+      return second === undefined || second === 0 ? null : finiteResult(first % second);
+    case "power":
+      return second === undefined ? null : finiteResult(first ** second);
+    case "min":
+      return Math.min(...numbers);
+    case "max":
+      return Math.max(...numbers);
+    case "clamp": {
+      const maximum = numbers[2];
+      return second === undefined || maximum === undefined
+        ? null
+        : Math.min(maximum, Math.max(second, first));
+    }
+    case "abs":
+      return Math.abs(first);
+    case "floor":
+      return Math.floor(first);
+    case "ceil":
+      return Math.ceil(first);
+    case "round":
+      return Math.round(first);
+    case "bitAnd":
+      return numbers.slice(1).reduce((result, value) => result & value, first);
+    case "bitOr":
+      return numbers.slice(1).reduce((result, value) => result | value, first);
+    case "bitXor":
+      return numbers.slice(1).reduce((result, value) => result ^ value, first);
+    case "bitNot":
+      return ~first;
+    case "shiftLeft":
+      return second === undefined || !Number.isInteger(second) || second < 0 || second > 31
+        ? null
+        : first << second;
+    case "shiftRight":
+      return second === undefined || !Number.isInteger(second) || second < 0 || second > 31
+        ? null
+        : first >> second;
+    case "unsignedShiftRight":
+      return second === undefined || !Number.isInteger(second) || second < 0 || second > 31
+        ? null
+        : first >>> second;
+    case "bit":
+      return second === undefined || !Number.isInteger(second) || second < 0 || second > 31
+        ? null
+        : (first >>> second) & 1;
+    case "gt":
+      return second === undefined ? false : first > second;
+    case "gte":
+      return second === undefined ? false : first >= second;
+    case "lt":
+      return second === undefined ? false : first < second;
+    case "lte":
+      return second === undefined ? false : first <= second;
+  }
+}
+
+function evaluateFormat(
+  expression: FormatExpression,
+  state: MachineState,
+  signals: Record<string, VariableValue>,
+): string {
+  const value = evaluateExpression(expression.format, state, signals);
+  let rendered: string;
+  if (expression.radix !== undefined) {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(expression.radix) ||
+      expression.radix < 2 ||
+      expression.radix > 36
+    )
+      return "";
+    rendered = Math.trunc(value).toString(expression.radix);
+  } else if (expression.precision !== undefined) {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(expression.precision) ||
+      expression.precision < 0 ||
+      expression.precision > 100
+    )
+      return "";
+    rendered = value.toFixed(expression.precision);
+  } else rendered = stringify(value);
+  if (expression.uppercase === true) rendered = rendered.toUpperCase();
+  if (expression.pad !== undefined && expression.pad > rendered.length) {
+    const padding = expression.padWith ?? "0";
+    if (rendered.startsWith("-"))
+      rendered = `-${rendered.slice(1).padStart(expression.pad - 1, padding)}`;
+    else rendered = rendered.padStart(expression.pad, padding);
+  }
+  return `${expression.prefix ?? ""}${rendered}${expression.suffix ?? ""}`;
 }
 
 function evaluateExpression(
@@ -444,7 +1147,13 @@ function evaluateExpression(
     return expression.concat
       .map((part) => stringify(evaluateExpression(part, state, signals)))
       .join(expression.separator ?? "");
-  return !truthy(evaluateExpression(expression.not, state, signals));
+  if ("not" in expression) return !truthy(evaluateExpression(expression.not, state, signals));
+  if ("list" in expression) {
+    const values = expression.list.map((item) => evaluateExpression(item, state, signals));
+    return values.some((value) => Array.isArray(value)) ? null : (values as readonly ScalarValue[]);
+  }
+  if ("op" in expression) return evaluateOperation(expression, state, signals);
+  return evaluateFormat(expression, state, signals);
 }
 
 /**

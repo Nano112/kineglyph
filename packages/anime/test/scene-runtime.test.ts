@@ -15,6 +15,115 @@ afterEach(() => {
 });
 
 describe("KineglyphSceneAnimator terminal state", () => {
+  it("seeks named cues without repeating their timestamps in transport code", () => {
+    const scene = resolvePipeline(
+      {
+        id: "named-cue",
+        title: "Named cue",
+        nodes: [{ id: "visible", label: "Visible" }],
+        edges: [],
+        timeline: {
+          duration: 100,
+          cues: [{ name: "emphasis", time: 60 }],
+          tracks: [
+            {
+              id: "visible-opacity",
+              target: "visible",
+              property: "opacity",
+              keyframes: [
+                { time: 0, value: 0 },
+                { time: 100, value: 1 },
+              ],
+            },
+          ],
+        },
+      },
+      { width: 390, layout: "stacked" },
+    );
+    const root = document.createElement("div");
+    root.innerHTML = '<svg><g data-node-id="visible"></g></svg>';
+    document.body.append(root);
+    const animator = new KineglyphSceneAnimator({ root, scene });
+    animator.seekCue("emphasis");
+    expect(animator.time).toBe(60);
+    expect(root.querySelector<SVGGElement>('[data-node-id="visible"]')?.style.opacity).toBe("0.6");
+    expect(() => animator.seekCue("missing")).toThrow(/unknown timeline cue/);
+    animator.dispose();
+  });
+
+  it("renders the terminal rotation immediately under reduced motion", () => {
+    const scene = resolvePipeline(
+      {
+        id: "reduced-rotation",
+        title: "Reduced rotation",
+        nodes: [{ id: "needle", label: "Needle" }],
+        edges: [],
+        timeline: {
+          duration: 500,
+          tracks: [
+            {
+              id: "needle-turn",
+              target: "needle",
+              property: "rotation",
+              keyframes: [
+                { time: 0, value: -30 },
+                { time: 500, value: 135 },
+              ],
+            },
+          ],
+        },
+      },
+      { width: 390, layout: "stacked" },
+    );
+    const root = document.createElement("div");
+    root.innerHTML = '<svg><g data-node-id="needle"></g></svg>';
+    document.body.append(root);
+
+    const animator = new KineglyphSceneAnimator({ root, scene, reducedMotion: true });
+    const needle = root.querySelector<SVGGElement>('[data-node-id="needle"]');
+    expect(animator.time).toBe(500);
+    expect(needle?.style.transform).toContain("rotate(135deg)");
+    animator.seek(0);
+    expect(needle?.style.transform).toContain("rotate(135deg)");
+    animator.dispose();
+  });
+
+  it("can repeat a deterministic scene timeline", async () => {
+    const scene = resolvePipeline(
+      {
+        id: "looping-runtime",
+        title: "Looping runtime",
+        nodes: [{ id: "visible", label: "Visible" }],
+        edges: [],
+        timeline: {
+          duration: 32,
+          tracks: [
+            {
+              id: "visible-opacity",
+              target: "visible",
+              property: "opacity",
+              keyframes: [
+                { time: 0, value: 0 },
+                { time: 32, value: 1 },
+              ],
+            },
+          ],
+        },
+      },
+      { width: 390, layout: "stacked" },
+    );
+    const root = document.createElement("div");
+    root.innerHTML = '<svg><g data-node-id="visible"></g></svg>';
+    document.body.append(root);
+    const animator = new KineglyphSceneAnimator({ root, scene, loop: true });
+
+    animator.play();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(animator.playing).toBe(true);
+    expect(animator.time).toBeLessThan(32);
+    animator.dispose();
+  });
+
   it("keeps the completed DOM frame visible and allows replay", async () => {
     const scene = resolvePipeline(
       {

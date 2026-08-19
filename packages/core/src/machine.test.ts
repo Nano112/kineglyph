@@ -4,6 +4,7 @@ import {
   createMachineState,
   defineStateMachine,
   evaluateSignals,
+  expr,
   resolveMachineState,
   sendMachineEvent,
   validateStateMachine,
@@ -138,6 +139,156 @@ describe("state machines", () => {
     expect(signals.$state).toBe("shorthand");
     expect(signals.$selection).toBe("shorthand-card");
     expect(evaluateSignals(machine, createMachineState(machine)).isDecided).toBe(false);
+  });
+
+  it("evaluates serializable arithmetic, bitwise, comparison, and format expressions", () => {
+    const expressions: NonNullable<StateMachineDefinition["signals"]> = {
+      sum: expr.add(expr.var("a"), expr.var("b"), 4),
+      difference: expr.subtract(expr.var("a"), expr.var("b")),
+      product: expr.multiply(expr.var("a"), expr.var("b")),
+      quotient: expr.divide(expr.var("a"), expr.var("b")),
+      remainder: expr.modulo(expr.var("a"), expr.var("b")),
+      power: expr.power(expr.var("b"), 3),
+      bounded: expr.clamp(expr.var("a"), 0, 10),
+      smallest: expr.min(expr.var("a"), expr.var("b"), 9),
+      rounded: expr.round(expr.divide(expr.var("a"), expr.var("b"))),
+      and: expr.bitAnd(expr.var("a"), expr.var("b")),
+      or: expr.bitOr(expr.var("a"), expr.var("b")),
+      xor: expr.bitXor(expr.var("a"), expr.var("b")),
+      inverted: expr.bitNot(expr.var("a")),
+      shifted: expr.shiftLeft(expr.var("b"), 2),
+      unsigned: expr.unsignedShiftRight(-1, 28),
+      bit2: expr.bit(expr.var("a"), 2),
+      greater: expr.gt(expr.var("a"), expr.var("b")),
+      sameBit: expr.eq(expr.signal("bit2"), 1),
+      binary: expr.format(expr.var("a"), { radix: 2, pad: 8 }),
+      hex: expr.format(expr.var("a"), { radix: 16, pad: 2, uppercase: true, prefix: "0x" }),
+      ratio: expr.format(expr.signal("quotient"), { precision: 2, suffix: "×" }),
+      summary: expr.concat([expr.signal("binary"), expr.signal("hex")], " / "),
+    };
+    const arithmetic = defineStateMachine({
+      id: "expression-math",
+      initial: "ready",
+      variables: { a: 13, b: 3 },
+      states: { ready: {} },
+      signals: expressions,
+    });
+    const signals = evaluateSignals(arithmetic, createMachineState(arithmetic));
+    expect(signals).toMatchObject({
+      sum: 20,
+      difference: 10,
+      product: 39,
+      remainder: 1,
+      power: 27,
+      bounded: 10,
+      smallest: 3,
+      rounded: 4,
+      and: 1,
+      or: 15,
+      xor: 14,
+      inverted: -14,
+      shifted: 12,
+      unsigned: 15,
+      bit2: 1,
+      greater: true,
+      sameBit: true,
+      binary: "00001101",
+      hex: "0x0D",
+      ratio: "4.33×",
+      summary: "00001101 / 0x0D",
+    });
+    expect(JSON.parse(JSON.stringify(expressions))).toEqual(expressions);
+  });
+
+  it("validates expression operands and returns null for invalid dynamic arithmetic", () => {
+    const invalid = validateStateMachine({
+      id: "invalid-expressions",
+      initial: "ready",
+      variables: { label: "thirteen", divisor: 1 },
+      states: { ready: {} },
+      signals: {
+        badType: expr.add(expr.var("label"), 1),
+        badArity: { op: "subtract", args: [1] },
+        zeroDivisor: expr.divide(4, 0),
+        badIndex: expr.bit(4, 32),
+        badFormat: expr.format(expr.var("label"), {
+          radix: 1,
+          pad: -1,
+          padWith: "00",
+          precision: 101,
+        }),
+      },
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.diagnostics.filter(({ code }) => code === "invalid-operand").length).toBe(5);
+    expect(invalid.diagnostics.filter(({ code }) => code === "invalid-format").length).toBe(5);
+
+    const dynamic = defineStateMachine({
+      id: "dynamic-divisor",
+      initial: "ready",
+      variables: { numerator: 8, divisor: 2 },
+      states: { ready: {} },
+      signals: { result: expr.divide(expr.var("numerator"), expr.var("divisor")) },
+    });
+    const state = resolveMachineState(dynamic, "ready", { variables: { divisor: 0 } });
+    expect(evaluateSignals(dynamic, state).result).toBeNull();
+  });
+
+  it("builds small collections and deterministic string transformations", () => {
+    const collectionMachine = defineStateMachine({
+      id: "collection-expressions",
+      initial: "ready",
+      variables: { title: "  fetch USER  ", values: [3, 5, 8] },
+      states: { ready: {} },
+      signals: {
+        command: expr.lower(expr.trim(expr.var("title"))),
+        labels: expr.list("parse", expr.upper("execute"), expr.replace("write cache", " ", "-")),
+        joined: expr.join(expr.signal("labels"), " → "),
+        second: expr.at(expr.signal("labels"), 1),
+        secondLower: expr.lower(expr.signal("second")),
+        tail: expr.slice(expr.signal("labels"), 1),
+        count: expr.length(expr.signal("labels")),
+        total: expr.sum(expr.var("values")),
+        hasEight: expr.includes(expr.var("values"), 8),
+        containsUser: expr.includes(expr.signal("command"), "user"),
+        verb: expr.slice(expr.signal("command"), 0, 5),
+      },
+    });
+    expect(evaluateSignals(collectionMachine, createMachineState(collectionMachine))).toMatchObject(
+      {
+        command: "fetch user",
+        labels: ["parse", "EXECUTE", "write-cache"],
+        joined: "parse → EXECUTE → write-cache",
+        second: "EXECUTE",
+        secondLower: "execute",
+        tail: ["EXECUTE", "write-cache"],
+        count: 3,
+        total: 16,
+        hasEight: true,
+        containsUser: true,
+        verb: "fetch",
+      },
+    );
+    expect(JSON.parse(JSON.stringify(collectionMachine.signals))).toEqual(
+      collectionMachine.signals,
+    );
+  });
+
+  it("rejects incompatible collection and string operands", () => {
+    const invalid = validateStateMachine({
+      id: "invalid-collections",
+      initial: "ready",
+      states: { ready: {} },
+      signals: {
+        nested: expr.list(expr.list(1, 2)),
+        badJoin: expr.join("not a collection"),
+        badIndex: expr.at(expr.list("a"), "first"),
+        badUpper: expr.upper(42),
+        badSlice: expr.slice(expr.list(1, 2), 0, "end"),
+      },
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.diagnostics.filter(({ code }) => code === "invalid-operand").length).toBe(5);
   });
 
   it("drives bound scene properties and keeps history optional", () => {

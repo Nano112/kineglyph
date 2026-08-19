@@ -3,6 +3,7 @@ import {
   defineScene,
   fadeIn,
   fadeTo,
+  kineglyphTheme,
   reveal,
   timeline,
   track,
@@ -89,37 +90,26 @@ function motionFrames(axis: "x" | "y"): TimelineKeyframe[] {
   return frames;
 }
 
-export const readmeCoverTheme: ThemeTokens = createTheme({
-  name: "readme-cover",
-  colors: {
-    canvas: "#efede6",
-    surface: "#efede6",
-    surfaceRaised: "#efede6",
-    surfaceMuted: "#e4e1d8",
-    text: "#171916",
-    textMuted: "#676a64",
-    accent: "#00a98f",
-    accentContrast: "#efede6",
-    connector: "#171916",
-    border: "#c8c6be",
-  },
-  typography: {
-    display: {
-      family: '"Geist Mono"',
-      size: 104,
-      lineHeight: 110,
-      weight: 700,
-      letterSpacing: -6,
-    },
-    bodyStrong: {
-      family: '"Geist Mono"',
-      size: 20,
-      lineHeight: 28,
-      weight: 600,
+export const readmeCoverTheme: ThemeTokens = createTheme(
+  {
+    name: "readme-cover",
+    typography: {
+      display: {
+        ...kineglyphTheme.typography.display,
+        size: 104,
+        lineHeight: 110,
+        letterSpacing: -6,
+      },
+      bodyStrong: {
+        ...kineglyphTheme.typography.bodyStrong,
+        size: 20,
+        lineHeight: 28,
+        weight: 600,
+      },
     },
   },
-  ornament: { grid: "none", surface: "flat", lineCap: "round", eyebrow: false },
-});
+  kineglyphTheme,
+);
 
 export const readmeCoverScene: SceneDefinition = defineScene({
   schemaVersion: 2,

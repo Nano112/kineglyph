@@ -5,7 +5,8 @@ Kineglyph now has two deliberately different data paths:
 - A full figure can accept named values with `controller.setSignals()`. Layout, themes, bindings,
   interaction, and animation remain available.
 - A microchart is a complete 16-pixel SVG string with no scene resolver, observer, controls, or
-  stylesheet. It is the right tool for hundreds or thousands of table cells.
+  stylesheet. Lines, areas, bars, pies, and donuts inherit Kineglyph's semantic chart colours when
+  they sit inside a themed surface, and remain standalone SVG elsewhere.
 
 The distinction keeps a live dashboard expressive without making a 1,000-row table pay for 1,000
 figure runtimes.
@@ -192,6 +193,195 @@ controller.destroy();
 The adapter accepts a custom `parse` function for binary or newline-delimited protocols and a
 custom WebSocket constructor for workers, tests, or compatible transports.
 
+## Keyed snapshots make bursty plot data deterministic
+
+`createKeyedLiveData()` sits between a transport and a compiler. Rows are identified by a field,
+synchronous patches collapse into one immutable snapshot, and an optional window drops the oldest
+keys. The handle owns no WebSocket and no DOM, so the same snapshots drive a browser plot, a test,
+or a reproducible export. Replacing, removing, or reconnecting never relies on array position.
+
+```ts
+import { createKeyedLiveData, plot, reconnectDelay } from "@kineglyph/plot";
+
+const latency = createKeyedLiveData<{ service: string; p95: number }>({
+  key: "service",
+  window: 120,
+  maxBatch: 500,
+});
+
+latency.subscribe((snapshot) => {
+  const next = plot(snapshot.rows, {
+    id: "latency",
+    x: "service",
+    y: "p95",
+    marks: bar(),
+  });
+  render(next, { sequence: snapshot.sequence, status: snapshot.status });
+});
+
+socket.onmessage = (event) => latency.upsert(JSON.parse(event.data));
+socket.onclose = () => {
+  const delay = reconnectDelay(attempt++, { retries: 8, delay: 400, maxDelay: 8_000 });
+  if (delay !== undefined) window.setTimeout(connect, delay);
+};
+```
+
+The default batch mode publishes once in a microtask. Choose `batch: "manual"` when a worker,
+animation frame, or transaction boundary should call `flush()` explicitly. `replace()` means a
+complete server snapshot; `upsert()` and `remove()` are keyed patches. Every snapshot includes a
+monotonic sequence, connection status, current size, and cumulative bounded-window drops.
+
+```kineglyph live id=keyed-live-window view=preview height=300
+import { counterTerminalTheme, createKeyedLiveData, figure, material } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("keyed-window", {
+  title: "Keyed bounded live window",
+  description: "A bounded live-data snapshot reports its sequence, retained rows, drops, and newest value.",
+  signals: { sequence: "SNAPSHOT 0", retained: "0 RETAINED", newest: "waiting", status: "IDLE" },
+}, (f) => {
+  f.root(f.row([
+    f.stack([
+      f.eyebrow("KEYED LIVE DATA", { tone: "info" }),
+      f.heading("Bounded snapshots"),
+      f.code("SNAPSHOT 0", { bind: { text: "sequence" } }),
+    ], { gap: 5 }),
+    f.stack([
+      f.badge("IDLE", { tone: "success", bind: { text: "status" } }),
+      f.code("0 RETAINED", { bind: { text: "retained" } }),
+      f.code("waiting", { tone: "accent", bind: { text: "newest" } }),
+    ], { gap: 8, align: "end" }),
+  ], { width: "fill", justify: "between", align: "center", padding: 18, frame: material("raised") }));
+});
+
+export function setup(controller) {
+  const data = createKeyedLiveData({ key: "id", window: 5 });
+  const dispose = data.subscribe((snapshot) => {
+    const latest = snapshot.rows.at(-1);
+    controller.setSignals({
+      sequence: `SNAPSHOT ${snapshot.sequence}`,
+      retained: `${snapshot.size} RETAINED · ${snapshot.dropped} DROPPED`,
+      newest: latest ? `${latest.id} · ${latest.value} ms` : "waiting",
+      status: snapshot.status.toUpperCase(),
+    });
+  });
+  data.setStatus("open");
+  let tick = 0;
+  const timer = window.setInterval(() => {
+    tick += 1;
+    data.upsert({ id: `svc-${tick}`, value: Math.round(30 + Math.sin(tick * .73) * 17 + tick % 7) });
+  }, 850);
+  return () => { window.clearInterval(timer); dispose(); data.close(); };
+}
+```
+
+## Specialized plots still compile to ordinary Kineglyph primitives
+
+These are plot families rather than renderer-only widgets. Every slice, interval, box, band,
+task, tile, flow, and topology node remains inspectable, themeable, seekable, and exportable. The
+shared compiler emits stable handles and a restrained stagger; `motion: "none"` returns the same
+geometry without tracks.
+
+```kineglyph live id=plot-family-radial-distribution view=preview height=920
+import {
+  counterTerminalTheme, distributionPlot, donutChart, figure,
+  gaugeChart, histogram, pieChart, radialChart,
+} from "kineglyph";
+
+export const theme = counterTerminalTheme;
+const stages = [
+  { stage: "Parse", cost: 18 }, { stage: "Compile", cost: 34 },
+  { stage: "Link", cost: 13 }, { stage: "Render", cost: 25 },
+];
+const samples = Array.from({ length: 72 }, (_, index) => ({
+  latency: 42 + Math.sin(index * .57) * 13 + (index % 9 === 0 ? 17 : 0),
+}));
+
+export default figure("plot-family-radial-distribution", {
+  title: "Radial and distribution families",
+}, (f) => {
+  const charts = [
+    f.add(pieChart(stages, { id: "family-pie", title: "Work share", category: "stage", value: "cost", height: 210 })),
+    f.add(donutChart(stages, { id: "family-donut", title: "Budget ring", category: "stage", value: "cost", height: 210 })),
+    f.add(radialChart(stages, { id: "family-radial", title: "Stage magnitude", category: "stage", value: "cost", height: 210 })),
+    f.add(histogram(samples, { id: "family-histogram", title: "Latency bins", value: "latency", bins: 9, height: 210 })),
+    f.add(distributionPlot(samples, { id: "family-distribution", title: "Distribution profile", value: "latency", bins: 12, height: 210 })),
+    f.add(gaugeChart({ id: "family-gauge", title: "CPU saturation", label: "CPU", value: 73,
+      max: 100, unit: "%", height: 210, thresholds: [
+        { value: 70, tone: "success" }, { value: 85, tone: "warning" },
+        { value: 100, tone: "danger" },
+      ],
+    })),
+  ];
+  f.root(f.grid(charts, { columns: { wide: 3, compact: 2, narrow: 1 }, gap: 18, width: "fill" }));
+});
+```
+
+```kineglyph live id=plot-family-interval-structure view=preview height=1160
+import {
+  boxPlot, confidenceBand, counterTerminalTheme, figure, ganttChart,
+  rangeChart, sankey, topology, treemap,
+} from "kineglyph";
+
+export const theme = counterTerminalTheme;
+const samples = Array.from({ length: 60 }, (_, index) => ({
+  cohort: index < 30 ? "Cold" : "Warm",
+  latency: 34 + (index < 30 ? 12 : 0) + Math.sin(index * .81) * 9 + index % 4,
+}));
+
+export default figure("plot-family-interval-structure", { title: "Intervals and structure" }, (f) => {
+  const charts = [
+    f.add(rangeChart([
+      { stage: "Parse", low: 8, typical: 14, high: 22 },
+      { stage: "Compile", low: 17, typical: 28, high: 39 },
+      { stage: "Render", low: 11, typical: 19, high: 31 },
+    ], { id: "family-range", title: "Expected ranges", category: "stage", low: "low", high: "high", value: "typical", height: 220 })),
+    f.add(boxPlot(samples, { id: "family-box", title: "Cold vs warm", category: "cohort", value: "latency", height: 220 })),
+    f.add(confidenceBand(Array.from({ length: 9 }, (_, x) => ({
+      x, low: 8 + x * 2, mean: 13 + x * 2.3, high: 19 + x * 2.8,
+    })), { id: "family-band", title: "Estimate and interval", x: "x", low: "low", high: "high", value: "mean", height: 220 })),
+    f.add(ganttChart([
+      { task: "Fetch", start: 0, end: 3 }, { task: "Compile", start: 2, end: 7 },
+      { task: "Test", start: 5, end: 9 }, { task: "Ship", start: 9, end: 11 },
+    ], { id: "family-gantt", title: "Release timeline", label: "task", start: "start", end: "end", height: 220 })),
+    f.add(treemap([
+      { module: "Parser", bytes: 31 }, { module: "Runtime", bytes: 46 },
+      { module: "CLI", bytes: 14 }, { module: "Assets", bytes: 9 },
+    ], { id: "family-treemap", title: "Bundle composition", label: "module", value: "bytes", height: 220 })),
+    f.add(sankey({ id: "family-sankey", title: "Request flow", height: 220,
+      nodes: [
+        { id: "request", label: "Request" }, { id: "cache", label: "Cache" },
+        { id: "compute", label: "Compute" }, { id: "response", label: "Response" },
+      ],
+      links: [
+        { source: "request", target: "cache", value: 68 },
+        { source: "request", target: "compute", value: 32 },
+        { source: "cache", target: "response", value: 68 },
+        { source: "compute", target: "response", value: 32 },
+      ],
+    })),
+    f.add(topology({ id: "family-topology", title: "Service topology", height: 240,
+      nodes: [
+        { id: "edge", label: "Edge" }, { id: "api", label: "API" },
+        { id: "queue", label: "Queue" }, { id: "worker", label: "Worker" },
+      ],
+      links: [
+        { source: "edge", target: "api", directed: true },
+        { source: "api", target: "queue", directed: true },
+        { source: "queue", target: "worker", directed: true },
+      ],
+    })),
+  ];
+  f.root(f.grid(charts, { columns: { wide: 2, narrow: 1 }, gap: 18, width: "fill" }));
+});
+```
+
+`timelineChart()` is an alias of `ganttChart()`. Current treemaps use deterministic slice-and-dice
+layout, Sankey diagrams derive ranks from an acyclic link set, and topology uses authored normalized
+positions or a stable circle. These explicit limits keep SVG, live DOM, PNG, and GIF identical;
+future layout engines can replace the compiler without changing the renderer contract.
+
 ## Render thousands of tiny SVGs
 
 `renderMicroSvg()` is a separate fast path in `@kineglyph/svg`. It accepts an array or Peity-style
@@ -215,8 +405,12 @@ changeCell.innerHTML = renderMicroSvg([4, -2, 7, -1, 3], {
 
 shareCell.innerHTML = renderMicroSvg("37/63", {
   type: "donut",
-  fills: ["#facc15", "#27272a"],
   label: "37 percent complete",
+});
+
+mixCell.innerHTML = renderMicroSvg([18, 31, 27, 24], {
+  type: "pie",
+  label: "Traffic share across four regions",
 });
 ```
 
@@ -225,6 +419,7 @@ For progressive enhancement, put compact values directly in the cell:
 ```html
 <td data-kineglyph-microchart="line" aria-label="Recent latency">31,28,35,42,39</td>
 <td data-kineglyph-microchart="bar" data-width="48">4,-2,7,-1,3</td>
+<td data-kineglyph-microchart="donut" aria-label="Storage used">37/63</td>
 
 <script type="module">
   import { mountAllMicrocharts } from "@kineglyph/web";
@@ -397,7 +592,7 @@ import { counterTerminalTheme, figure, material, mountMicrochartBatch } from "ki
 
 export const theme = counterTerminalTheme;
 const TOTAL = 1_000;
-const TYPES = ["line", "line", "area", "bar"];
+const TYPES = ["line", "area", "bar", "pie", "donut"];
 const PALETTE = ["#d946ef", "#8b5cf6", "#38bdf8", "#34d399", "#facc15", "#fb7185"];
 const profiles = Array.from({ length: TOTAL }, (_, cell) => {
   const seed = Math.imul(cell + 1, 2_654_435_761) >>> 0;
@@ -441,6 +636,7 @@ export function setup(controller) {
     .kg-chart-matrix .kg-matrix-grid{display:grid;grid-template-columns:repeat(10,minmax(68px,1fr));min-width:700px;padding:6px;gap:4px}
     .kg-chart-matrix .kg-matrix-cell{display:grid;gap:5px;height:48px;padding:6px;border:1px solid color-mix(in srgb,var(--kg-cell-color) 24%,var(--kg-color-border));border-radius:6px;color:color-mix(in srgb,var(--kg-cell-color) 64%,var(--kg-color-text-muted));font:600 9px/1 ui-monospace,monospace}
     .kg-chart-matrix [data-kineglyph-microchart] svg{display:block;width:100%;height:16px;color:var(--kg-cell-color)}
+    .kg-chart-matrix :is([data-kineglyph-microchart=pie],[data-kineglyph-microchart=donut]) svg{width:16px;margin-inline:auto}
   `;
   const status = document.createElement("div");
   status.className = "kg-matrix-status";
@@ -459,7 +655,7 @@ export function setup(controller) {
     const profile = profiles[index];
     const type = TYPES[(index + profile.spike) % TYPES.length];
     cell.style.setProperty("--kg-cell-color", PALETTE[(index * 7 + profile.spike) % PALETTE.length]);
-    cell.innerHTML = `<span>${type.toUpperCase()} ${String(index + 1).padStart(4, "0")}</span><span data-kineglyph-microchart="${type}" aria-label="Cell ${index + 1} ${type} trend">${valuesFor(index, 0).join(",")}</span>`;
+    cell.innerHTML = `<span>${type.toUpperCase()} ${String(index + 1).padStart(4, "0")}</span><span data-kineglyph-microchart="${type}" aria-label="Cell ${index + 1} ${type} microchart">${valuesFor(index, 0).join(",")}</span>`;
     grid.append(cell);
     return cell.querySelector("[data-kineglyph-microchart]");
   });

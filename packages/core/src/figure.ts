@@ -19,6 +19,7 @@ import {
   progressTo,
   pulse as pulseTracks,
   reveal as revealTracks,
+  rotateTo,
   track,
 } from "./authoring.js";
 import { scopeFragment, shiftTracks, tracksDuration, type SceneFragment } from "./fragment.js";
@@ -26,6 +27,7 @@ import type { Easing } from "./easing.js";
 import { validateStateMachine, type StateMachineDefinition } from "./machine.js";
 import {
   card,
+  codeBlock,
   container,
   fileTree,
   gate,
@@ -38,6 +40,8 @@ import {
   stack,
   terminal,
   type CardOptions,
+  type CodeBlockOptions,
+  type CodeBlockSource,
   type ContainerOptions,
   type KeyValueOptions,
   type LogicGateKind,
@@ -128,6 +132,7 @@ export type FigureImageOptions = MarkOptions<ImageMark, "src" | "alt">;
 export type FigureLegendOptions = MarkOptions<LegendMark, "items">;
 export type FigureCalloutOptions = MarkOptions<CalloutMark, "text">;
 export type FigureCardOptions = CardOptions & { readonly id?: string };
+export type FigureCodeBlockOptions = CodeBlockOptions & { readonly id?: string };
 export type FigurePanelOptions = PanelOptions & { readonly id?: string };
 export type FigurePillOptions = PillOptions & { readonly id?: string };
 export type FigureGateOptions = LogicGateOptions & { readonly id?: string };
@@ -221,6 +226,12 @@ export interface ProgressOptions extends MotionOptions {
   readonly from?: number;
   readonly to?: number;
 }
+export interface RotateOptions extends MotionOptions {
+  /** Clockwise starting angle in degrees (default 0). */
+  readonly from?: number;
+  /** Clockwise terminal angle in degrees (default 360). */
+  readonly to?: number;
+}
 export type RiseOptions = MotionOptions;
 export type WipeOptions = MotionOptions;
 export type TypewriteOptions = MotionOptions;
@@ -266,12 +277,16 @@ export interface FigureBuilder {
   rect(options?: FigureRectOptions): RectMark;
   circle(options?: FigureCircleOptions): CircleMark;
   polyline(points: PolylineMark["points"], options?: FigurePolylineOptions): PolylineMark;
+  /** Smooth line through the authored positions of placed nodes. */
+  spline(anchors: readonly SceneNode[], options?: FigurePolylineOptions): PolylineMark;
   path(d: string, viewBox: PathMark["viewBox"], options?: FigurePathOptions): PathMark;
   image(src: string, alt: string, options?: FigureImageOptions): ImageMark;
   legend(items: LegendMark["items"], options?: FigureLegendOptions): LegendMark;
   callout(text: string, options?: FigureCalloutOptions): CalloutMark;
   // Recipes
   card(options: FigureCardOptions): GroupNode;
+  /** Syntax-highlighted, line-addressable code compiled to ordinary scene nodes. */
+  codeBlock(source: CodeBlockSource, options?: FigureCodeBlockOptions): GroupNode;
   panel(children: readonly SceneNode[], options?: FigurePanelOptions): GroupNode;
   pill(text: string, options?: FigurePillOptions): BadgeMark;
   /** Standard logic-gate silhouette with pins; connect using normal endpoint sides/offsets. */
@@ -319,6 +334,8 @@ export interface FigureBuilder {
   pulse(target: MotionTarget, options?: PulseOptions): MotionStep;
   highlight(target: MotionTarget, options?: HighlightOptions): MotionStep;
   progress(target: MotionTarget, options?: ProgressOptions): MotionStep;
+  /** Rotate nodes clockwise around their resolved centres. */
+  rotate(target: MotionTarget, options?: RotateOptions): MotionStep;
   /** Anchored vertical reveal (`revealY` 0 → 1). */
   rise(target: MotionTarget, options?: RiseOptions): MotionStep;
   /** Anchored horizontal reveal (`revealX` 0 → 1). */
@@ -347,6 +364,7 @@ const DEFAULTS = {
   pulse: 500,
   highlight: 500,
   progress: 600,
+  rotate: 900,
   rise: 500,
   wipe: 500,
   typewrite: 900,
@@ -870,6 +888,23 @@ function createBuilder(
       const id = inferId("polyline", rest.label, explicit);
       return commit({ id, type: "polyline", points, ...rest }, where("polyline", rest.label));
     },
+    spline(anchors, options = {}) {
+      const points = anchors.map((node) => {
+        const position = node.position;
+        if (position === undefined || !("x" in position) || !("y" in position)) {
+          throw new Error(
+            `f.spline: anchor ${JSON.stringify(node.id)} needs a direct position; place it with f.place(node, { x, y, anchor: "center" })`,
+          );
+        }
+        return [position.x, position.y] as const;
+      });
+      const { id: explicit, ...rest } = options;
+      const id = inferId("spline", rest.label, explicit);
+      return commit(
+        { id, type: "polyline", points, curve: "monotone", ...rest },
+        where("spline", rest.label),
+      );
+    },
     path(d, viewBox, options = {}) {
       const { id: explicit, ...rest } = options;
       const id = inferId("path", rest.label, explicit);
@@ -895,6 +930,12 @@ function createBuilder(
       const { id: explicit, ...rest } = options;
       const id = inferId("card", rest.title, explicit);
       return commit(card(id, rest), where("card", rest.title));
+    },
+    codeBlock(source, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.title ?? rest.label ?? rest.language;
+      const id = inferId("code-block", primary, explicit);
+      return commit(codeBlock(id, source, rest), where("codeBlock", primary));
     },
     panel(children, options = {}) {
       const { id: explicit, ...rest } = options;
@@ -1095,6 +1136,13 @@ function createBuilder(
         withEasing([progressTo(id, start, start + duration, from, to)], easing),
       );
     },
+    rotate(target, options = {}) {
+      const { duration = DEFAULTS.rotate, stagger = 0, from = 0, to = 360, easing } = options;
+      const resolved = resolveTargets(target, "f.rotate");
+      return step(`rotate(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) =>
+        withEasing([rotateTo(id, start, start + duration, from, to)], easing),
+      );
+    },
     rise(target, options = {}) {
       const { duration = DEFAULTS.rise, stagger = 0, easing } = options;
       const resolved = resolveTargets(target, "f.rise");
@@ -1200,7 +1248,10 @@ function createBuilder(
       );
     }
 
-    if (controls.length > 0 && machine === undefined)
+    if (
+      controls.some((control) => (control.kind ?? "event") !== "transport") &&
+      machine === undefined
+    )
       throw fail("controls need a state machine; call f.machine(...)");
     if (machine !== undefined) {
       const result = validateStateMachine(machine, { nodeIds: inRoot });
@@ -1243,6 +1294,8 @@ function createBuilder(
       for (const label of edge.labels ?? [])
         checkBinding(`${edge.id} label`, bindingEntries(label.bind));
     }
+    for (const control of controls)
+      checkBinding(control.id, control.bind === undefined ? [] : [["value", control.bind]]);
 
     let timeline: AnimationTimeline | undefined;
     if (tracks.length > 0) {

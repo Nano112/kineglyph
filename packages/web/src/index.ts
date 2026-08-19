@@ -26,8 +26,11 @@ import {
   type ResolvedScene,
   type SceneControl,
   type ThemeTokens,
+  type VariableValue,
   type Variables,
 } from "@kineglyph/core";
+import { patchStageSvg } from "./patch.js";
+import { mountDoctorOverlay, type DoctorOverlayHandle } from "./doctor.js";
 import { renderSvg } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
@@ -49,6 +52,7 @@ export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
 export * from "./micro.js";
 export * from "./stream.js";
+export * from "./export.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
 
@@ -78,6 +82,8 @@ export interface MountOptions {
   readonly width?: number;
   /** Defaults to `"in-view"`, so an article figure waits until the reader reaches it. */
   readonly autoplay?: AutoplaySetting;
+  /** Repeat the scene timeline after it completes. Defaults to false. */
+  readonly loop?: boolean;
   /** Viewport trigger tuning used when `autoplay` is `"in-view"`. Default delay: 180 ms. */
   readonly inView?: StartWhenVisibleOptions;
   /**
@@ -103,6 +109,8 @@ export interface MountOptions {
   readonly tooltips?: boolean;
   /** Render machine control buttons when the scene declares them. Defaults to true. */
   readonly machineControls?: ChromeSetting;
+  /** Development-only bounds and quality overlay powered by `kineglyph doctor`. */
+  readonly doctor?: boolean;
   /** Overrides the `prefers-reduced-motion` media query. */
   readonly reducedMotion?: boolean;
   /** Stable DOM id prefix. Defaults to a unique generated prefix. */
@@ -189,6 +197,10 @@ export interface KineglyphController {
   /** Merges live signal values and re-renders; pass `replace` to discard earlier overrides. */
   setSignals(signals: Variables, options?: { readonly replace?: boolean }): void;
   setReducedMotion(reduced: boolean): void;
+  /** Enables or disables repetition without remounting the figure. */
+  setLoop(loop: boolean): void;
+  /** Enables or disables the development quality overlay without remounting the figure. */
+  setDoctor(enabled: boolean): void;
   /** Programmatic inspection; pass `null` to clear. Returns the current inspection target. */
   inspect(id?: string | null): InspectTarget | undefined;
   /** Forces a re-measure (fixed-width mounts accept an explicit width). */
@@ -266,6 +278,8 @@ class FigureRuntime implements KineglyphController {
   #animator: KineglyphSceneAnimator | undefined;
   #shaders: ShaderSurfaceManager | undefined;
   #liveSurfaces: LiveSurfaceManager | undefined;
+  #doctorOverlay: DoctorOverlayHandle | undefined;
+  #doctorEnabled: boolean;
   #width: number;
   #reducedMotion: boolean;
   #inspected: InspectTarget | undefined;
@@ -274,7 +288,7 @@ class FigureRuntime implements KineglyphController {
   #pinnedColorVars: readonly string[] = [];
   #time = 0;
   #playing = false;
-  #signals: Record<string, string | number | boolean | null>;
+  #signals: Record<string, VariableValue>;
   readonly #emitter = new Emitter();
   readonly #cleanups: Array<() => void> = [];
   readonly #shell: HTMLElement;
@@ -293,6 +307,7 @@ class FigureRuntime implements KineglyphController {
   constructor(element: HTMLElement, options: MountOptions) {
     this.element = element;
     this.#options = options;
+    this.#doctorEnabled = options.doctor ?? false;
     this.#source = options.scene;
     this.#signals = { ...(options.signals ?? {}) };
     this.#theme = options.theme ?? defaultTheme;
@@ -338,7 +353,7 @@ class FigureRuntime implements KineglyphController {
         '<span class="kg-figure__eyebrow"></span><strong></strong><div class="kg-figure__body"></div>';
       this.#shell.append(this.#readout);
     }
-    if (chromeWanted(options.machineControls, this.machine !== undefined)) {
+    if (chromeWanted(options.machineControls, (this.#resolved.controls?.length ?? 0) > 0)) {
       this.#machineBar = doc.createElement("div");
       this.#machineBar.className = "kg-figure__machine";
       this.#machineBar.hidden = true;
@@ -484,6 +499,27 @@ class FigureRuntime implements KineglyphController {
     this.#syncControls();
   }
 
+  setLoop(loop: boolean): void {
+    this.#assertLive();
+    if ((this.#options.loop ?? false) === loop) return;
+    const atEnd = this.#time >= this.#duration;
+    this.#options = { ...this.#options, loop };
+    this.#render(false);
+    if (loop && atEnd && this.#shouldAutoplay() && !this.#reducedMotion && this.#duration > 0)
+      this.restart(true);
+  }
+
+  setDoctor(enabled: boolean): void {
+    this.#assertLive();
+    if (enabled === this.#doctorEnabled) return;
+    this.#doctorEnabled = enabled;
+    if (enabled) this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved);
+    else {
+      this.#doctorOverlay?.destroy();
+      this.#doctorOverlay = undefined;
+    }
+  }
+
   inspect(id?: string | null): InspectTarget | undefined {
     this.#assertLive();
     if (id === undefined) return this.#inspected;
@@ -517,6 +553,8 @@ class FigureRuntime implements KineglyphController {
     this.#shaders = undefined;
     this.#liveSurfaces?.dispose();
     this.#liveSurfaces = undefined;
+    this.#doctorOverlay?.destroy();
+    this.#doctorOverlay = undefined;
     this.#observer?.disconnect();
     for (const cleanup of this.#cleanups.splice(0)) cleanup();
     this.#emitter.emit("destroy", undefined);
@@ -573,12 +611,31 @@ class FigureRuntime implements KineglyphController {
       ? this.#shouldAutoplay() && !this.#reducedMotion && this.#duration > 0
       : wasPlaying && !this.#reducedMotion;
     const frame = seekTimeline(this.#resolved, initialTime);
-    this.stage.innerHTML = renderSvg(frame, {
-      idPrefix: this.id,
-      className: "kg-figure__svg",
-      role: "group",
-      effects: "enhanced",
-    });
+    const drawing = patchStageSvg(
+      this.stage,
+      renderSvg(frame, {
+        idPrefix: this.id,
+        className: "kg-figure__svg",
+        role: "group",
+        effects: "enhanced",
+      }),
+    );
+    // Some documentation shells apply a readability floor through inherited `--kg-w`/`--kg-h`
+    // properties. A live figure resolves its own responsive drawing at runtime, so the current
+    // SVG—not the publish-time placeholder—must own those dimensions. Keeping the values on the
+    // drawing also makes the contract safe for nested editors and independently sized figures.
+    // Append to the serialized attribute instead of mutating `CSSStyleDeclaration`: the latter
+    // normalizes every existing declaration and breaks byte parity with a prerendered frame.
+    const drawingStyle = drawing.getAttribute("style");
+    drawing.setAttribute(
+      "style",
+      `${drawingStyle === null || drawingStyle.length === 0 ? "" : `${drawingStyle};`}--kg-w:${this.#resolved.width};--kg-h:${this.#resolved.height}`,
+    );
+    if (this.#doctorEnabled) {
+      if (this.#doctorOverlay === undefined)
+        this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved);
+      else this.#doctorOverlay.update(this.#resolved);
+    }
     // The stage reserves the drawing's box only while it is *empty* (see `.kg-figure__stage:empty`
     // in `styles.ts`); once a drawing is in it, the drawing's own height is the honest one.
     //
@@ -609,6 +666,7 @@ class FigureRuntime implements KineglyphController {
       root: this.stage,
       scene: this.#resolved,
       reducedMotion: this.#reducedMotion,
+      loop: this.#options.loop ?? false,
       onFrame: (nextFrame) => {
         this.#time = nextFrame.time;
         this.#shaders?.seek(nextFrame.time);
@@ -761,7 +819,7 @@ class FigureRuntime implements KineglyphController {
     const bar = this.#machineBar;
     if (bar === undefined) return;
     const controls = this.#resolved.controls ?? [];
-    if (this.machine === undefined || controls.length === 0) {
+    if (controls.length === 0) {
       bar.hidden = true;
       this.#invalidateMachineControls();
       return;
@@ -769,16 +827,7 @@ class FigureRuntime implements KineglyphController {
     bar.hidden = false;
     // The signature covers every behavioural field so a same-looking control never keeps a
     // stale click handler; buttons are only reused while the whole control set is identical.
-    const signature = JSON.stringify(
-      controls.map((control) => [
-        control.id,
-        control.label,
-        control.kind ?? "event",
-        control.event ?? "",
-        control.group ?? "",
-        control.description ?? "",
-      ]),
-    );
+    const signature = JSON.stringify(controls);
     if (bar.dataset.controls === signature && bar.childElementCount > 0) {
       this.#syncMachineControls();
       return;
@@ -805,14 +854,120 @@ class FigureRuntime implements KineglyphController {
         group.append(label);
       }
       for (const control of list) {
+        const kind = control.kind ?? "event";
+        if (kind === "transport") {
+          const transport = doc.createElement("div");
+          transport.className = "kg-figure__machine-transport";
+          transport.dataset.control = control.id;
+          transport.setAttribute("role", "group");
+          transport.setAttribute("aria-label", control.label);
+          const play = doc.createElement("button");
+          play.type = "button";
+          play.dataset.transportAction = "play";
+          play.addEventListener("click", () => (this.#playing ? this.pause() : this.play()));
+          const step = doc.createElement("button");
+          step.type = "button";
+          step.textContent = "Step";
+          step.dataset.transportAction = "step";
+          step.addEventListener("click", () => {
+            this.pause();
+            const base = this.#time >= this.#duration ? 0 : this.#time;
+            this.seek(Math.min(this.#duration, base + (control.transportStep ?? 100)));
+          });
+          const restart = doc.createElement("button");
+          restart.type = "button";
+          restart.textContent = "Restart";
+          restart.dataset.transportAction = "restart";
+          restart.addEventListener("click", () => this.restart(false));
+          transport.append(play, step, restart);
+          group.append(transport);
+          continue;
+        }
+        if (kind === "range") {
+          const field = doc.createElement("label");
+          field.className = "kg-figure__machine-field kg-figure__machine-field--range";
+          const label = doc.createElement("span");
+          label.textContent = control.label;
+          const input = doc.createElement("input");
+          input.type = "range";
+          input.id = `${this.id}-control-${control.id}`;
+          input.dataset.control = control.id;
+          input.min = String(control.min ?? 0);
+          input.max = String(control.max ?? 100);
+          input.step = String(control.step ?? 1);
+          if (control.description !== undefined) input.title = control.description;
+          const output = doc.createElement("output");
+          output.htmlFor = input.id;
+          output.dataset.outputFor = control.id;
+          input.addEventListener("input", () => {
+            if (control.event !== undefined)
+              this.send({ type: control.event, value: Number(input.value) });
+          });
+          field.append(label, input, output);
+          group.append(field);
+          continue;
+        }
+        if (kind === "select") {
+          const field = doc.createElement("label");
+          field.className = "kg-figure__machine-field";
+          const label = doc.createElement("span");
+          label.textContent = control.label;
+          const select = doc.createElement("select");
+          select.id = `${this.id}-control-${control.id}`;
+          select.dataset.control = control.id;
+          if (control.description !== undefined) select.title = control.description;
+          for (const [index, option] of (control.options ?? []).entries()) {
+            const element = doc.createElement("option");
+            element.value = String(index);
+            element.textContent = option.label;
+            if (option.description !== undefined) element.title = option.description;
+            select.append(element);
+          }
+          select.addEventListener("change", () => {
+            const option = control.options?.[Number(select.value)];
+            if (control.event !== undefined && option !== undefined)
+              this.send({ type: control.event, value: option.value });
+          });
+          field.append(label, select);
+          group.append(field);
+          continue;
+        }
+        if (kind === "radio") {
+          const radio = doc.createElement("div");
+          radio.className = "kg-figure__machine-radio";
+          radio.dataset.control = control.id;
+          radio.setAttribute("role", "radiogroup");
+          radio.setAttribute("aria-label", control.label);
+          if (control.description !== undefined) radio.title = control.description;
+          for (const [index, option] of (control.options ?? []).entries()) {
+            const button = doc.createElement("button");
+            button.type = "button";
+            button.textContent = option.label;
+            button.dataset.option = String(index);
+            button.setAttribute("role", "radio");
+            if (option.description !== undefined) button.title = option.description;
+            button.addEventListener("click", () => {
+              if (control.event !== undefined)
+                this.send({ type: control.event, value: option.value });
+            });
+            radio.append(button);
+          }
+          group.append(radio);
+          continue;
+        }
         const button = doc.createElement("button");
         button.type = "button";
         button.textContent = control.label;
         button.dataset.control = control.id;
         if (control.description !== undefined) button.title = control.description;
-        if ((control.kind ?? "event") === "reset") {
+        if (kind === "reset") {
           button.classList.add("kg-figure__reset");
           button.addEventListener("click", () => this.reset());
+        } else if (kind === "toggle") {
+          button.addEventListener("click", () => {
+            if (control.event !== undefined)
+              this.send({ type: control.event, value: !this.#controlValue(control) });
+          });
         } else {
           button.addEventListener("click", () => {
             if (control.event !== undefined) this.send(control.event);
@@ -827,19 +982,51 @@ class FigureRuntime implements KineglyphController {
 
   #syncMachineControls(): void {
     const bar = this.#machineBar;
-    if (bar === undefined || this.machine === undefined) return;
-    const state = this.machine.state;
+    if (bar === undefined) return;
+    const state = this.machine?.state;
     for (const control of this.#resolved.controls ?? []) {
-      const button = bar.querySelector<HTMLButtonElement>(
-        `[data-control="${cssEscape(control.id)}"]`,
-      );
-      if (button === null) continue;
-      if (control.activeWhen !== undefined)
-        button.setAttribute(
+      const element = bar.querySelector<HTMLElement>(`[data-control="${cssEscape(control.id)}"]`);
+      if (element === null) continue;
+      const kind = control.kind ?? "event";
+      const value = this.#controlValue(control);
+      if (kind === "transport") {
+        const play = element.querySelector<HTMLButtonElement>('[data-transport-action="play"]');
+        if (play !== null) {
+          play.textContent = this.#playing ? "Pause" : "Play";
+          play.setAttribute("aria-pressed", this.#playing ? "true" : "false");
+          play.disabled = this.#reducedMotion || this.#duration === 0;
+        }
+        for (const action of element.querySelectorAll<HTMLButtonElement>("button"))
+          if (action !== play) action.disabled = this.#reducedMotion || this.#duration === 0;
+      } else if (kind === "toggle") element.setAttribute("aria-pressed", value ? "true" : "false");
+      else if (kind === "range" && element instanceof HTMLInputElement) {
+        if (typeof value === "number" && Number.isFinite(value)) element.value = String(value);
+        const output = bar.querySelector<HTMLOutputElement>(
+          `[data-output-for="${cssEscape(control.id)}"]`,
+        );
+        if (output !== null) output.value = element.value;
+      } else if (kind === "select" && element instanceof HTMLSelectElement) {
+        const index = control.options?.findIndex((option) => Object.is(option.value, value)) ?? -1;
+        if (index >= 0) element.value = String(index);
+      } else if (kind === "radio") {
+        for (const option of element.querySelectorAll<HTMLButtonElement>("[data-option]")) {
+          const candidate = control.options?.[Number(option.dataset.option)];
+          option.setAttribute(
+            "aria-checked",
+            Object.is(candidate?.value, value) ? "true" : "false",
+          );
+        }
+      } else if (control.activeWhen !== undefined && state !== undefined)
+        element.setAttribute(
           "aria-pressed",
           evaluateCondition(control.activeWhen, state) ? "true" : "false",
         );
     }
+  }
+
+  #controlValue(control: SceneControl): VariableValue | undefined {
+    if (control.bind === undefined) return control.value;
+    return this.#resolved.signals?.[control.bind] ?? control.value;
   }
 
   #syncControls(): void {
@@ -930,10 +1117,127 @@ class FigureRuntime implements KineglyphController {
       event.preventDefault();
       this.send(eventName);
     };
+    const gestureOwner = (source: EventTarget | null, attribute: string): Element | null =>
+      source instanceof Element ? source.closest(`[${attribute}]`) : null;
+    const normalizedPoint = (event: PointerEvent, owner: Element): readonly [number, number] => {
+      const box = owner.getBoundingClientRect();
+      const x =
+        box.width <= 0 ? 0.5 : Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+      const y =
+        box.height <= 0 ? 0.5 : Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
+      return [x, y];
+    };
+    const sendGesture = (owner: Element, attribute: string, value?: readonly number[]): void => {
+      const type = owner.getAttribute(attribute);
+      if (type !== null) this.send(value === undefined ? type : { type, value });
+    };
+    const hover = (event: Event): void => {
+      const owner = gestureOwner(event.target, "data-hover");
+      if (owner === null) return;
+      const related =
+        "relatedTarget" in event
+          ? gestureOwner(event.relatedTarget as EventTarget | null, "data-hover")
+          : null;
+      if (related === owner) return;
+      sendGesture(owner, "data-hover");
+    };
+    const leave = (event: Event): void => {
+      const owner = gestureOwner(event.target, "data-leave");
+      if (owner === null) return;
+      const related =
+        "relatedTarget" in event
+          ? gestureOwner(event.relatedTarget as EventTarget | null, "data-leave")
+          : null;
+      if (related === owner) return;
+      sendGesture(owner, "data-leave");
+    };
+    const focusGesture = (event: Event): void => {
+      const owner = gestureOwner(event.target, "data-focus");
+      if (owner !== null) sendGesture(owner, "data-focus");
+    };
+    const blurGesture = (event: Event): void => {
+      const owner = gestureOwner(event.target, "data-blur");
+      if (owner !== null) sendGesture(owner, "data-blur");
+    };
+    let dragOwner: Element | null = null;
+    let pendingPointer:
+      | {
+          readonly owner: Element;
+          readonly attribute: string;
+          readonly point: readonly [number, number];
+        }
+      | undefined;
+    let pointerFrame: number | undefined;
+    const queuePointer = (
+      owner: Element,
+      attribute: string,
+      point: readonly [number, number],
+    ): void => {
+      pendingPointer = { owner, attribute, point };
+      if (pointerFrame !== undefined) return;
+      const view = stage.ownerDocument.defaultView;
+      const flush = (): void => {
+        pointerFrame = undefined;
+        const pending = pendingPointer;
+        pendingPointer = undefined;
+        if (pending !== undefined) sendGesture(pending.owner, pending.attribute, pending.point);
+      };
+      if (view?.requestAnimationFrame !== undefined)
+        pointerFrame = view.requestAnimationFrame(flush);
+      else flush();
+    };
+    const pointerDown = (event: Event): void => {
+      if (!("clientX" in event) || !("clientY" in event)) return;
+      const pointer = event as PointerEvent;
+      const owner = gestureOwner(event.target, "data-drag");
+      if (owner === null) return;
+      event.preventDefault();
+      dragOwner = owner;
+      if ("setPointerCapture" in owner && Number.isFinite(pointer.pointerId))
+        (owner as Element & { setPointerCapture(id: number): void }).setPointerCapture(
+          pointer.pointerId,
+        );
+      queuePointer(owner, "data-drag", normalizedPoint(pointer, owner));
+    };
+    const pointerMove = (event: Event): void => {
+      if (!("clientX" in event) || !("clientY" in event)) return;
+      const pointer = event as PointerEvent;
+      const pointerOwner = gestureOwner(event.target, "data-pointer");
+      if (pointerOwner !== null)
+        queuePointer(pointerOwner, "data-pointer", normalizedPoint(pointer, pointerOwner));
+      if (dragOwner !== null)
+        queuePointer(dragOwner, "data-drag", normalizedPoint(pointer, dragOwner));
+    };
+    const pointerUp = (): void => {
+      dragOwner = null;
+    };
+    const keyboardDrag = (event: Event): void => {
+      if (!(event instanceof KeyboardEvent)) return;
+      const owner = gestureOwner(event.target, "data-drag");
+      if (owner === null) return;
+      const points: Readonly<Record<string, readonly [number, number]>> = {
+        ArrowLeft: [0, 0.5],
+        ArrowRight: [1, 0.5],
+        ArrowUp: [0.5, 0],
+        ArrowDown: [0.5, 1],
+      };
+      const point = points[event.key];
+      if (point === undefined) return;
+      event.preventDefault();
+      sendGesture(owner, "data-drag", point);
+    };
     stage.addEventListener("pointerover", inspect);
     stage.addEventListener("pointerout", clear);
     stage.addEventListener("focusin", inspect);
     stage.addEventListener("focusout", clear);
+    stage.addEventListener("pointerover", hover);
+    stage.addEventListener("pointerout", leave);
+    stage.addEventListener("focusin", focusGesture);
+    stage.addEventListener("focusout", blurGesture);
+    stage.addEventListener("pointerdown", pointerDown);
+    stage.addEventListener("pointermove", pointerMove);
+    stage.addEventListener("pointerup", pointerUp);
+    stage.addEventListener("pointercancel", pointerUp);
     stage.addEventListener("scroll", this.#hideTooltip, { passive: true });
     const rove = (event: Event): void => {
       if (!(event instanceof KeyboardEvent)) return;
@@ -957,15 +1261,27 @@ class FigureRuntime implements KineglyphController {
     stage.addEventListener("click", activate);
     stage.addEventListener("keydown", activate);
     stage.addEventListener("keydown", rove);
+    stage.addEventListener("keydown", keyboardDrag);
     this.#cleanups.push(() => {
       stage.removeEventListener("pointerover", inspect);
       stage.removeEventListener("pointerout", clear);
       stage.removeEventListener("focusin", inspect);
       stage.removeEventListener("focusout", clear);
+      stage.removeEventListener("pointerover", hover);
+      stage.removeEventListener("pointerout", leave);
+      stage.removeEventListener("focusin", focusGesture);
+      stage.removeEventListener("focusout", blurGesture);
+      stage.removeEventListener("pointerdown", pointerDown);
+      stage.removeEventListener("pointermove", pointerMove);
+      stage.removeEventListener("pointerup", pointerUp);
+      stage.removeEventListener("pointercancel", pointerUp);
       stage.removeEventListener("scroll", this.#hideTooltip);
       stage.removeEventListener("click", activate);
       stage.removeEventListener("keydown", activate);
       stage.removeEventListener("keydown", rove);
+      stage.removeEventListener("keydown", keyboardDrag);
+      const view = stage.ownerDocument.defaultView;
+      if (pointerFrame !== undefined) view?.cancelAnimationFrame(pointerFrame);
     });
     void doc;
   }
@@ -1257,6 +1573,7 @@ export interface AutoMountOptions {
 /**
  * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
  * `data-layout`, `data-autoplay="true"|"false"|"in-view"`, `data-autoplay-delay="180"`,
+ * `data-loop="true"`,
  * `data-controls="false"|"auto"`,
  * `data-readout="false"|"auto"`, `data-tooltips="false"`, `data-reduced-motion="true"`,
  * `data-width`. Returns the controllers in document order.
@@ -1288,6 +1605,7 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
       ...(layout === undefined ? {} : { layout }),
       ...(width === undefined || !Number.isFinite(width) ? {} : { width }),
       autoplay: autoplayAttr(element.dataset.autoplay),
+      loop: element.dataset.loop === "true",
       ...(autoplayDelay === undefined ? {} : { inView: { delay: autoplayDelay } }),
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
@@ -1468,3 +1786,7 @@ function cssEscape(value: string): string {
 export { createMachineState };
 export type { FigureSource, MachineState, MachineStep, ResolvedFrame, ResolvedScene, ThemeTokens };
 export * from "./embed.js";
+export * from "./canvas.js";
+export * from "./patch.js";
+export * from "./worker.js";
+export * from "./doctor.js";
