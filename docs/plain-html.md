@@ -37,10 +37,25 @@ site reproducible; update it deliberately when you update the figure.
 
     <script type="module">
       import {
+        createTheme,
         figure,
-        kineglyphTheme,
         mountKineglyph,
       } from "https://esm.sh/@kineglyph/web@0.2.0/bundle?bundle";
+
+      const theme = createTheme({
+        name: "plain-html",
+        colors: {
+          canvas: "#111318",
+          surface: "#171a21",
+          surfaceRaised: "#1f2430",
+          border: "#343a49",
+          text: "#f4f5f8",
+          textMuted: "#9aa3b5",
+          accent: "#8b5cf6",
+          success: "#55c99a",
+          connector: "#9aa3b5",
+        },
+      });
 
       const glyph = figure(
         "html-request-flow",
@@ -71,11 +86,10 @@ site reproducible; update it deliberately when you update the figure.
           });
 
           f.root(
-            f.graph([browser, api], {
-              style: "flow",
-              direction: { wide: "horizontal", compact: "horizontal", narrow: "vertical" },
-              layerGap: 44,
+            f.flow([browser, api], {
+              gap: 44,
               padding: 20,
+              width: "fill",
             }),
           );
           f.sequence([f.reveal(browser), f.draw(request), f.reveal(api), f.flow(request)]);
@@ -84,7 +98,7 @@ site reproducible; update it deliberately when you update the figure.
 
       const controller = mountKineglyph(document.querySelector("#glyph"), {
         scene: glyph,
-        theme: kineglyphTheme,
+        theme,
         controls: "auto",
         readout: "auto",
       });
