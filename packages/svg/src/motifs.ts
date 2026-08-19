@@ -189,6 +189,7 @@ export const MOTIFS: Readonly<Record<string, readonly MotifShape[]>> = {
     P("M 0 -10 L 0 -7 M 10 0 L 7 0 M 0 10 L 0 7 M -10 0 L -7 0 M 0 0 L 4 -4"),
   ],
   file: [P("M -7 -11 L 3 -11 L 8 -6 L 8 11 L -7 11 Z"), P("M 3 -11 L 3 -6 L 8 -6")],
+  folder: [P("M -10 -8 L -2 -8 L 1 -5 L 10 -5 L 10 9 L -10 9 Z")],
   detect: [C(-2, -2, 7, "background"), P("M 3 3 L 10 10")],
   export: [P("M -8 2 L -8 10 L 8 10 L 8 2 M 0 -10 L 0 5 M -5 -5 L 0 -10 L 5 -5")],
   bridge: [

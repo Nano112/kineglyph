@@ -30,6 +30,31 @@ describe("bundle export disambiguation", () => {
     expect(bundle.formatPlotNumber(12345, { compact: true })).toContain("k");
   });
 
+  it("exposes the professional theme presets from the browser bundle", () => {
+    expect(Object.keys(bundle.professionalThemes)).toEqual([
+      "swiss",
+      "ledger",
+      "blueprint",
+      "fieldManual",
+      "studio",
+      "civic",
+    ]);
+    expect(bundle.swissTheme.name).toBe("swiss");
+    expect(bundle.blueprintTheme.materials.glass.effects ?? []).toEqual([]);
+    expect(bundle.studioTheme.radii.lg).not.toBe(bundle.swissTheme.radii.lg);
+  });
+
+  it("exposes file-tree, terminal, typing, and asciicast authoring in the browser bundle", () => {
+    expect(typeof bundle.fileTree).toBe("function");
+    expect(typeof bundle.terminal).toBe("function");
+    expect(typeof bundle.asciicast).toBe("function");
+    expect(typeof bundle.parseAsciicast).toBe("function");
+    const parsed = bundle.parseAsciicast(
+      '{"version":3,"term":{"cols":80,"rows":24}}\n[0.1,"o","ready\\r\\n"]',
+    );
+    expect(parsed.duration).toBe(100);
+  });
+
   it.skipIf(!existsSync(DIST))("the built bundle re-exports the plot aliases too", async () => {
     const source = readFileSync(DIST, "utf8");
     expect(source).toContain("plotRule");
@@ -41,5 +66,7 @@ describe("bundle export disambiguation", () => {
     expect(built.plotRule({ y: 1 })).toEqual({ type: "reference-line", axis: "y", value: 1 });
     expect(built.plotRule).not.toBe(built.rule);
     expect(built.formatPlotNumber).not.toBe(built.formatNumber);
+    expect(built.professionalThemes.civic.name).toBe("civic");
+    expect(typeof built.asciicast).toBe("function");
   });
 });

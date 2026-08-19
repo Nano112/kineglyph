@@ -5,6 +5,57 @@ Typed scene, theme, layout, timeline, and material primitives. Scenes are plain 
 `card`, `panel`, …) compose it, `resolveFigure()` lays it out for a width and theme, and
 `seekTimeline()` produces a frame that any renderer can draw.
 
+Six restrained, effect-free theme presets are included for figures that need an immediate visual
+direction without becoming a palette exercise:
+
+```ts
+import {
+  blueprintTheme,
+  civicTheme,
+  fieldManualTheme,
+  ledgerTheme,
+  professionalThemes,
+  studioTheme,
+  swissTheme,
+} from "@kineglyph/core";
+
+const theme = professionalThemes.blueprint;
+```
+
+Each preset changes the full system—type, spacing, radii, stroke weights, motion, ornament, and
+semantic colour roles. Their material roles are deliberately flat: no glow, blur, glass effect, or
+shader fallback is introduced when a scene switches themes.
+
+## Files, terminals, and asciinema recordings
+
+`figure()` includes recursive file trees and structured terminals. Commands can be revealed with a
+seekable character-level timeline, and `asciicast()` accepts the newline-delimited asciicast v2 and
+v3 formats.
+
+```ts
+import { asciicast, figure } from "@kineglyph/core";
+
+const cast = [
+  '{"version":3,"term":{"cols":80,"rows":12}}',
+  '[0.2,"o","$ npm test\\r\\n"]',
+  '[0.4,"o","42 tests passed\\r\\n"]',
+].join("\n");
+
+const scene = figure("project", { title: "Project and build" }, (f) => {
+  const files = f.fileTree(
+    [{ name: "src", children: [{ name: "index.ts" }, { name: "figure.ts" }] }],
+    { root: "demo" },
+  );
+  const recording = f.add(asciicast(cast, { id: "tests" }));
+  f.root(f.flow([files, recording], { gap: 18 }));
+  f.sequence([f.reveal(files), f.reveal(recording)]);
+});
+```
+
+The asciicast renderer is transcript-oriented rather than a full terminal emulator. It handles
+common cursor movement, carriage return, backspace, tabs, line erasure, and clear-screen sequences
+while keeping the output lightweight, responsive, inspectable, and exportable as ordinary SVG.
+
 ## Simple scenes from data (`sceneFromSpec`)
 
 Most diagrams are a handful of labelled boxes with arrows between them. `SimpleSceneSpec` describes

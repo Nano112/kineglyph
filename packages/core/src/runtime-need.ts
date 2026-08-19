@@ -25,9 +25,10 @@ import type { ResolvedScene } from "./resolved.js";
  * | the scene declares controls | render a parameter panel bound to them |
  * | any image node is `live` | hand it to a host renderer (canvas, iframe, model-viewer) |
  *
- * "Inspectable" is the same test `readout: "auto"` uses — `interactive`, or a label *and* a
- * description — because hover highlighting is bound for exactly those nodes whether or not a
- * readout was drawn.
+ * "Inspectable" is the same test `readout: "auto"` uses — explicit inspection metadata,
+ * `interactive`, or a label *and* a description — because hover highlighting is bound for exactly
+ * those nodes whether or not a readout was drawn. Explicit metadata matters for dense plots whose
+ * marks retain pointer inspection without each becoming a keyboard button.
  *
  * Deliberately **not** a reason on its own: `prefers-reduced-motion` (nothing to reduce without a
  * timeline), the reader's width (a fixed-width mount does not observe it), and a theme change
@@ -40,6 +41,7 @@ export function sceneNeedsRuntime(scene: ResolvedScene): boolean {
   return scene.nodes.some(
     (node) =>
       node.image?.live === true ||
+      node.inspect !== undefined ||
       node.interactive ||
       (node.label.length > 0 && node.description !== undefined),
   );

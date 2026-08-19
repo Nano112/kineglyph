@@ -250,6 +250,8 @@ export interface TextMark extends BaseNode {
   readonly maxLines?: Responsive<number>;
   readonly transform?: "none" | "uppercase";
   readonly wrap?: boolean;
+  /** How a `progress` track reveals this text. Lines are the backwards-compatible default. */
+  readonly reveal?: "lines" | "characters";
 }
 
 export interface IconMark extends BaseNode {

@@ -1785,8 +1785,15 @@ function renderTextBlock(
   const align = string(text.align) ?? "start";
   const anchorX = align === "center" ? x + width / 2 : align === "end" ? x + width : x;
   const letterSpacing = finiteNumber(text.letterSpacing, 0);
+  const reveal = string(text.reveal) === "characters" ? "characters" : "lines";
   const visibleLines =
     progress >= 1 ? lines.length : Math.max(0, Math.round(lines.length * progress));
+  const totalCharacters = lines.reduce(
+    (sum, line) => sum + Array.from(string(line.text) ?? "").length,
+    0,
+  );
+  let remainingCharacters =
+    progress >= 1 ? totalCharacters : Math.max(0, Math.floor(totalCharacters * progress));
   return element(
     "text",
     [
@@ -1800,22 +1807,37 @@ function renderTextBlock(
       ["text-anchor", align === "center" ? "middle" : align === "end" ? "end" : undefined],
       ["data-wrap-lines", String(lines.length)],
       ["data-max-width", number(width, precision)],
+      ["data-text-reveal", reveal],
     ],
     lines
       .map((line, index) => {
+        const fullText = string(line.text) ?? "";
+        const characters = Array.from(fullText);
+        const visibleCharacters =
+          reveal === "characters"
+            ? Math.max(0, Math.min(characters.length, remainingCharacters))
+            : characters.length;
+        remainingCharacters -= visibleCharacters;
+        const renderedText =
+          reveal === "characters" ? characters.slice(0, visibleCharacters).join("") : fullText;
         const lineWidth = finiteNumber(line.width, 0);
+        const renderedWidth =
+          reveal === "characters" && characters.length > 0
+            ? lineWidth * (visibleCharacters / characters.length)
+            : lineWidth;
         const baseline = y + index * lineHeight + lineHeight / 2 + fontSize * 0.35;
         return element(
           "tspan",
           [
             ["x", number(anchorX, precision)],
             ["y", number(baseline, precision)],
-            ["textLength", lineWidth > 0.5 ? number(lineWidth, precision) : undefined],
-            ["lengthAdjust", lineWidth > 0.5 ? "spacingAndGlyphs" : undefined],
+            ["textLength", renderedWidth > 0.5 ? number(renderedWidth, precision) : undefined],
+            ["lengthAdjust", renderedWidth > 0.5 ? "spacingAndGlyphs" : undefined],
             ["data-line-width", number(lineWidth, precision)],
-            ["opacity", index < visibleLines ? undefined : "0"],
+            ["data-full-text", fullText],
+            ["opacity", reveal === "lines" && index >= visibleLines ? "0" : undefined],
           ],
-          escapeXml(string(line.text) ?? ""),
+          escapeXml(renderedText),
         );
       })
       .join(""),

@@ -27,6 +27,7 @@ import { validateStateMachine, type StateMachineDefinition } from "./machine.js"
 import {
   card,
   container,
+  fileTree,
   gate,
   junction,
   keyValue,
@@ -35,15 +36,20 @@ import {
   rule,
   spacer,
   stack,
+  terminal,
   type CardOptions,
   type ContainerOptions,
   type KeyValueOptions,
   type LogicGateKind,
   type LogicGateOptions,
   type JunctionOptions,
+  type FileTreeEntry,
+  type FileTreeOptions,
   type PanelOptions,
   type PillOptions,
   type TextOptions,
+  type TerminalLine,
+  type TerminalOptions,
 } from "./recipes.js";
 import type {
   AnimationTimeline,
@@ -127,6 +133,8 @@ export type FigurePillOptions = PillOptions & { readonly id?: string };
 export type FigureGateOptions = LogicGateOptions & { readonly id?: string };
 export type FigureJunctionOptions = JunctionOptions & { readonly id?: string };
 export type FigureKeyValueOptions = KeyValueOptions & { readonly id?: string };
+export type FigureTerminalOptions = TerminalOptions & { readonly id?: string };
+export type FigureFileTreeOptions = FileTreeOptions & { readonly id?: string };
 export interface FigureRuleOptions {
   readonly id?: string;
   readonly tone?: Paint;
@@ -215,6 +223,7 @@ export interface ProgressOptions extends MotionOptions {
 }
 export type RiseOptions = MotionOptions;
 export type WipeOptions = MotionOptions;
+export type TypewriteOptions = MotionOptions;
 
 /** A schedulable unit of motion; `f.sequence` and `f.at` decide when it starts. */
 export interface MotionStep {
@@ -270,6 +279,10 @@ export interface FigureBuilder {
   /** Filled net junction for explicit signal fan-out. */
   junction(options?: FigureJunctionOptions): CircleMark;
   keyValue(key: string, value: string, options?: FigureKeyValueOptions): GroupNode;
+  /** Structured terminal surface; pair with `f.typewrite(terminal)` for seekable typing. */
+  terminal(lines: readonly (string | TerminalLine)[], options?: FigureTerminalOptions): GroupNode;
+  /** Recursive directory tree with optional branch guides, details, and status badges. */
+  fileTree(entries: readonly FileTreeEntry[], options?: FigureFileTreeOptions): GroupNode;
   rule(options?: FigureRuleOptions): RectMark;
   spacer(size: Responsive<number>, options?: FigureSpacerOptions): RectMark;
   // Layout
@@ -310,6 +323,8 @@ export interface FigureBuilder {
   rise(target: MotionTarget, options?: RiseOptions): MotionStep;
   /** Anchored horizontal reveal (`revealX` 0 → 1). */
   wipe(target: MotionTarget, options?: WipeOptions): MotionStep;
+  /** Reveals the character-mode text inside a terminal or an individual text node. */
+  typewrite(target: MotionTarget, options?: TypewriteOptions): MotionStep;
   // Scheduling
   sequence(steps: readonly SequenceEntry[], options?: SequenceOptions): void;
   at(time: number, ...steps: readonly MotionStep[]): void;
@@ -334,6 +349,7 @@ const DEFAULTS = {
   progress: 600,
   rise: 500,
   wipe: 500,
+  typewrite: 900,
   gap: 120,
 } as const;
 
@@ -473,6 +489,7 @@ function createBuilder(
 ): { readonly builder: FigureBuilder; readonly finish: () => SceneDefinition } {
   /** Every node and edge id → where it was created (they share one id space). */
   const ids = new Map<string, string>();
+  const nodesById = new Map<string, SceneNode>();
   const edgeIds = new Set<string>();
   /** Objects returned by helpers, in creation order; the default root is built from them. */
   const created = new Set<SceneNode>();
@@ -535,6 +552,7 @@ function createBuilder(
         return;
       }
       register(entry.id, origin);
+      nodesById.set(entry.id, entry);
       if (entry.type === "group") for (const child of entry.children) visit(child, false);
     };
     visit(node, true);
@@ -647,7 +665,7 @@ function createBuilder(
     text: string,
     options: FigureTextOptions = {},
   ): TextMark => {
-    const { id: explicit, textStyle, tone, ...rest } = options;
+    const { id: explicit, textStyle, tone, reveal, ...rest } = options;
     const id = inferId(kind, text, explicit);
     const resolvedStyle = textStyle ?? style;
     return commit(
@@ -658,6 +676,7 @@ function createBuilder(
         ...rest,
         ...(resolvedStyle === undefined ? {} : { textStyle: resolvedStyle }),
         ...(tone === undefined ? {} : { color: tone }),
+        ...(reveal === undefined ? {} : { reveal }),
       },
       where(kind, text),
     );
@@ -903,6 +922,18 @@ function createBuilder(
       const id = inferId("key-value", key, explicit);
       return commit(keyValue(id, key, value, rest), where("keyValue", key));
     },
+    terminal(lines, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.title ?? rest.label;
+      const id = inferId("terminal", primary, explicit);
+      return commit(terminal(id, lines, rest), where("terminal", primary));
+    },
+    fileTree(entries, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.root ?? rest.label;
+      const id = inferId("file-tree", primary, explicit);
+      return commit(fileTree(id, entries, rest), where("fileTree", primary));
+    },
     rule(options = {}) {
       const id = inferId("rule", undefined, options.id);
       return commit(rule(id, options.tone), where("rule"));
@@ -1076,6 +1107,26 @@ function createBuilder(
       const resolved = resolveTargets(target, "f.wipe");
       return step(`wipe(${resolved.ids.join(",")})`, resolved.ids, stagger, (id, start) => [
         ramp(id, "revealX", start, start + duration, 0, 1, easing),
+      ]);
+    },
+    typewrite(target, options = {}) {
+      const { duration = DEFAULTS.typewrite, stagger = 140, easing = "linear" } = options;
+      const resolved = resolveTargets(target, "f.typewrite");
+      const targets: string[] = [];
+      const collect = (node: SceneNode): void => {
+        if (node.type === "text" && node.reveal === "characters") targets.push(node.id);
+        if (node.type === "group") node.children.forEach(collect);
+      };
+      for (const id of resolved.ids) {
+        const node = nodesById.get(id);
+        if (node !== undefined) collect(node);
+      }
+      if (targets.length === 0)
+        throw fail(
+          `f.typewrite: no character-reveal text found in ${resolved.ids.map((id) => `"${id}"`).join(", ")}; use f.terminal(...) or set reveal: "characters" on a text node`,
+        );
+      return step(`typewrite(${targets.join(",")})`, targets, stagger, (id, start) => [
+        ramp(id, "progress", start, start + duration, 0, 1, easing),
       ]);
     },
 

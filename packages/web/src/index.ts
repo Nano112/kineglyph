@@ -92,9 +92,15 @@ export interface MountOptions {
    * Render the inspection readout. Defaults to true.
    *
    * `"auto"` defers to the scene: the readout appears only when something in it can actually be
-   * inspected — a node that is `interactive`, or one that carries both a label and a description.
+   * inspected — a node with `inspect` metadata, one that is `interactive`, or one that carries
+   * both a label and a description.
    */
   readonly readout?: ChromeSetting;
+  /**
+   * Show a compact semantic tooltip while an inspectable node or edge is hovered or focused.
+   * Defaults to true. Disable it when the host supplies its own inspection UI via `onInspect`.
+   */
+  readonly tooltips?: boolean;
   /** Render machine control buttons when the scene declares them. Defaults to true. */
   readonly machineControls?: ChromeSetting;
   /** Overrides the `prefers-reduced-motion` media query. */
@@ -273,6 +279,7 @@ class FigureRuntime implements KineglyphController {
   readonly #cleanups: Array<() => void> = [];
   readonly #shell: HTMLElement;
   readonly #readout: HTMLElement | undefined;
+  readonly #tooltip: HTMLElement | undefined;
   readonly #machineBar: HTMLElement | undefined;
   readonly #controls: HTMLElement | undefined;
   #playButton: HTMLButtonElement | undefined;
@@ -342,6 +349,19 @@ class FigureRuntime implements KineglyphController {
       this.#controls.className = "kg-figure__controls";
       this.#shell.append(this.#controls);
       this.#buildControls(doc);
+    }
+    // Tooltips are transient rather than chrome: keeping one hidden element available costs no
+    // visible space and lets a live editor swap an inert scene for an inspectable one later.
+    if (options.tooltips !== false) {
+      this.#tooltip = doc.createElement("div");
+      this.#tooltip.id = `${this.id}-tooltip`;
+      this.#tooltip.className = "kg-figure__tooltip";
+      this.#tooltip.setAttribute("role", "tooltip");
+      this.#tooltip.setAttribute("aria-hidden", "true");
+      this.#tooltip.hidden = true;
+      this.#tooltip.innerHTML =
+        '<span class="kg-figure__tooltip-role"></span><strong></strong><div class="kg-figure__tooltip-summary"></div><dl class="kg-figure__tooltip-fields"></dl>';
+      this.#shell.append(this.#tooltip);
     }
 
     this.#render(true);
@@ -544,6 +564,7 @@ class FigureRuntime implements KineglyphController {
     this.#shaders = undefined;
     this.#liveSurfaces?.dispose();
     this.#liveSurfaces = undefined;
+    this.#hideTooltip();
     // Disabled and reduced-motion figures present their terminal frame. In-view figures wait at
     // frame zero, so the reader sees the authored entrance rather than a flash of the ending.
     const restFrame = this.#reducedMotion || (this.#options.autoplay ?? "in-view") === false;
@@ -851,31 +872,52 @@ class FigureRuntime implements KineglyphController {
 
   #bindInteractions(doc: Document): void {
     const stage = this.stage;
-    const nodeFrom = (event: Event): Element | null =>
-      event.target instanceof Element
-        ? event.target.closest("[data-node-id],[data-edge-group]")
-        : null;
+    type InspectHit = { readonly owner: Element; readonly target: InspectTarget };
+    /**
+     * Finds the semantic owner of the painted element under the pointer.
+     *
+     * Text, icons, and other decoration are nodes too, but usually carry no inspection payload of
+     * their own. Stopping at the nearest `data-node-id` makes crossing those children look like
+     * leaving their card. Walk upward until a node actually has something to say; an explicitly
+     * inspectable nested node still wins before its parent.
+     */
+    const inspectFrom = (source: EventTarget | null): InspectHit | undefined => {
+      if (!(source instanceof Element)) return undefined;
+      let owner: Element | null = source.closest("[data-node-id],[data-edge-group]");
+      while (owner !== null && stage.contains(owner)) {
+        const nodeId = owner.getAttribute("data-node-id");
+        const edgeId = owner.getAttribute("data-edge-group");
+        const target =
+          nodeId !== null && this.#isInspectable(nodeId)
+            ? this.#targetFor(nodeId)
+            : edgeId !== null && owner.getAttribute("role") === "img"
+              ? this.#targetFor(edgeId)
+              : undefined;
+        if (target !== undefined) return { owner, target };
+        owner = owner.parentElement?.closest("[data-node-id],[data-edge-group]") ?? null;
+      }
+      return undefined;
+    };
     const inspect = (event: Event): void => {
-      const target = nodeFrom(event);
-      if (target === null) return;
-      const nodeId = target.getAttribute("data-node-id");
-      const edgeId = target.getAttribute("data-edge-group");
-      if (nodeId !== null && this.#isInspectable(nodeId))
-        this.#setInspected(this.#targetFor(nodeId));
-      else if (edgeId !== null && target.getAttribute("role") === "img")
-        this.#setInspected(this.#targetFor(edgeId));
+      const hit = inspectFrom(event.target);
+      if (hit === undefined) return;
+      this.#setInspected(hit.target);
+      this.#showTooltip(hit.target, hit.owner);
     };
     const clear = (event: Event): void => {
       const related =
         event instanceof FocusEvent || event instanceof MouseEvent ? event.relatedTarget : null;
-      const current = nodeFrom(event);
-      if (
-        related instanceof Element &&
-        related.closest("[data-node-id],[data-edge-group]") === current
-      )
+      const current = inspectFrom(event.target);
+      if (current === undefined) return;
+      const next = inspectFrom(related);
+      // Pointerout/focusout precedes the corresponding enter event. Transfer immediately when the
+      // related element has another owner so adjacent cells and genuinely nested targets never
+      // flash the tooltip off between two valid states.
+      if (next !== undefined) {
+        this.#setInspected(next.target);
+        this.#showTooltip(next.target, next.owner);
         return;
-      if (event.type === "focusout" && current !== null && !current.matches("[data-node-id]"))
-        return;
+      }
       this.#setInspected(undefined);
     };
     const activate = (event: Event): void => {
@@ -892,6 +934,7 @@ class FigureRuntime implements KineglyphController {
     stage.addEventListener("pointerout", clear);
     stage.addEventListener("focusin", inspect);
     stage.addEventListener("focusout", clear);
+    stage.addEventListener("scroll", this.#hideTooltip, { passive: true });
     const rove = (event: Event): void => {
       if (!(event instanceof KeyboardEvent)) return;
       const keys = ["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"];
@@ -919,6 +962,7 @@ class FigureRuntime implements KineglyphController {
       stage.removeEventListener("pointerout", clear);
       stage.removeEventListener("focusin", inspect);
       stage.removeEventListener("focusout", clear);
+      stage.removeEventListener("scroll", this.#hideTooltip);
       stage.removeEventListener("click", activate);
       stage.removeEventListener("keydown", activate);
       stage.removeEventListener("keydown", rove);
@@ -955,7 +999,9 @@ class FigureRuntime implements KineglyphController {
     const node = this.#resolved.nodes.find((entry) => entry.id === nodeId);
     return (
       node !== undefined &&
-      (node.interactive || (node.label.length > 0 && node.description !== undefined))
+      (node.inspect !== undefined ||
+        node.interactive ||
+        (node.label.length > 0 && node.description !== undefined))
     );
   }
 
@@ -964,7 +1010,9 @@ class FigureRuntime implements KineglyphController {
    *
    * The same predicate `#bindInteractions` gates on, asked of the whole scene rather than one
    * node — so `readout: "auto"` promises exactly what hovering will deliver, instead of guessing
-   * from something adjacent like "the scene has a description".
+   * from something adjacent like "the scene has a description". Explicit `inspect` metadata is
+   * enough: dense plot marks can remain non-interactive while still explaining themselves under
+   * a pointer.
    */
   #hasInspectableContent(): boolean {
     return this.#resolved.nodes.some((node) => this.#isInspectable(node.id));
@@ -1014,6 +1062,7 @@ class FigureRuntime implements KineglyphController {
 
   #setInspected(target: InspectTarget | undefined): void {
     if (this.#inspected?.id === target?.id) return;
+    this.#hideTooltip();
     this.#inspected = target;
     this.#syncSelection();
     this.#refreshReadout();
@@ -1063,6 +1112,62 @@ class FigureRuntime implements KineglyphController {
         body.append(list);
       }
     }
+  }
+
+  readonly #hideTooltip = (): void => {
+    const tooltip = this.#tooltip;
+    if (tooltip === undefined || tooltip.hidden) return;
+    tooltip.hidden = true;
+    tooltip.setAttribute("aria-hidden", "true");
+  };
+
+  #showTooltip(inspected: InspectTarget, anchor: Element): void {
+    const tooltip = this.#tooltip;
+    if (tooltip === undefined) return;
+    const [role, title, summary, fields] = tooltip.children;
+    if (role) role.textContent = inspected.role;
+    if (title) title.textContent = inspected.title;
+    if (summary) {
+      summary.textContent = inspected.summary ?? "";
+      (summary as HTMLElement).hidden = inspected.summary === undefined || inspected.summary === "";
+    }
+    if (fields) {
+      fields.replaceChildren();
+      for (const field of inspected.fields) {
+        const term = tooltip.ownerDocument.createElement("dt");
+        term.textContent = field.label;
+        const value = tooltip.ownerDocument.createElement("dd");
+        value.textContent = field.value;
+        fields.append(term, value);
+      }
+      (fields as HTMLElement).hidden = inspected.fields.length === 0;
+    }
+    tooltip.hidden = false;
+    tooltip.setAttribute("aria-hidden", "false");
+    this.#positionTooltip(anchor);
+  }
+
+  #positionTooltip(anchor: Element): void {
+    const tooltip = this.#tooltip;
+    if (tooltip === undefined || tooltip.hidden) return;
+    const shellRect = this.#shell.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const inset = 8;
+    const shellWidth = shellRect.width || this.#width;
+    const tooltipWidth = tooltipRect.width || Math.min(280, Math.max(0, shellWidth - inset * 2));
+    const half = tooltipWidth / 2;
+    const naturalX = anchorRect.left + anchorRect.width / 2 - shellRect.left;
+    const minX = inset + half;
+    const maxX = Math.max(minX, shellWidth - inset - half);
+    const x = Math.min(maxX, Math.max(minX, naturalX));
+    const aboveSpace = anchorRect.top - shellRect.top;
+    const placeBelow = aboveSpace < (tooltipRect.height || 96) + 12;
+    tooltip.dataset.placement = placeBelow ? "below" : "above";
+    tooltip.style.left = `${Math.round(x)}px`;
+    tooltip.style.top = `${Math.round(
+      (placeBelow ? anchorRect.bottom : anchorRect.top) - shellRect.top,
+    )}px`;
   }
 
   #focusedNodeId(): string | undefined {
@@ -1153,8 +1258,8 @@ export interface AutoMountOptions {
  * Mounts every `[data-kineglyph="<scene id>"]` element. Optional attributes: `data-theme`,
  * `data-layout`, `data-autoplay="true"|"false"|"in-view"`, `data-autoplay-delay="180"`,
  * `data-controls="false"|"auto"`,
- * `data-readout="false"|"auto"`, `data-reduced-motion="true"`, `data-width`. Returns the
- * controllers in document order.
+ * `data-readout="false"|"auto"`, `data-tooltips="false"`, `data-reduced-motion="true"`,
+ * `data-width`. Returns the controllers in document order.
  */
 export function autoMount(options: AutoMountOptions = {}): KineglyphController[] {
   const root: ParentNode =
@@ -1186,6 +1291,7 @@ export function autoMount(options: AutoMountOptions = {}): KineglyphController[]
       ...(autoplayDelay === undefined ? {} : { inView: { delay: autoplayDelay } }),
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
+      tooltips: element.dataset.tooltips !== "false",
       ...(element.dataset.reducedMotion === undefined
         ? {}
         : { reducedMotion: element.dataset.reducedMotion === "true" }),

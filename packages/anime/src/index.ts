@@ -563,6 +563,30 @@ export class KineglyphSceneAnimator {
       const text = element.querySelector(`text[data-text-of="${cssEscape(node.id)}"]`);
       if (text instanceof SVGElement) {
         const spans = [...text.querySelectorAll("tspan")];
+        if (text.getAttribute("data-text-reveal") === "characters") {
+          const full = spans.map((span) => span.getAttribute("data-full-text") ?? "");
+          const total = full.reduce((sum, value) => sum + Array.from(value).length, 0);
+          let remaining =
+            node.state.progress >= 1 ? total : Math.max(0, Math.floor(total * node.state.progress));
+          spans.forEach((span, index) => {
+            const value = full[index] ?? "";
+            const characters = Array.from(value);
+            const visible = Math.max(0, Math.min(characters.length, remaining));
+            remaining -= visible;
+            span.textContent = characters.slice(0, visible).join("");
+            const fullWidth = Number(span.getAttribute("data-line-width") ?? "0");
+            const width = characters.length === 0 ? 0 : fullWidth * (visible / characters.length);
+            if (width > 0.5) {
+              span.setAttribute("textLength", String(round(width)));
+              span.setAttribute("lengthAdjust", "spacingAndGlyphs");
+            } else {
+              span.removeAttribute("textLength");
+              span.removeAttribute("lengthAdjust");
+            }
+            span.removeAttribute("opacity");
+          });
+          continue;
+        }
         const visible =
           node.state.progress >= 1
             ? spans.length

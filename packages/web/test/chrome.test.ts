@@ -178,16 +178,18 @@ describe("the DOM order the chrome is built in", () => {
       "kg-figure__readout",
       "kg-figure__machine",
       "kg-figure__controls",
+      "kg-figure__tooltip",
     ]);
   });
 });
 
 describe('data-controls="auto" through mountAll', () => {
   it("reaches the runtime as the deferred setting, not as true", async () => {
-    document.body.innerHTML = `<figure class="kg" data-kineglyph="still" data-controls="auto" data-readout="auto"></figure>`;
+    document.body.innerHTML = `<figure class="kg" data-kineglyph="still" data-controls="auto" data-readout="auto" data-tooltips="false"></figure>`;
     const figure = document.querySelector<HTMLElement>("figure")!;
     await mountAll({ load: () => Promise.resolve(still) });
     expect(chrome(figure)).toEqual({ controls: false, readout: false });
+    expect(figure.querySelector(".kg-figure__tooltip")).toBeNull();
   });
 
   it("leaves a figure that said nothing with the chrome it has always had", async () => {
@@ -195,5 +197,6 @@ describe('data-controls="auto" through mountAll', () => {
     const figure = document.querySelector<HTMLElement>("figure")!;
     await mountAll({ load: () => Promise.resolve(still) });
     expect(chrome(figure)).toEqual({ controls: true, readout: true });
+    expect(figure.querySelector(".kg-figure__tooltip")).not.toBeNull();
   });
 });

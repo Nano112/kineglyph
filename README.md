@@ -164,6 +164,11 @@ A scene asks for semantic materials such as `raised`, `inset`, `floating`, or `g
 decides what those words mean. Paint, elevation, grain, blur, compositing, and shader intent remain
 plain serializable data.
 
+For a restrained starting point, core also ships six complete, effect-free systems:
+`swissTheme`, `ledgerTheme`, `blueprintTheme`, `fieldManualTheme`, `studioTheme`, and `civicTheme`.
+They differ in typography, density, geometry, line language, motion, and semantic colour—not just
+their accent swatch. See the editable [professional themes gallery](./docs/theme-gallery.md).
+
 ```ts
 import {
   alphaGradient,

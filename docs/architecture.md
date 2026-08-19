@@ -13,28 +13,88 @@ animation state, and raster pixels are outputs of the same resolved scene at exa
 
 ## Resolution pipeline
 
-```text
-scene definition (primitives + edges + timeline + machine)
-        + semantic theme + container width (+ machine state)
-                         |
-                         v
-        chooseLayout → named layout (wide | compact | narrow)
-                         |
-                         v
-        buildView: responsive picks + signal bindings applied
-                         |
-                         v
-        deterministic layout resolver (widths down, heights up, positions down)
-                         |
-                         v
-        edge routing (ports, routes, markers, labels, packets)
-                         |
-                         v
-                  resolved scene graph
-                    /           \
-          seek(time)             renderers
-              |                     |
-        resolved frame       SVG / DOM / PNG / GIF
+```kineglyph live id=architecture-resolution-pipeline view=preview height=900
+import { blueprintTheme, figure, material } from "kineglyph";
+
+export const theme = blueprintTheme;
+
+export default figure("architecture-resolution-pipeline", {
+  title: "A scene becomes frames and renderable output",
+}, (f) => {
+  const makeCard = ([id, eyebrow, title, body, motif, tone], raised = false) => f.card({
+    id, eyebrow, title, body, motif, tone, compact: true,
+    frame: material(raised ? "raised" : "flat"),
+  });
+  const inputs = [
+    ["scene-input", "AUTHORED INPUT", "Scene definition", "Primitives, edges, timeline, and machine", "code", "accent"],
+    ["theme-input", "SEMANTIC INPUT", "Theme", "Type, space, colour, motion, ornament", "layers", "info"],
+    ["live-input", "LIVE INPUT", "Container + state", "Width, signals, and machine state", "grid", "success"],
+  ].map((spec) => makeCard(spec, true));
+  const pipeline = [
+    ["choose-layout", "01 · CHOOSE", "Responsive layout", "Wide, compact, or narrow", "compare", "info"],
+    ["build-view", "02 · BIND", "Build the view", "Resolve responsive values and signals", "blocks", "accent"],
+    ["resolve-geometry", "03 · MEASURE", "Resolve geometry", "Widths down, heights up, positions down", "graph", "warning"],
+    ["route-edges", "04 · ROUTE", "Resolve connectors", "Ports, paths, labels, markers, packets", "arrow-right", "success"],
+    ["resolved-scene", "PURE RESULT", "Resolved scene", "Finite geometry with stable identifiers", "cube", "success"],
+  ].map((spec, index) => makeCard(spec, index === 4));
+  const branches = [
+    ["seek-time", "RANDOM ACCESS", "Seek time t", "Evaluate any frame directly", "spark", "warning"],
+    ["render-scene", "SERIALIZE", "Render", "One model, several destinations", "terminal", "info"],
+  ].map((spec) => makeCard(spec));
+  const outputs = [
+    ["resolved-frame", "AT EXACT TIME", "Resolved frame", "Geometry, paint, and motion state", "grid", "warning"],
+    ["portable-formats", "PORTABLE OUTPUT", "SVG · DOM · PNG · GIF", "The same scene reaches every surface", "file", "info"],
+  ].map((spec) => makeCard(spec, true));
+  const [choose, view, layout, routing, resolved] = pipeline;
+
+  const graph = f.graph([
+    {
+      id: "resolution-inputs",
+      nodes: inputs,
+      layout: "grid",
+      columns: { wide: 3, compact: 3, narrow: 1 },
+      gap: 12,
+    },
+    choose,
+    view,
+    layout,
+    routing,
+    resolved,
+    { id: "resolution-branches", nodes: branches, layout: "grid", columns: { wide: 2, narrow: 1 }, gap: 14 },
+    { id: "resolution-outputs", nodes: outputs, layout: "grid", columns: { wide: 2, narrow: 1 }, gap: 14 },
+  ], {
+    style: "tree",
+    direction: "vertical",
+    layerGap: { wide: 38, compact: 34, narrow: 30 },
+    padding: { wide: 20, compact: 16, narrow: 10 },
+    width: "fill",
+  });
+
+  const connect = (from, to, tone) => f.connect(from, to, {
+    route: "orthogonal",
+    head: "arrow",
+    tone,
+  });
+  const merge = inputs.map((source) => connect(source, choose, "info"));
+  const chain = pipeline.slice(0, -1).map((source, index) =>
+    connect(source, pipeline[index + 1], ["connector", "warning", "success", "success"][index])
+  );
+  const split = branches.map((target, index) =>
+    connect(resolved, target, ["warning", "info"][index])
+  );
+  const finish = branches.map((source, index) =>
+    connect(source, outputs[index], ["warning", "info"][index])
+  );
+
+  f.root(graph);
+  f.sequence([
+    f.reveal(inputs, { stagger: 70 }),
+    [f.draw(merge, { stagger: 55 }), f.reveal(choose)],
+    ...chain.map((edge, index) => [f.draw(edge), f.reveal(pipeline[index + 1])]),
+    [f.draw(split, { stagger: 80 }), f.reveal(branches, { stagger: 80 })],
+    [f.draw(finish, { stagger: 80 }), f.reveal(outputs, { stagger: 80 })],
+  ], { gap: 70 });
+});
 ```
 
 The resolver is pure. Equal inputs produce byte-equivalent geometry. Interaction never mutates

@@ -48,6 +48,7 @@ export interface MountKineglyphLabOptions {
   readonly inView?: StartWhenVisibleOptions;
   readonly controls?: ChromeSetting;
   readonly readout?: ChromeSetting;
+  readonly tooltips?: boolean;
   readonly machineControls?: ChromeSetting;
   readonly load?: KineglyphLabLoader;
   readonly onError?: (error: unknown) => void;
@@ -465,6 +466,7 @@ class LabRuntime implements KineglyphLabController {
           ...(this.#options.inView === undefined ? {} : { inView: this.#options.inView }),
           controls: this.#options.controls ?? false,
           readout: this.#options.readout ?? false,
+          tooltips: this.#options.tooltips ?? true,
           machineControls: this.#options.machineControls ?? "auto",
         });
       } else {
@@ -683,6 +685,7 @@ export async function mountAllKineglyphLabs(
       ...(inView === undefined ? {} : { inView }),
       controls,
       readout,
+      tooltips: local.tooltips ?? shared.tooltips ?? element.dataset.tooltips !== "false",
       machineControls:
         local.machineControls ??
         shared.machineControls ??

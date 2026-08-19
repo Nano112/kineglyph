@@ -153,6 +153,7 @@ export interface ResolvedText {
   readonly color: string;
   readonly align: "start" | "center" | "end";
   readonly transform: "none" | "uppercase";
+  readonly reveal?: "lines" | "characters";
   /** Text box relative to the scene, where lines are laid out from the top. */
   readonly box: Rect;
 }

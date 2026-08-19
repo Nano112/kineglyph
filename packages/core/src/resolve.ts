@@ -1499,6 +1499,9 @@ function textBlock(
     color: colorOverride ?? view.textColor,
     align: view.textAlign,
     transform: view.transform,
+    ...(view.node.type === "text" && view.node.reveal !== undefined
+      ? { reveal: view.node.reveal }
+      : {}),
     box: {
       x: round(origin.x + box.x, precision),
       y: round(origin.y + box.y, precision),

@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { figure } from "./figure.js";
+import { material } from "./material.js";
+import { resolveScene } from "./resolve.js";
+import { declaredColorRoles, defaultTheme } from "./theme.js";
+import { professionalThemes } from "./theme-presets.js";
+
+const specimen = figure("theme-specimen", { title: "Release review" }, (f) => {
+  const cards = [
+    f.card({ title: "Scope", body: "12 accepted changes", frame: material("raised") }),
+    f.card({ title: "Checks", body: "48 of 48 passing", frame: material("raised") }),
+    f.card({ title: "Decision", body: "Ready to publish", frame: material("floating") }),
+  ];
+  f.root(
+    f.stack([f.heading("Release review"), f.flow(cards, { width: "fill", gap: 12 })], {
+      width: "fill",
+      padding: 18,
+      gap: 18,
+      frame: material("flat"),
+    }),
+  );
+});
+
+describe("professional theme presets", () => {
+  it("keeps every direction flat, fully scoped, and free of visual effects", () => {
+    const allRoles = Object.keys(defaultTheme.colors);
+    for (const theme of Object.values(professionalThemes)) {
+      expect(declaredColorRoles(theme)).toHaveLength(allRoles.length);
+      expect(theme.ornament.surface).not.toBe("glow");
+      for (const material of Object.values(theme.materials))
+        expect(material.effects ?? []).toEqual([]);
+    }
+  });
+
+  it("gives every preset a distinct visual-system signature", () => {
+    const signatures = Object.values(professionalThemes).map((theme) =>
+      JSON.stringify({
+        canvas: theme.colors.canvas,
+        accent: theme.colors.accent,
+        family: theme.typography.body.family,
+        radius: theme.radii.lg,
+        stroke: theme.strokes.regular,
+        ornament: theme.ornament,
+      }),
+    );
+    expect(new Set(signatures).size).toBe(signatures.length);
+  });
+
+  it("resolves the same responsive specimen under every preset", () => {
+    for (const [name, theme] of Object.entries(professionalThemes)) {
+      for (const width of [960, 390]) {
+        const scene = resolveScene(specimen, { width, theme });
+        const layoutProblems = (scene.diagnostics ?? []).filter((entry) =>
+          ["overlap", "overflow", "text-truncated", "label-collision"].includes(entry.code),
+        );
+        expect(layoutProblems, `${name} at ${width}px`).toEqual([]);
+      }
+    }
+  });
+});

@@ -1,4 +1,5 @@
 export * from "./authoring.js";
+export * from "./asciicast.js";
 export * from "./connector.js";
 export * from "./easing.js";
 export * from "./edges.js";
@@ -39,4 +40,5 @@ export * from "./seek.js";
 export * from "./spec.js";
 export * from "./text.js";
 export * from "./theme.js";
+export * from "./theme-presets.js";
 export * from "./timeline.js";

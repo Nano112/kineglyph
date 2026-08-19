@@ -30,11 +30,13 @@ nav:
   - { title: Introduction, page: index.md }
   - { title: Getting started, page: getting-started.md }
   - { title: Visual gallery, page: gallery.md }
+  - { title: Professional themes, page: theme-gallery.md }
   - { title: Build a CPU from bits, page: cpu-from-bits.md }
   - { title: Editorial infographic patterns, page: infographic-patterns.md }
   - section: Authoring
     children:
       - { title: Authoring API, page: authoring-api.md }
+      - { title: Files and terminals, page: files-and-terminals.md }
       - { title: Cookbook, page: cookbook.md }
       - { title: Materials and effects, page: materials-and-effects.md }
   - section: Integration

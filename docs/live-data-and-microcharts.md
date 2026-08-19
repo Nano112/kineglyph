@@ -234,8 +234,10 @@ For progressive enhancement, put compact values directly in the cell:
 ```
 
 The direct renderer has no runtime stylesheet or observers and emits decorative SVG by default.
-Provide `label` when the trend conveys information not already written in the table. In tests,
-1,000 three-point line charts remain under 300 KB of uncompressed markup.
+Provide `label` when the trend conveys information not already written in the table. It becomes
+both the accessible name and a native SVG `<title>` tooltip, so even a matrix with thousands of
+charts gains hover detail without thousands of JavaScript listeners. In tests, 1,000 three-point
+line charts remain under 300 KB of uncompressed markup.
 
 For thousands of live or scrollable rows, use the batch helper. It keeps only intersecting charts
 mounted, recycles SVG DOM after cells leave the viewport, and collapses every synchronous burst to

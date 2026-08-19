@@ -204,6 +204,7 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 | `inView`          | `{ delay: 180 }` | Delay, threshold, root margin, and once/replay policy               |
 | `controls`        | `true`           | Compact play / restart / scrubber controls; `"auto"` if animated    |
 | `readout`         | `true`           | Inspection readout below the stage; `"auto"` if inspectable         |
+| `tooltips`        | `true`           | Semantic hover/focus tooltip; disable for a custom inspection UI    |
 | `machineControls` | `true`           | Buttons for `scene.controls`; `"auto"` if the scene has a machine   |
 | `reducedMotion`   | media query      | Force the terminal frame and disable playback                       |
 | `idPrefix`        | generated        | Stable DOM id prefix                                                |
@@ -215,10 +216,16 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 ### Keyboard and accessibility
 
 Interactive nodes are focusable buttons that send their `onActivate` event on Enter or Space;
-described edges are exposed as images; the readout mirrors the inspected node; a polite live
-region announces state-machine changes; Space toggles playback while the controls have focus;
-machine buttons expose `aria-pressed`. Under `prefers-reduced-motion` the terminal frame is
-shown, flow strokes stop, and playback controls are disabled.
+described edges are exposed as images; the tooltip and optional readout mirror the inspected node;
+a polite live region announces state-machine changes; Space toggles playback while the controls
+have focus; machine buttons expose `aria-pressed`. Under `prefers-reduced-motion` the terminal
+frame is shown, flow strokes stop, and playback controls are disabled.
+
+There is no second tooltip formatter to maintain. `inspect: { role, title, summary, fields }`
+drives the tooltip, the persistent readout, and `onInspect` from the same semantic payload. Dense
+plot marks may carry `inspect` without becoming clickable; they still reveal a tooltip under the
+pointer, while their focus-group parent remains the compact keyboard stop. Set `tooltips: false`
+or `data-tooltips="false"` when the application renders `onInspect` into its own UI.
 
 ## Auto-mount from data attributes
 
@@ -283,9 +290,9 @@ Mounting hides the fallback and sets `data-kineglyph-mounted="true"`; a failed m
 fallback visible and records the message in `data-kineglyph-error`. Destroying a figure's
 controller restores the fallback and clears the mounted flag, so mounting is reversible.
 
-Per-element attributes `data-theme`, `data-autoplay`, `data-autoplay-delay`, `data-controls`, and
-`data-readout` feed the mount; `options.theme`, `options.load`, and `options.mountOptions` accept functions of the element
-when the host needs to override per figure. Elements already carrying
+Per-element attributes `data-theme`, `data-autoplay`, `data-autoplay-delay`, `data-controls`,
+`data-readout`, and `data-tooltips` feed the mount; `options.theme`, `options.load`, and
+`options.mountOptions` accept functions of the element when the host needs to override per figure. Elements already carrying
 `data-kineglyph-mounted="true"` are skipped, so `mountAll` is safe to call again after new markup
 arrives.
 
@@ -296,11 +303,11 @@ arrives.
 its answer. `"auto"` — also spelled `data-controls="auto"` / `data-readout="auto"` — hands the
 decision to the resolved scene:
 
-| Setting           | `"auto"` draws it when                                                               |
-| ----------------- | ------------------------------------------------------------------------------------ |
-| `controls`        | the scene has a timeline to drive (`resolved.timeline.duration > 0`)                 |
-| `readout`         | some node is inspectable — `interactive`, or carrying both a label and a description |
-| `machineControls` | the scene declares a machine                                                         |
+| Setting           | `"auto"` draws it when                                                          |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `controls`        | the scene has a timeline to drive (`resolved.timeline.duration > 0`)            |
+| `readout`         | some node has `inspect`, is `interactive`, or carries a label and a description |
+| `machineControls` | the scene declares a machine                                                    |
 
 The predicates are about _content_, not about the reader: they are settled once, at the first
 resolve, so chrome never appears or vanishes under a reader who resizes the page or flips

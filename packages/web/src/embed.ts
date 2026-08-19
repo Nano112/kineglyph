@@ -187,6 +187,7 @@ async function mountOne(
       ...(delay === undefined ? {} : { inView: { delay } }),
       controls: chromeAttr(element.dataset.controls),
       readout: chromeAttr(element.dataset.readout),
+      tooltips: element.dataset.tooltips !== "false",
       ...(chosen ?? {}),
     });
     element.dataset.kineglyphMounted = "true";

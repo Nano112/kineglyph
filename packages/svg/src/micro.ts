@@ -69,7 +69,8 @@ function bounds(
 function root(width: number, height: number, label: string | undefined, body: string): string {
   const accessibility =
     label === undefined ? ' aria-hidden="true"' : ` role="img" aria-label="${escape(label)}"`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${round(width)} ${round(height)}" width="${round(width)}" height="${round(height)}"${accessibility}>${body}</svg>`;
+  const title = label === undefined ? "" : `<title>${escape(label)}</title>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${round(width)} ${round(height)}" width="${round(width)}" height="${round(height)}"${accessibility}>${title}${body}</svg>`;
 }
 
 function cartesian(

@@ -233,6 +233,33 @@ describe("figure(): root inference", () => {
   });
 });
 
+describe("figure(): terminal and file-tree authoring", () => {
+  it("types every marked terminal line with one seekable motion step", () => {
+    const scene = figure("terminal", { title: "Terminal" }, (f) => {
+      const terminal = f.terminal([
+        { kind: "command", text: "npm run build" },
+        { kind: "output", text: "bundling" },
+        { kind: "command", text: "npm test", prompt: ">" },
+      ]);
+      f.fileTree([{ name: "src", children: [{ name: "index.ts" }] }], { root: "demo" });
+      f.sequence([f.typewrite(terminal, { duration: 400, stagger: 100 })]);
+    });
+    expect(track(scene, "terminal-line-1-text:progress").keyframes.at(-1)?.time).toBe(400);
+    expect(track(scene, "terminal-line-3-text:progress").keyframes.at(-1)?.time).toBe(500);
+    expect(nodeIds(scene)).toEqual(
+      expect.arrayContaining(["terminal", "file-tree-demo", "file-tree-demo-entry-1-guide"]),
+    );
+  });
+
+  it("rejects typewriting a node without character-reveal text", () => {
+    expect(() =>
+      figure("not-typed", { title: "Not typed" }, (f) => {
+        f.typewrite(f.caption("Static"));
+      }),
+    ).toThrow(/no character-reveal text/);
+  });
+});
+
 describe("figure(): raw()", () => {
   it("registers hand-written nodes and nests embedded helper nodes", () => {
     const scene = figure("raw", { title: "Raw" }, (f) => {

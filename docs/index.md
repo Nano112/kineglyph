@@ -52,6 +52,8 @@ low-level escape hatch.
 - [Cookbook](./cookbook.md) collects complete patterns for layouts, charts, motion, and machines.
 - [Materials and effects](./materials-and-effects.md) separates semantic structure from visual
   direction.
+- [Professional themes](./theme-gallery.md) applies six restrained, production-ready visual systems
+  to one responsive specimen.
 - [Editorial infographic patterns](./infographic-patterns.md) exercises process narratives,
   activity matrices, convergence lanes, change streams, and before/after claims.
 

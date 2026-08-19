@@ -42,6 +42,7 @@ export interface KineglyphFigureProps {
   readonly className?: string;
   readonly controls?: boolean;
   readonly readout?: boolean;
+  readonly tooltips?: boolean;
   readonly machineControls?: boolean;
   readonly autoplay?: AutoplaySetting;
   readonly inView?: StartWhenVisibleOptions;
@@ -74,6 +75,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       className,
       controls = true,
       readout = true,
+      tooltips = true,
       machineControls = true,
       autoplay = "in-view",
       inView,
@@ -106,6 +108,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         theme,
         controls,
         readout,
+        tooltips,
         machineControls,
         autoplay,
         ...(inView === undefined ? {} : { inView }),
@@ -134,6 +137,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       figure,
       controls,
       readout,
+      tooltips,
       machineControls,
       autoplay,
       inView,

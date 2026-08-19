@@ -798,8 +798,145 @@ describe("keyboard inspection", () => {
     expect(body?.tagName.toLowerCase()).toBe("div");
     expect(body?.querySelector("dl.kg-figure__fields dt")?.textContent).toBe("Value");
     expect(body?.querySelector("dl.kg-figure__fields dd")?.textContent).toBe("9");
+    // The same semantic payload appears transiently at the focused mark, without requiring the
+    // persistent readout to be enabled.
+    const tooltip = controller.element.querySelector<HTMLElement>(".kg-figure__tooltip");
+    expect(tooltip?.hidden).toBe(false);
+    expect(tooltip?.getAttribute("role")).toBe("tooltip");
+    expect(tooltip?.querySelector(".kg-figure__tooltip-role")?.textContent).toBe("Bar");
+    expect(tooltip?.querySelector("strong")?.textContent).toBe("A · Q2");
+    expect(tooltip?.querySelector("dd")?.textContent).toBe("9");
+    controller.inspect(null);
+    expect(tooltip?.hidden).toBe(true);
     // Inspect-only marks still get an accessible name from inspect.title.
     expect(bar2?.querySelector("title")?.textContent).toBe("A · Q2");
+    controller.destroy();
+  });
+
+  it("can disable transient tooltips while keeping inspection callbacks", () => {
+    const inspected: string[] = [];
+    const controller = mountKineglyph(host(), {
+      scene: chart,
+      theme: createTheme(),
+      autoplay: false,
+      readout: false,
+      tooltips: false,
+      onInspect: (target) => inspected.push(target?.id ?? "none"),
+    });
+    const mark = controller.element.querySelector<SVGElement>('[data-node-id="a-1"]');
+    (mark as unknown as HTMLElement).focus();
+    expect(inspected).toContain("a-1");
+    expect(controller.element.querySelector(".kg-figure__tooltip")).toBeNull();
+    controller.destroy();
+  });
+
+  it("shows inspect-only dense marks on pointer hover without making them clickable", () => {
+    const denseMark = defineScene({
+      schemaVersion: 2,
+      id: "dense-mark",
+      title: "Dense plot",
+      root: {
+        id: "root",
+        type: "group",
+        children: [
+          {
+            id: "cell",
+            type: "rect",
+            width: 24,
+            height: 24,
+            inspect: {
+              role: "Cell",
+              title: "D1 · 00",
+              fields: [{ label: "Events", value: "42" }],
+            },
+          },
+        ],
+      },
+    });
+    const controller = mountKineglyph(host(), {
+      scene: denseMark,
+      theme: createTheme(),
+      autoplay: false,
+      readout: "auto",
+    });
+    const cell = controller.element.querySelector<SVGElement>('[data-node-id="cell"]');
+    cell?.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    const tooltip = controller.element.querySelector<HTMLElement>(".kg-figure__tooltip");
+    expect(cell?.getAttribute("role")).not.toBe("button");
+    expect(tooltip?.hidden).toBe(false);
+    expect(tooltip?.textContent).toContain("D1 · 00");
+    expect(tooltip?.textContent).toContain("42");
+    expect(controller.element.querySelector(".kg-figure__readout")).not.toBeNull();
+    cell?.dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+    expect(tooltip?.hidden).toBe(true);
+    controller.destroy();
+  });
+
+  it("bubbles decorative child hover to its inspectable owner without tooltip flicker", () => {
+    const nestedCard = defineScene({
+      schemaVersion: 2,
+      id: "nested-card",
+      title: "Nested card",
+      root: {
+        id: "root",
+        type: "group",
+        children: [
+          {
+            id: "card",
+            type: "group",
+            label: "Review is a state machine",
+            description: "Choose a stage to move the review.",
+            children: [
+              { id: "card-eyebrow", type: "text", text: "ONE CHANGE" },
+              { id: "card-title", type: "text", text: "Review is a state machine" },
+              {
+                id: "card-metric",
+                type: "rect",
+                width: 20,
+                height: 20,
+                inspect: {
+                  role: "Metric",
+                  title: "One accepted change",
+                  fields: [{ label: "Count", value: "1" }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const inspected: string[] = [];
+    const controller = mountKineglyph(host(), {
+      scene: nestedCard,
+      theme: createTheme(),
+      autoplay: false,
+      readout: false,
+      onInspect: (target) => inspected.push(target?.id ?? "none"),
+    });
+    const eyebrow = controller.element.querySelector<SVGElement>('[data-node-id="card-eyebrow"]')!;
+    const title = controller.element.querySelector<SVGElement>('[data-node-id="card-title"]')!;
+    const metric = controller.element.querySelector<SVGElement>('[data-node-id="card-metric"]')!;
+    const tooltip = controller.element.querySelector<HTMLElement>(".kg-figure__tooltip")!;
+
+    eyebrow.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    expect(controller.state.inspected?.id).toBe("card");
+    expect(tooltip.querySelector("strong")?.textContent).toBe("Review is a state machine");
+
+    eyebrow.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: title }));
+    title.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: eyebrow }));
+    expect(tooltip.hidden).toBe(false);
+    expect(controller.state.inspected?.id).toBe("card");
+    expect(inspected).toEqual(["card"]);
+
+    title.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: metric }));
+    metric.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: title }));
+    expect(controller.state.inspected?.id).toBe("card-metric");
+    expect(tooltip.querySelector("strong")?.textContent).toBe("One accepted change");
+    expect(inspected).toEqual(["card", "card-metric"]);
+
+    metric.dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+    expect(tooltip.hidden).toBe(true);
+    expect(inspected).toEqual(["card", "card-metric", "none"]);
     controller.destroy();
   });
 });

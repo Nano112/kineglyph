@@ -88,6 +88,8 @@ area, bar, pie, or donut chart. Full live figures accept external data through
 - [Cookbook](./cookbook.md) covers responsive layouts, connectors, plots, motion, and state
   machines through complete patterns.
 - [Embedding and theming](./embedding-and-theming.md) covers the web runtime and host-page styling.
+- [Professional themes](./theme-gallery.md) compares six built-in professional presets against the
+  same scene.
 - [Editorial infographic patterns](./infographic-patterns.md) rebuilds workflow, matrix, lane,
   timeline, and comparison patterns as editable scenes.
 - [Live data and microcharts](./live-data-and-microcharts.md) covers WebSockets, external signals,

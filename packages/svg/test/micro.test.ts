@@ -12,6 +12,7 @@ describe("micro SVG charts", () => {
     const line = renderMicroSvg([5, 3, 9, 6, 5], { label: "Five recent builds" });
     expect(line).toContain('viewBox="0 0 64 16"');
     expect(line).toContain('role="img" aria-label="Five recent builds"');
+    expect(line).toContain("<title>Five recent builds</title>");
     expect(line).toContain("<path");
     expect(line.length).toBeLessThan(500);
 
@@ -47,6 +48,9 @@ describe("micro SVG charts", () => {
   it("escapes labels and rejects invalid geometry", () => {
     expect(renderMicroSvg([1], { label: 'A < B & "safe"' })).toContain(
       'aria-label="A &lt; B &amp; &quot;safe&quot;"',
+    );
+    expect(renderMicroSvg([1], { label: 'A < B & "safe"' })).toContain(
+      "<title>A &lt; B &amp; &quot;safe&quot;</title>",
     );
     expect(() => renderMicroSvg([1], { width: 0 })).toThrow(/width must be positive/);
   });

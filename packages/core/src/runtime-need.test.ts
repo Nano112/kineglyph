@@ -92,6 +92,32 @@ describe("sceneNeedsRuntime", () => {
     ).toBe(true);
   });
 
+  it("is true for inspect-only marks that deliberately remain non-interactive", () => {
+    expect(
+      needs(
+        plus({
+          root: {
+            id: "r",
+            type: "group",
+            children: [
+              {
+                id: "cell",
+                type: "rect",
+                width: 24,
+                height: 24,
+                inspect: {
+                  role: "Cell",
+                  title: "D1 · 00",
+                  fields: [{ label: "Value", value: "42" }],
+                },
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("is false when a node has a label but nothing to say about it", () => {
     expect(
       needs(

@@ -32,6 +32,8 @@ export interface TextOptions {
   readonly hidden?: Responsive<boolean>;
   readonly width?: Responsive<Length>;
   readonly transform?: "none" | "uppercase";
+  /** How a `progress` track reveals this text. */
+  readonly reveal?: TextMark["reveal"];
 }
 
 function textMark(
@@ -52,6 +54,7 @@ function textMark(
     ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
     ...(options.width === undefined ? {} : { width: options.width }),
     ...(options.transform === undefined ? {} : { transform: options.transform }),
+    ...(options.reveal === undefined ? {} : { reveal: options.reveal }),
   };
 }
 
@@ -543,4 +546,242 @@ export function keyValue(
       align: "center",
     },
   );
+}
+
+export type TerminalLineKind = "command" | "output" | "success" | "warning" | "error" | "comment";
+
+export interface TerminalLine {
+  readonly text: string;
+  readonly kind?: TerminalLineKind;
+  /** Prompt shown before command text. Defaults to `$`. */
+  readonly prompt?: string;
+  /** Marks this line for `f.typewrite(terminal)`. Commands default to true. */
+  readonly typing?: boolean;
+}
+
+export interface TerminalOptions extends ContainerOptions {
+  readonly title?: string;
+  readonly cwd?: string;
+  readonly prompt?: string;
+  readonly rows?: Responsive<number>;
+  readonly chrome?: "window" | "plain";
+}
+
+function terminalLineTone(kind: TerminalLineKind): Paint {
+  switch (kind) {
+    case "success":
+      return "success";
+    case "warning":
+      return "warning";
+    case "error":
+      return "danger";
+    case "comment":
+      return "textMuted";
+    case "command":
+      return "text";
+    default:
+      return "textMuted";
+  }
+}
+
+/**
+ * A structured terminal surface. Lines remain ordinary text nodes, so they are selectable,
+ * inspectable, responsive, and exportable. `f.typewrite(terminal)` animates command lines (or any
+ * line with `typing: true`) without changing the layout as characters appear.
+ */
+export function terminal(
+  id: string,
+  lines: readonly (string | TerminalLine)[],
+  options: TerminalOptions = {},
+): GroupNode {
+  const rows = lines.map((entry, index): GroupNode => {
+    const line: TerminalLine = typeof entry === "string" ? { text: entry } : entry;
+    const kind = line.kind ?? "output";
+    const typing = line.typing ?? kind === "command";
+    const content = code(`${id}-line-${index + 1}-text`, line.text, {
+      tone: terminalLineTone(kind),
+      reveal: typing ? "characters" : "lines",
+      width: "fill",
+      ...(options.rows === undefined ? {} : { maxLines: options.rows }),
+    });
+    const children: SceneNode[] = [];
+    if (kind === "command") {
+      children.push(
+        code(`${id}-line-${index + 1}-prompt`, line.prompt ?? options.prompt ?? "$", {
+          tone: "accent",
+        }),
+      );
+    }
+    children.push(content);
+    return row(`${id}-line-${index + 1}`, children, {
+      gap: kind === "command" ? 8 : 0,
+      width: "fill",
+      align: "start",
+      metadata: { terminalRole: "line", terminalLineKind: kind, typing },
+    });
+  });
+
+  const chrome: SceneNode[] = [];
+  if ((options.chrome ?? "window") === "window") {
+    const dots = row(
+      `${id}-window-controls`,
+      (["danger", "warning", "success"] as const).map((tone, index) => ({
+        id: `${id}-window-control-${index + 1}`,
+        type: "circle" as const,
+        radius: 4,
+        width: 8,
+        height: 8,
+        fill: tone,
+        stroke: "none" as const,
+      })),
+      { gap: 6, align: "center" },
+    );
+    const titleText = code(`${id}-title`, options.title ?? "Terminal", { tone: "textMuted" });
+    chrome.push(
+      row(`${id}-chrome`, [dots, titleText], {
+        gap: 12,
+        align: "center",
+        width: "fill",
+      }),
+      rule(`${id}-chrome-rule`),
+    );
+  }
+  if (options.cwd !== undefined)
+    chrome.push(eyebrow(`${id}-cwd`, options.cwd, { tone: "textMuted" }));
+
+  const {
+    title: _title,
+    cwd: _cwd,
+    prompt: _prompt,
+    rows: _rows,
+    chrome: _chrome,
+    ...container
+  } = options;
+  void _title;
+  void _cwd;
+  void _prompt;
+  void _rows;
+  void _chrome;
+  return stack(id, [...chrome, stack(`${id}-screen`, rows, { gap: 5, width: "fill" })], {
+    ...containerOptions(container),
+    gap: options.gap ?? 10,
+    padding: options.padding ?? [14, 16],
+    width: options.width ?? "fill",
+    frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
+    label: options.label ?? options.title ?? "Terminal session",
+    metadata: { ...options.metadata, terminalRole: "terminal" },
+  });
+}
+
+export interface FileTreeEntry {
+  readonly name: string;
+  readonly kind?: "file" | "folder";
+  readonly children?: readonly FileTreeEntry[];
+  readonly detail?: string;
+  readonly status?: string;
+  readonly tone?: Paint;
+  readonly expanded?: boolean;
+}
+
+export interface FileTreeOptions extends ContainerOptions {
+  readonly root?: string;
+  readonly guides?: boolean;
+  readonly density?: "compact" | "comfortable";
+}
+
+/** A recursive, responsive directory tree with semantic icons, branch guides, and annotations. */
+export function fileTree(
+  id: string,
+  entries: readonly FileTreeEntry[],
+  options: FileTreeOptions = {},
+): GroupNode {
+  const gap = options.density === "compact" ? 4 : 7;
+  const branch = (entry: FileTreeEntry, path: string, depth: number): GroupNode => {
+    const folder = entry.kind === "folder" || entry.children !== undefined;
+    const tone = entry.tone ?? (folder ? "accent" : "textMuted");
+    const label = row(
+      `${path}-label`,
+      [
+        motif(`${path}-icon`, folder ? "folder" : "file", { tone, size: 16 }),
+        code(`${path}-name`, entry.name, { tone: folder ? "text" : tone }),
+        ...(entry.detail === undefined
+          ? []
+          : [caption(`${path}-detail`, entry.detail, { tone: "textMuted", width: "fill" })]),
+        ...(entry.status === undefined
+          ? []
+          : [pill(`${path}-status`, entry.status, { tone, variant: "outline" })]),
+      ],
+      {
+        gap: 8,
+        align: "center",
+        width: "fill",
+        metadata: { fileTreeRole: folder ? "folder" : "file", depth },
+      },
+    );
+    const children = entry.expanded === false ? [] : (entry.children ?? []);
+    if (children.length === 0) return label;
+    const nestedRows = stack(
+      `${path}-children-list`,
+      children.map((child, index) => branch(child, `${path}-${index + 1}`, depth + 1)),
+      { gap, width: "fill" },
+    );
+    const nested = row(
+      `${path}-children`,
+      [
+        ...(options.guides === false
+          ? []
+          : [
+              {
+                id: `${path}-guide`,
+                type: "rect" as const,
+                width: 1,
+                height: "fill" as const,
+                fill: "border" as const,
+                stroke: "none" as const,
+                radius: 0,
+              },
+            ]),
+        nestedRows,
+      ],
+      {
+        gap: options.guides === false ? 0 : 14,
+        padding: [0, 0, 0, options.guides === false ? 18 : 7],
+        align: "stretch",
+        width: "fill",
+        metadata: { fileTreeRole: "children", depth: depth + 1 },
+      },
+    );
+    return stack(path, [label, nested], { gap, width: "fill" });
+  };
+
+  const content = entries.map((entry, index) => branch(entry, `${id}-entry-${index + 1}`, 0));
+  const rootLabel =
+    options.root === undefined
+      ? []
+      : [
+          row(
+            `${id}-root-label`,
+            [
+              motif(`${id}-root-icon`, "folder", { tone: "accent", size: 18 }),
+              heading(`${id}-root-name`, options.root),
+            ],
+            { gap: 9, align: "center", width: "fill" },
+          ),
+          rule(`${id}-root-rule`),
+        ];
+  const { root: _root, guides: _guides, density: _density, ...container } = options;
+  void _root;
+  void _guides;
+  void _density;
+  return stack(id, [...rootLabel, ...content], {
+    gap,
+    padding: options.padding ?? 14,
+    width: options.width ?? "fill",
+    frame: options.frame ?? { fill: "surface", stroke: "border" },
+    label:
+      options.label ??
+      (options.root === undefined ? "File structure" : `${options.root} file structure`),
+    metadata: { ...options.metadata, fileTreeRole: "tree" },
+    ...containerOptions(container, ["padding", "width", "frame", "label", "metadata"]),
+  });
 }

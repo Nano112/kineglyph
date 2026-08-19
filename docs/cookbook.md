@@ -319,7 +319,7 @@ the chart's root group as usual.
 
 - **Bindings** on any node or edge: `bind: { text, hidden, tone, opacity, highlight, progress, description, width, height }` name a machine variable or signal (or `$state` / `$selection`). Timeline opacity multiplies bound opacity, timeline highlight takes the max — a dimmed card still fades in.
 - **Activation**: `interactive: true` + `onActivate: "FOCUS_PLAN"` sends the event on click / Enter / Space (cards get their accessible name from `title` unless you set `label`).
-- **Inspection**: `inspect: { role: "Stage", title, summary, fields: [{ label, value }] }` is what the readout and the SVG `<title>`/`<desc>` show for interactive marks; `label` and `description` fall back to `inspect.title` / `inspect.summary`.
+- **Inspection**: `inspect: { role: "Stage", title, summary, fields: [{ label, value }] }` feeds the hover/focus tooltip, optional readout, and SVG `<title>`/`<desc>` for interactive marks; `label` and `description` fall back to `inspect.title` / `inspect.summary`. Tooltips are on by default and can be disabled with `tooltips: false` when an application renders `onInspect` into its own UI.
 - **Focus groups**: `focusGroup: true` on a group makes it a single tab stop whose interactive descendants are reached with the arrow keys — dense marks (bars, cells) should live in one.
 
 Signals are serializable expressions evaluated in declaration order (`when`/`then`/`else`,
@@ -422,7 +422,7 @@ authoring surface. The application owns its scenes and themes:
 
 ```tsx
 import { KineglyphFigure } from "@kineglyph/react";
-<KineglyphFigure figure={buildExplainer} controls readout />;
+<KineglyphFigure figure={buildExplainer} controls readout tooltips />;
 ```
 
 **Blade (Laravel)** — register the figure in the Vite entry and drop the component in a view; each

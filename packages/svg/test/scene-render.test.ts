@@ -516,4 +516,48 @@ describe("structured scene rendering", () => {
     const doneDash = /data-shape-of="line"[^>]*stroke-dasharray="([^"]+)"/.exec(done)?.[1] ?? "";
     expect(doneDash.split(" ")).toHaveLength(2);
   });
+
+  it("renders character-progress text without reflowing its reserved width", () => {
+    const scene: SceneDefinition = {
+      schemaVersion: 2,
+      id: "typing",
+      title: "Typing",
+      root: {
+        id: "root",
+        type: "group",
+        layout: "stack",
+        children: [
+          {
+            id: "command",
+            type: "text",
+            text: "npm test",
+            textStyle: "code",
+            reveal: "characters",
+          },
+        ],
+      },
+      timeline: {
+        duration: 100,
+        tracks: [
+          {
+            id: "typing",
+            target: "command",
+            property: "progress",
+            keyframes: [
+              { time: 0, value: 0 },
+              { time: 100, value: 1 },
+            ],
+          },
+        ],
+      },
+    };
+    const resolved = resolveScene(scene, { width: 400, theme });
+    const half = renderSvg(seekTimeline(resolved, 50), { idPrefix: "typing" });
+    expect(half).toContain('data-text-reveal="characters"');
+    expect(half).toContain('data-full-text="npm test"');
+    expect(half).toMatch(/<tspan[^>]*>npm <\/tspan>/);
+    expect(half).not.toContain(">npm test</tspan>");
+    const done = renderSvg(seekTimeline(resolved, 100), { idPrefix: "typing" });
+    expect(done).toContain(">npm test</tspan>");
+  });
 });

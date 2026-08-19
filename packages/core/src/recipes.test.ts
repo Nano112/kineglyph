@@ -6,6 +6,7 @@ import {
   code,
   container,
   eyebrow,
+  fileTree,
   flowLayout,
   gate,
   grid,
@@ -20,6 +21,7 @@ import {
   rule,
   spacer,
   stack,
+  terminal,
   text,
   title,
 } from "./recipes.js";
@@ -105,6 +107,62 @@ describe("pill, motif, rule, spacer, keyValue", () => {
     expect(kv.justify).toBe("between");
     expect(kv.children.map((child) => child.id)).toEqual(["kv-key", "kv-value"]);
     expect(kv.children[1]).toMatchObject({ type: "text", textStyle: "code", color: "success" });
+  });
+});
+
+describe("terminal and file tree recipes", () => {
+  it("builds a semantic terminal whose command text is ready for character progress", () => {
+    const node = terminal(
+      "demo",
+      [
+        { kind: "command", text: "npm test" },
+        { kind: "success", text: "48 passed" },
+      ],
+      { title: "Tests", cwd: "~/kineglyph" },
+    );
+    expect(node).toMatchObject({
+      type: "group",
+      label: "Tests",
+      metadata: { terminalRole: "terminal" },
+    });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "demo-chrome",
+        "demo-screen",
+        "demo-line-1-prompt",
+        "demo-line-1-text",
+      ]),
+    );
+    expect(node.children.at(-1)).toMatchObject({ type: "group", layout: "stack" });
+    expect(JSON.stringify(node)).toContain('"reveal":"characters"');
+  });
+
+  it("renders nested file entries with branch guides, details, and status", () => {
+    const node = fileTree(
+      "repo",
+      [
+        {
+          name: "src",
+          kind: "folder",
+          children: [
+            { name: "index.ts", detail: "entry" },
+            { name: "terminal.ts", status: "new", tone: "success" },
+          ],
+        },
+        { name: "package.json" },
+      ],
+      { root: "kineglyph", density: "compact" },
+    );
+    expect(node).toMatchObject({ metadata: { fileTreeRole: "tree" } });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "repo-root-icon",
+        "repo-entry-1-guide",
+        "repo-entry-1-1-name",
+        "repo-entry-1-2-status",
+      ]),
+    );
+    expect(JSON.stringify(node)).toContain('"icon":"folder"');
   });
 });
 
