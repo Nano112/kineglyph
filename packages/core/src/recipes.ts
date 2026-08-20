@@ -23,6 +23,7 @@ import type {
   SceneNode,
   TextMark,
 } from "./scene.js";
+import { material } from "./material.js";
 
 export interface TextOptions {
   readonly tone?: Paint;
@@ -288,6 +289,7 @@ export interface ContainerOptions {
   readonly justifySelf?: Responsive<Align>;
   readonly position?: GroupNode["position"];
   readonly opacity?: number;
+  readonly rotation?: Responsive<number>;
   /** Single tab stop whose interactive descendants are reached with the arrow keys. */
   readonly focusGroup?: boolean;
   readonly inspect?: InspectInfo;
@@ -333,6 +335,7 @@ export function container(
     ...(options.justifySelf === undefined ? {} : { justifySelf: options.justifySelf }),
     ...(options.position === undefined ? {} : { position: options.position }),
     ...(options.opacity === undefined ? {} : { opacity: options.opacity }),
+    ...(options.rotation === undefined ? {} : { rotation: options.rotation }),
     ...(options.focusGroup === undefined ? {} : { focusGroup: options.focusGroup }),
     ...(options.inspect === undefined ? {} : { inspect: options.inspect }),
     ...(options.revealAnchor === undefined ? {} : { revealAnchor: options.revealAnchor }),
@@ -369,6 +372,263 @@ export const flowLayout = (
   children: readonly SceneNode[],
   options?: ContainerOptions,
 ): GroupNode => container(id, { wide: "row", compact: "stack" }, children, options);
+
+export interface PortMarkOptions {
+  readonly tone?: Paint;
+  readonly size?: Responsive<number>;
+  readonly active?: boolean;
+  readonly label?: string;
+  readonly bind?: NodeBindings;
+  readonly hidden?: Responsive<boolean>;
+  readonly position?: CircleMark["position"];
+}
+
+/** Small, explicit connection point for signal diagrams and physical controls. */
+export function port(id: string, options: PortMarkOptions = {}): CircleMark {
+  const size = options.size ?? 10;
+  const radius: Responsive<number> =
+    typeof size === "number"
+      ? size / 2
+      : {
+          ...(size.wide === undefined ? {} : { wide: size.wide / 2 }),
+          ...(size.compact === undefined ? {} : { compact: size.compact / 2 }),
+          ...(size.narrow === undefined ? {} : { narrow: size.narrow / 2 }),
+        };
+  return {
+    id,
+    type: "circle",
+    radius,
+    width: size,
+    height: size,
+    fill: options.active === true ? (options.tone ?? "accent") : "canvas",
+    stroke: options.tone ?? "accent",
+    strokeWidth: 2,
+    label: options.label ?? (options.active === true ? "Active port" : "Port"),
+    metadata: { diagramRole: "port", active: options.active === true },
+    ...(options.bind === undefined ? {} : { bind: options.bind }),
+    ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
+    ...(options.position === undefined ? {} : { position: options.position }),
+  };
+}
+
+export interface TileNodeOptions extends ContainerOptions {
+  readonly icon: string;
+  readonly title?: string;
+  readonly eyebrow?: string;
+  /** Optional third line for a value, expression, or compact explanation. */
+  readonly detail?: string;
+  readonly detailTone?: Paint;
+  readonly detailStyle?: TextMark["textStyle"];
+  readonly detailBind?: NodeBindings;
+  readonly tone?: Paint;
+  readonly active?: boolean;
+  readonly size?: Responsive<number>;
+  /** `icon` is square, `compact` is horizontal, and `labelled` is vertically composed. */
+  readonly variant?: "icon" | "compact" | "labelled";
+}
+
+/**
+ * Compact icon-first node for topologies, state machines, and control surfaces. The semantic
+ * `raised` / `floating` role lets a flat theme outline it while a physical theme gives it depth.
+ */
+export function tileNode(id: string, options: TileNodeOptions): GroupNode {
+  const labelled =
+    options.title !== undefined || options.eyebrow !== undefined || options.detail !== undefined;
+  const variant = options.variant ?? (labelled ? "labelled" : "icon");
+  const icon = motif(`${id}-icon`, options.icon, {
+    tone: options.tone ?? "accent",
+    size: variant === "compact" ? 24 : 26,
+  });
+  const textChildren: SceneNode[] = [];
+  if (options.eyebrow !== undefined)
+    textChildren.push(
+      eyebrow(`${id}-eyebrow`, options.eyebrow, {
+        align: variant === "compact" ? "start" : "center",
+      }),
+    );
+  if (options.title !== undefined)
+    textChildren.push(
+      heading(`${id}-title`, options.title, {
+        align: variant === "compact" ? "start" : "center",
+        maxLines: 2,
+      }),
+    );
+  if (options.detail !== undefined)
+    textChildren.push(
+      text(`${id}-detail`, options.detail, {
+        textStyle: options.detailStyle ?? "caption",
+        tone: options.detailTone ?? "textMuted",
+        align: variant === "compact" ? "start" : "center",
+        maxLines: 2,
+        ...(options.detailBind === undefined ? {} : { bind: options.detailBind }),
+      }),
+    );
+  const children: SceneNode[] =
+    variant === "compact" && textChildren.length > 0
+      ? [icon, stack(`${id}-copy`, textChildren, { gap: 3, width: "hug" })]
+      : [icon, ...textChildren];
+  const layout = variant === "compact" ? "row" : "stack";
+  const defaultWidth: Responsive<Length> = variant === "icon" ? (options.size ?? 58) : "hug";
+  const defaultMinWidth: Responsive<number> =
+    variant === "icon"
+      ? 0
+      : variant === "compact"
+        ? { wide: 132, compact: 120, narrow: 108 }
+        : { wide: 118, compact: 106, narrow: 94 };
+  const defaultMaxWidth: Responsive<number> | undefined =
+    variant === "icon"
+      ? undefined
+      : variant === "compact"
+        ? { wide: 260, compact: 224, narrow: 190 }
+        : { wide: 232, compact: 200, narrow: 172 };
+  const maxWidth = options.maxWidth ?? defaultMaxWidth;
+  return container(id, layout, children, {
+    gap: variant === "compact" ? 11 : labelled ? 7 : 0,
+    padding: labelled
+      ? variant === "compact"
+        ? { wide: [12, 14], compact: [11, 12], narrow: [10, 10] }
+        : { wide: [14, 16], compact: [12, 12], narrow: [10, 8] }
+      : { wide: 14, compact: 12, narrow: 10 },
+    align: "center",
+    justify: "center",
+    width: options.width ?? defaultWidth,
+    minWidth: options.minWidth ?? defaultMinWidth,
+    ...(maxWidth === undefined ? {} : { maxWidth }),
+    minHeight:
+      options.minHeight ??
+      options.size ??
+      (variant === "icon"
+        ? 58
+        : variant === "compact"
+          ? { wide: 72, compact: 68, narrow: 64 }
+          : { wide: 96, compact: 90, narrow: 82 }),
+    frame: options.frame ?? material(options.active === true ? "floating" : "raised"),
+    label: options.label ?? options.title ?? options.eyebrow ?? options.icon,
+    metadata: {
+      ...options.metadata,
+      diagramRole: "tile-node",
+      active: options.active === true,
+    },
+    ...containerOptions(options, [
+      "frame",
+      "width",
+      "minWidth",
+      "maxWidth",
+      "minHeight",
+      "metadata",
+      "label",
+    ]),
+  });
+}
+
+export interface GridPlaneOptions extends ContainerOptions {
+  readonly columns?: number;
+  readonly rows?: number;
+  readonly tone?: Paint;
+  readonly lineOpacity?: number;
+}
+
+/** Quiet responsive construction grid made from ordinary portable marks. */
+export function gridPlane(id: string, options: GridPlaneOptions = {}): GroupNode {
+  const columns = Math.max(1, Math.floor(options.columns ?? 12));
+  const rows = Math.max(1, Math.floor(options.rows ?? 8));
+  const tone = options.tone ?? "border";
+  const lineOpacity = options.lineOpacity ?? 0.28;
+  const lines: SceneNode[] = [];
+  for (let index = 0; index <= columns; index += 1) {
+    lines.push({
+      id: `${id}-column-${index}`,
+      type: "rect",
+      width: 1,
+      height: "100%",
+      position: { x: index / columns, y: 0, anchor: "top" },
+      fill: tone,
+      stroke: "none",
+      opacity: lineOpacity,
+    });
+  }
+  for (let index = 0; index <= rows; index += 1) {
+    lines.push({
+      id: `${id}-row-${index}`,
+      type: "rect",
+      width: "100%",
+      height: 1,
+      position: { x: 0, y: index / rows, anchor: "left" },
+      fill: tone,
+      stroke: "none",
+      opacity: lineOpacity,
+    });
+  }
+  return container(id, "coordinates", lines, {
+    width: options.width ?? "fill",
+    height: options.height ?? { wide: 280, compact: 250, narrow: 220 },
+    label: options.label ?? "Diagram grid",
+    metadata: { ...options.metadata, diagramRole: "grid-plane" },
+    ...containerOptions(options, ["width", "height", "label", "metadata", "columns"]),
+  });
+}
+
+export interface CardFanOptions extends ContainerOptions {
+  /** Maximum horizontal displacement from the centre, as a fraction of the fan width. */
+  readonly spread?: number;
+  /** Maximum clockwise/counter-clockwise angle of an outside card. */
+  readonly angle?: number;
+  /** Index drawn highest and closest to the viewer. Defaults to the middle card. */
+  readonly activeIndex?: number;
+  readonly cardWidth?: Responsive<number>;
+}
+
+/** Responsive, exportable fan of ordinary nodes with centre-origin rotation. */
+export function cardFan(
+  id: string,
+  cards: readonly SceneNode[],
+  options: CardFanOptions = {},
+): GroupNode {
+  const activeIndex = Math.max(
+    0,
+    Math.min(cards.length - 1, options.activeIndex ?? Math.floor(cards.length / 2)),
+  );
+  const maxDistance = Math.max(activeIndex, cards.length - 1 - activeIndex, 1);
+  const spread = options.spread ?? 0.25;
+  const angle = options.angle ?? 9;
+  const cardWidth = options.cardWidth ?? { wide: 210, compact: 188, narrow: 152 };
+  const placed = cards.map((card, index): SceneNode => {
+    const offset = (index - activeIndex) / maxDistance;
+    const depth = cards.length - Math.abs(index - activeIndex);
+    return {
+      ...card,
+      width: card.width === undefined || card.width === "fill" ? cardWidth : card.width,
+      position: {
+        wide: { x: 0.5 + offset * spread, y: 0.48 + Math.abs(offset) * 0.07, anchor: "center" },
+        compact: {
+          x: 0.5 + offset * spread * 0.76,
+          y: 0.49 + Math.abs(offset) * 0.055,
+          anchor: "center",
+        },
+        narrow: {
+          x: 0.5 + offset * spread * 0.48,
+          y: 0.5 + Math.abs(offset) * 0.04,
+          anchor: "center",
+        },
+      },
+      rotation: {
+        wide: offset * angle,
+        compact: offset * angle * 0.72,
+        narrow: offset * angle * 0.42,
+      },
+      z: card.z ?? depth,
+      metadata: { ...card.metadata, diagramRole: "fan-card", fanIndex: index },
+    };
+  });
+  return container(id, "coordinates", placed, {
+    width: options.width ?? "fill",
+    height: options.height ?? { wide: 270, compact: 250, narrow: 220 },
+    label: options.label ?? "Card fan",
+    allowOverflow: options.allowOverflow ?? false,
+    metadata: { ...options.metadata, diagramRole: "card-fan", activeIndex },
+    ...containerOptions(options, ["width", "height", "label", "allowOverflow", "metadata"]),
+  });
+}
 
 export interface CardOptions extends ContainerOptions {
   readonly eyebrow?: string;
@@ -458,6 +718,7 @@ const CONTAINER_KEYS: readonly (keyof ContainerOptions)[] = [
   "justifySelf",
   "position",
   "opacity",
+  "rotation",
   "focusGroup",
   "inspect",
   "revealAnchor",

@@ -52,6 +52,16 @@ describe("bundle export disambiguation", () => {
     expect(bundle.studioTheme.radii.lg).not.toBe(bundle.swissTheme.radii.lg);
   });
 
+  it("exposes the signal and instrument glyph systems from the browser bundle", () => {
+    expect(bundle.signalTheme.name).toBe("signal");
+    expect(bundle.instrumentTheme.name).toBe("instrument");
+    expect(Object.keys(bundle.glyphStyleThemes)).toEqual(["signal", "instrument"]);
+    expect(typeof bundle.tileNode).toBe("function");
+    expect(typeof bundle.port).toBe("function");
+    expect(typeof bundle.gridPlane).toBe("function");
+    expect(typeof bundle.cardFan).toBe("function");
+  });
+
   it("exposes file-tree, terminal, typing, and asciicast authoring in the browser bundle", () => {
     expect(typeof bundle.fileTree).toBe("function");
     expect(typeof bundle.terminal).toBe("function");
@@ -75,6 +85,8 @@ describe("bundle export disambiguation", () => {
     expect(built.plotRule).not.toBe(built.rule);
     expect(built.formatPlotNumber).not.toBe(built.formatNumber);
     expect(built.professionalThemes.civic.name).toBe("civic");
+    expect(built.instrumentTheme.name).toBe("instrument");
+    expect(typeof built.cardFan).toBe("function");
     expect(typeof built.asciicast).toBe("function");
   });
 });

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { mountAllMicrocharts, mountMicrochart, mountMicrochartBatch } from "../src/micro.js";
+import {
+  microchart,
+  mountAllMicrocharts,
+  mountMicrochart,
+  mountMicrochartBatch,
+  mountMicrocharts,
+} from "../src/micro.js";
 
 describe("microchart DOM helpers", () => {
   it("mounts, updates, and restores a tiny inline chart", () => {
@@ -13,7 +19,13 @@ describe("microchart DOM helpers", () => {
     });
     expect(element.dataset.kineglyphMicrochart).toBe("line");
     expect(element.querySelector("svg")?.getAttribute("aria-label")).toBe("Recent latency");
+    const svg = element.querySelector("svg");
+    const path = element.querySelector("path");
+    controller.update([9, 4, 1]);
+    expect(element.querySelector("svg")).toBe(svg);
+    expect(element.querySelector("path")).toBe(path);
     controller.update([1, -2, 4], { type: "bar", negativeFill: "red" });
+    expect(element.querySelector("svg")).toBe(svg);
     expect(element.querySelectorAll("rect")).toHaveLength(3);
     expect(controller.values).toEqual([1, -2, 4]);
     controller.destroy();
@@ -29,6 +41,25 @@ describe("microchart DOM helpers", () => {
     expect(controllers).toHaveLength(2);
     expect(document.querySelectorAll("svg")).toHaveLength(2);
     expect(document.querySelectorAll("rect")).toHaveLength(3);
+  });
+
+  it("mounts and updates a collection through concise keyed helpers", () => {
+    document.body.innerHTML = `<section id="services">
+      <span data-kineglyph-microchart data-kineglyph-key="api">1,2,3</span>
+      <span id="worker" data-kineglyph-microchart="bar">2,3,4</span>
+    </section>`;
+    const charts = mountMicrocharts("#services", { defer: false, strokeWidth: 2 });
+    expect(charts.size).toBe(2);
+    expect(charts.mounted).toBe(2);
+    charts.set("api", [3, 2, 1]);
+    charts.setMany({ api: [4, 5, 6], worker: [1, -1, 2] });
+    charts.flush();
+    expect(document.querySelector('[data-kineglyph-key="api"] path')?.getAttribute("d")).toContain(
+      "M0 16",
+    );
+    expect(document.querySelectorAll("#worker rect")).toHaveLength(3);
+    expect(microchart([1, 2, 1])).toContain("<path");
+    charts.destroy();
   });
 
   it("virtualizes thousands of cells with one observer and batches dirty updates", () => {

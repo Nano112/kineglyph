@@ -11,6 +11,10 @@ Kineglyph now has two deliberately different data paths:
 The distinction keeps a live dashboard expressive without making a 1,000-row table pay for 1,000
 figure runtimes.
 
+[Open the live limits harness](../examples/microchart-limits/) to measure SVG generation, eager DOM,
+a 100,000-chart virtual pool, and 64×48 monochrome video rendered as 24 labelled bar plots on the
+current browser and device.
+
 ## A dense status table is still a visual
 
 _Live · ten services, 120 rolling samples_
@@ -384,31 +388,42 @@ future layout engines can replace the compiler without changing the renderer con
 
 ## Render thousands of tiny SVGs
 
-`renderMicroSvg()` is a separate fast path in `@kineglyph/svg`. It accepts an array or Peity-style
+`microchart()` is the concise fast path in `@kineglyph/svg`. It accepts an array or Peity-style
 comma/slash-delimited text and returns one standalone accessible SVG. Line and bar charts default
-to `64 × 16`; pie and donut charts default to `16 × 16`.
+to `64 × 16`; pie and donut charts default to `16 × 16`. `renderMicroSvg()` remains available as
+the explicit long-form name.
 
 ```ts
-import { renderMicroSvg } from "@kineglyph/svg";
+import { microchart } from "@kineglyph/svg";
 
-latencyCell.innerHTML = renderMicroSvg("31,28,35,42,39,51,44", {
+latencyCell.innerHTML = microchart("31,28,35,42,39,51,44", {
   type: "line",
   stroke: "#a855f7",
   label: "Seven recent latency samples",
 });
 
-changeCell.innerHTML = renderMicroSvg([4, -2, 7, -1, 3], {
-  type: "bar",
+barCell.innerHTML = microchart([4, -2, 7, -1, 3], "bar");
+
+changeCell.innerHTML = microchart([4, -2, 7, -1, 3], {
+  type: "bar", // use an object only when the shorthand needs more detail
   fill: "#22c55e",
   negativeFill: "#fb7185",
 });
 
-shareCell.innerHTML = renderMicroSvg("37/63", {
+binaryScanline.innerHTML = microchart([0, 1, 1, 0, 1, 0], {
+  type: "bar",
+  min: 0,
+  max: 1,
+  padding: 0,
+  minimumBarSize: 0, // completely hide zero-value pixels
+});
+
+shareCell.innerHTML = microchart("37/63", {
   type: "donut",
   label: "37 percent complete",
 });
 
-mixCell.innerHTML = renderMicroSvg([18, 31, 27, 24], {
+mixCell.innerHTML = microchart([18, 31, 27, 24], {
   type: "pie",
   label: "Traffic share across four regions",
 });
@@ -417,14 +432,19 @@ mixCell.innerHTML = renderMicroSvg([18, 31, 27, 24], {
 For progressive enhancement, put compact values directly in the cell:
 
 ```html
-<td data-kineglyph-microchart="line" aria-label="Recent latency">31,28,35,42,39</td>
-<td data-kineglyph-microchart="bar" data-width="48">4,-2,7,-1,3</td>
-<td data-kineglyph-microchart="donut" aria-label="Storage used">37/63</td>
+<table id="services">
+  <tr>
+    <td data-kineglyph-microchart="line" data-kineglyph-key="api">31,28,35,42,39</td>
+    <td data-kineglyph-microchart="bar" data-kineglyph-key="worker">4,-2,7,-1,3</td>
+  </tr>
+</table>
 
 <script type="module">
-  import { mountAllMicrocharts } from "@kineglyph/web";
-  const charts = mountAllMicrocharts();
-  // charts[0].update(nextSamples) replaces only its tiny SVG.
+  import { mountMicrocharts } from "@kineglyph/web/micro";
+
+  const charts = mountMicrocharts("#services");
+  charts.set("api", [30, 34, 29, 41]);
+  charts.setMany({ api: nextApi, worker: nextWorker });
 </script>
 ```
 
@@ -434,9 +454,19 @@ both the accessible name and a native SVG `<title>` tooltip, so even a matrix wi
 charts gains hover detail without thousands of JavaScript listeners. In tests, 1,000 three-point
 line charts remain under 300 KB of uncompressed markup.
 
-For thousands of live or scrollable rows, use the batch helper. It keeps only intersecting charts
+The DOM controller parses the SVG once. Later updates keep the same `<svg>` and mark elements and
+patch only changed geometry attributes such as `d`, `y`, or `height`. This preserves focus and CSS
+state, avoids repeated HTML parsing, and is materially cheaper for live data. Custom renderers can
+use `resolveMicrochart()` from `@kineglyph/svg` to receive the same validated, renderer-neutral mark
+geometry.
+
+`mountMicrocharts()` uses the batch path by default. It keeps only intersecting charts
 mounted, recycles SVG DOM after cells leave the viewport, and collapses every synchronous burst to
-one shared animation-frame write. There is one observer for the table—not one per chart.
+one shared animation-frame write. There is one observer for the collection—not one per chart.
+Indexes and elements remain valid targets; `data-kineglyph-key` adds stable string targets without
+requiring application-owned maps.
+
+Use `mountMicrochartBatch()` directly when a feed already arrives as explicit target/value records:
 
 ```ts
 import { mountMicrochartBatch } from "@kineglyph/web";
@@ -457,6 +487,26 @@ trends.destroy();
 
 If the application already virtualizes table rows, pass `defer: false`: only the small set of DOM
 rows owned by the virtualizer exists, and Kineglyph will mount those charts eagerly.
+
+## Where the browser ceiling actually is
+
+The generator is not the first bottleneck. On an Apple M2 Max in Chromium, the live harness
+measured the current mixed 24-value workload at roughly 100,000–130,000 SVG strings per second.
+Persistent marks make ordinary line updates much cheaper than rebuilding SVG; a deliberately
+hostile mix gives every pie and donut all 24 values and therefore creates many more paths:
+
+| Workload                            | Mount        | One synchronous update | Resident SVG |
+| ----------------------------------- | ------------ | ---------------------- | ------------ |
+| 50,000 logical, 120-cell mixed pool | about 6 ms   | about 4 ms             | 120          |
+| 1,000 eager lines                   | about 21 ms  | about 10 ms            | 1,000        |
+| 1,000 eager mixed 24-mark charts    | about 55 ms  | about 34 ms            | 1,000        |
+| 5,000 eager lines                   | about 100 ms | about 45 ms            | 5,000        |
+| 5,000 eager mixed 24-mark charts    | about 245 ms | about 158 ms           | 5,000        |
+
+These are orientation numbers, not portable promises; the harness reports the current device's
+numbers. The architectural conclusion is stable: static pages can contain thousands of SVGs, but
+smooth live dashboards should update only the visible pool. The logical dataset can be much larger
+because offscreen values are just bounded arrays, not SVG subtrees.
 
 ## A virtualized scroll can represent 5,000 live rows
 
@@ -496,7 +546,8 @@ export function setup(controller) {
     .kg-virtual-services .kg-demo-status{display:flex;justify-content:space-between;gap:12px;padding:8px 2px;color:var(--kg-color-text-muted);font:600 11px/1.2 ui-monospace,monospace}
     .kg-virtual-services .kg-demo-viewport{position:relative;height:320px;overflow:auto;overscroll-behavior:contain;border:1px solid var(--kg-color-border);border-radius:10px;background:color-mix(in srgb,var(--kg-color-canvas) 92%,transparent)}
     .kg-virtual-services .kg-demo-spacer{position:relative;width:100%}
-    .kg-virtual-services .kg-demo-row{position:absolute;left:0;right:0;display:grid;grid-template-columns:56px minmax(90px,1fr) minmax(90px,2fr) 72px;align-items:center;height:${ROW_HEIGHT}px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--kg-color-border) 62%,transparent);color:var(--kg-color-text);font:600 11px/1 ui-monospace,monospace}
+    .kg-virtual-services .kg-demo-layer{position:absolute;inset:0 0 auto;display:grid;will-change:transform}
+    .kg-virtual-services .kg-demo-row{display:grid;grid-template-columns:56px minmax(90px,1fr) minmax(90px,2fr) 72px;align-items:center;height:${ROW_HEIGHT}px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--kg-color-border) 62%,transparent);color:var(--kg-color-text);font:600 11px/1 ui-monospace,monospace}
     .kg-virtual-services .kg-demo-row>[role=cell]:first-child{color:var(--kg-color-text-muted)}
     .kg-virtual-services [data-kineglyph-microchart] svg{display:block;width:100%;height:16px;color:var(--kg-row-color,var(--kg-color-info))}
     .kg-virtual-services .kg-demo-latency{text-align:right;color:var(--kg-color-text-muted)}
@@ -514,6 +565,9 @@ export function setup(controller) {
   const spacer = document.createElement("div");
   spacer.className = "kg-demo-spacer";
   spacer.style.height = `${TOTAL * ROW_HEIGHT}px`;
+  const layer = document.createElement("div");
+  layer.className = "kg-demo-layer";
+  spacer.append(layer);
   viewport.append(spacer);
   host.append(style, status, viewport);
 
@@ -522,19 +576,22 @@ export function setup(controller) {
     row.className = "kg-demo-row";
     row.setAttribute("role", "row");
     row.innerHTML = `<span role="cell"></span><span role="cell"></span><span role="cell" data-kineglyph-microchart="line">1,2,3</span><span role="cell" class="kg-demo-latency"></span>`;
-    spacer.append(row);
+    layer.append(row);
     return row;
   });
   const charts = rows.map((row) => row.querySelector("[data-kineglyph-microchart]"));
   const batch = mountMicrochartBatch({ root: spacer, defer: false });
   let tick = 0;
+  let firstRendered = -1;
 
-  const render = () => {
+  const render = (force = true) => {
     const first = Math.max(0, Math.min(TOTAL - POOL_SIZE, Math.floor(viewport.scrollTop / ROW_HEIGHT) - 4));
+    if (!force && first === firstRendered) return;
+    firstRendered = first;
+    layer.style.transform = `translate3d(0, ${first * ROW_HEIGHT}px, 0)`;
     rows.forEach((row, poolIndex) => {
       const index = first + poolIndex;
       const values = valuesFor(index, tick);
-      row.style.transform = `translateY(${index * ROW_HEIGHT}px)`;
       row.style.setProperty("--kg-row-color", PALETTE[index % PALETTE.length]);
       row.setAttribute("aria-rowindex", String(index + 1));
       row.children[0].textContent = String(index + 1).padStart(4, "0");
@@ -548,7 +605,7 @@ export function setup(controller) {
   let frame;
   const onScroll = () => {
     if (frame !== undefined) return;
-    frame = window.requestAnimationFrame(() => { frame = undefined; render(); });
+    frame = window.requestAnimationFrame(() => { frame = undefined; render(false); });
   };
   const onKeydown = (event) => {
     if (event.key === "End") viewport.scrollTop = viewport.scrollHeight;

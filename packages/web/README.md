@@ -85,9 +85,17 @@ per animation frame, and optionally reconnects with bounded exponential backoff.
 `mountMicrochart()` and `mountAllMicrocharts()` update tiny standalone SVGs without mounting full
 figure runtimes. See [Live data and microcharts](../../docs/live-data-and-microcharts.md).
 
-For thousands of cells, `mountMicrochartBatch()` uses one intersection observer and one shared
-frame queue. Only visible charts retain SVG DOM, offscreen updates retain numbers only, and repeated
-updates to one cell before paint collapse into a single draw.
+For one chart, `microchart(values, "bar")` returns a standalone SVG string. For a live collection,
+`mountMicrocharts("#services")` uses one intersection observer and one shared frame queue. Give
+elements `data-kineglyph-key` values and call `charts.set("api", values)` or
+`charts.setMany({ api, worker })`. Only visible charts retain SVG DOM, offscreen updates retain
+numbers only, and repeated updates to one cell before paint collapse into a single draw.
+
+`mountMicrochartBatch()` remains the lower-level record-oriented API for feeds that already arrive
+as `{ target, values, options }` updates.
+
+Mounted charts keep their SVG root and mark nodes across updates. The runtime patches geometry
+attributes in place, so a rolling line does not repeatedly parse or replace its SVG subtree.
 
 Editable modules mounted through `@kineglyph/web/lab` may also export
 `loop = true` and/or `setup(controller, element)`. `loop` repeats the seekable scene timeline;

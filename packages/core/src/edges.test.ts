@@ -64,6 +64,31 @@ describe("edge grammar", () => {
     ).toEqual(route);
   });
 
+  it("collapses redundant visibility vertices into clean orthogonal runs", () => {
+    const route = routeOrthogonalAvoidingObstacles(
+      { x: 20, y: 40 },
+      "right",
+      { x: 360, y: 220 },
+      "left",
+      [
+        { x: 80, y: 10, width: 50, height: 90 },
+        { x: 160, y: 120, width: 60, height: 80 },
+        { x: 260, y: 60, width: 50, height: 100 },
+      ],
+      { x: 0, y: 0, width: 400, height: 260 },
+    );
+    expect(route).toBeDefined();
+    for (let index = 1; index < (route?.length ?? 0) - 1; index += 1) {
+      const before = route?.[index - 1];
+      const current = route?.[index];
+      const after = route?.[index + 1];
+      if (before === undefined || current === undefined || after === undefined) continue;
+      const vertical = before.x === current.x && current.x === after.x;
+      const horizontal = before.y === current.y && current.y === after.y;
+      expect(vertical || horizontal).toBe(false);
+    }
+  });
+
   it("routes straight, orthogonal, curve, and arc paths from typed data", () => {
     const straight = resolve({ id: "s", from: "a", to: "b" });
     expect(straight.edge.path).toBe("M 100 30 L 300 30");
@@ -184,6 +209,33 @@ describe("edge grammar", () => {
     expect(resolved.edge.path).not.toMatch(/^M 100 20 L 300 220$/);
     expect(resolved.edge.start).toEqual({ x: 100, y: 20 });
     expect(resolved.edge.end).toEqual({ x: 300, y: 220 });
+  });
+
+  it("moves automatic ports when the nearest exit lane is blocked", () => {
+    const blocked = new Map<string, EdgeNodeBox>([
+      ["source", { id: "source", kind: "rect", x: 40, y: 20, width: 100, height: 70 }],
+      ["blocker", { id: "blocker", kind: "rect", x: 40, y: 102, width: 100, height: 90 }],
+      ["target", { id: "target", kind: "circle", x: 85, y: 220, width: 10, height: 10 }],
+    ]);
+    const edge: EdgeDefinition = { id: "auto", from: "source", to: "target", route: "orthogonal" };
+    const ports = assignPorts([edge], "narrow", blocked);
+    const port = ports.get(edge.id);
+    if (port === undefined) throw new Error("missing port");
+    expect(port.from.side).toBe("bottom");
+    const resolved = resolveEdge(edge, port, {
+      layout: "narrow",
+      theme,
+      boxes: blocked,
+      obstacles: [...blocked.values()],
+      bounds: { x: 0, y: 0, width: 220, height: 260 },
+      labelFont: font,
+      labelColor: "#333333",
+      precision: 3,
+    });
+    if (resolved === undefined) throw new Error("unresolved");
+    expect(resolved.collidingObstacles).toBe(false);
+    expect(resolved.edge.start.x === 40 || resolved.edge.start.x === 140).toBe(true);
+    expect(resolved.edge.start.y).not.toBe(90);
   });
 
   it("leaves an authored port exactly where the author put it", () => {

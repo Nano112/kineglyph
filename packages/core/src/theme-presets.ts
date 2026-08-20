@@ -1,4 +1,6 @@
 import { createTheme, defaultTheme, type ThemeOverride, type ThemeTokens } from "./theme.js";
+import { innerShadow, shadow } from "./material.js";
+import { linearGradient, radialGradient } from "./scene.js";
 
 /**
  * Flat material roles shared by the professional presets.
@@ -377,6 +379,178 @@ export const civicTheme: ThemeTokens = professionalTheme({
   strokes: { hairline: 1.25, thin: 1.5, regular: 2.25, bold: 3.5 },
   ornament: { grid: "none", surface: "outlined", lineCap: "round", eyebrow: true },
 });
+
+/**
+ * Flat signal language for state machines, CI graphs, control flow, and dense technical topology.
+ * The grid is a construction aid, outlines carry state, and green is reserved for live paths.
+ */
+export const signalTheme: ThemeTokens = createTheme({
+  name: "signal",
+  declareColors: "all",
+  colors: {
+    canvas: "#07100c",
+    surface: "#0a1310",
+    surfaceRaised: "#0d1713",
+    surfaceMuted: "#101a16",
+    text: "#f1f5f2",
+    textMuted: "#8c9c93",
+    accent: "#18df7c",
+    accentContrast: "#06100b",
+    info: "#72a7ff",
+    success: "#18df7c",
+    warning: "#f3c75b",
+    danger: "#ff6d78",
+    connector: "#18df7c",
+    border: "#284438",
+    chart1: "#18df7c",
+    chart2: "#72a7ff",
+    chart3: "#f3c75b",
+    chart4: "#c18aff",
+    chart5: "#ff6d78",
+    chart6: "#8c9c93",
+    chartPositive: "#18df7c",
+    chartNegative: "#ff6d78",
+    chartNeutral: "#60736a",
+  },
+  spacing: { xs: 4, sm: 8, md: 14, lg: 22, xl: 30, "2xl": 44 },
+  radii: { sm: 2, md: 4, lg: 7, pill: 9999 },
+  typography: typeDirection({
+    family: '"IBM Plex Mono", "SFMono-Regular", Menlo, monospace',
+    code: '"IBM Plex Mono", "SFMono-Regular", Menlo, monospace',
+    displaySize: 42,
+    displayWeight: 700,
+    titleWeight: 650,
+    bodySize: 14,
+    labelSpacing: 1.15,
+  }),
+  motion: { fast: 90, normal: 210, slow: 460, easing: "easeOut" },
+  strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.5 },
+  ornament: { grid: "lines", surface: "outlined", lineCap: "round", eyebrow: true },
+  materials: {
+    flat: { fill: "canvas" },
+    raised: { fill: "surface", stroke: "border", strokeWidth: 1.25, radius: 4 },
+    floating: { fill: "surfaceRaised", stroke: "accent", strokeWidth: 1.5, radius: 4 },
+    inset: { fill: "surfaceMuted", stroke: "border", strokeWidth: 1, radius: 2 },
+    glass: { fill: "surface", stroke: "border", strokeWidth: 1.25, radius: 4 },
+  },
+});
+
+/**
+ * Physically grounded instrument panels: graphite cards, bevel highlights, contact shadows, and a
+ * local red emitter on the `floating` role. Effects stay semantic and export through SVG/PNG/GIF.
+ */
+export const instrumentTheme: ThemeTokens = createTheme({
+  name: "instrument",
+  declareColors: "all",
+  colors: {
+    canvas: "#100e11",
+    surface: "#1b181d",
+    surfaceRaised: "#302b32",
+    surfaceMuted: "#151217",
+    text: "#f7f3f4",
+    textMuted: "#a59da3",
+    accent: "#ff4d43",
+    accentContrast: "#180b0a",
+    info: "#71a7d8",
+    success: "#78b98e",
+    warning: "#d7aa62",
+    danger: "#ff655d",
+    connector: "#b5abb2",
+    border: "#625962",
+    chart1: "#ff4d43",
+    chart2: "#71a7d8",
+    chart3: "#d7aa62",
+    chart4: "#78b98e",
+    chart5: "#c78bc5",
+    chart6: "#a59da3",
+    chartPositive: "#78b98e",
+    chartNegative: "#ff655d",
+    chartNeutral: "#837a81",
+  },
+  spacing: { xs: 5, sm: 9, md: 16, lg: 25, xl: 36, "2xl": 52 },
+  radii: { sm: 5, md: 9, lg: 14, pill: 9999 },
+  typography: typeDirection({
+    family: '"Avenir Next", Inter, system-ui, sans-serif',
+    code: '"SFMono-Regular", Menlo, monospace',
+    displaySize: 44,
+    displayWeight: 700,
+    titleWeight: 650,
+    bodySize: 15,
+    labelSpacing: 0.55,
+  }),
+  motion: { fast: 130, normal: 280, slow: 620, easing: "easeInOut" },
+  strokes: { hairline: 0.9, thin: 1.2, regular: 1.7, bold: 2.6 },
+  ornament: { grid: "none", surface: "glow", lineCap: "round", eyebrow: false },
+  materials: {
+    flat: { fill: "canvas" },
+    raised: {
+      fill: linearGradient(
+        [
+          { at: 0, color: "surfaceRaised" },
+          { at: 0.52, color: "surface" },
+          { at: 1, color: "surfaceMuted" },
+        ],
+        { angle: 112 },
+      ),
+      stroke: "border",
+      strokeWidth: 1.15,
+      radius: 10,
+      effects: [
+        innerShadow({ color: "text", opacity: 0.1, blur: 1.2, offset: [0, 1] }),
+        shadow({ color: "canvas", opacity: 0.72, blur: 16, spread: 1, offset: [0, 9] }),
+      ],
+    },
+    floating: {
+      fill: radialGradient(
+        [
+          { at: 0, color: "surfaceRaised" },
+          { at: 0.68, color: "surface" },
+          { at: 1, color: "surfaceMuted" },
+        ],
+        { center: [0.5, 0.18], focalPoint: [0.5, 0.08], radius: 0.92 },
+      ),
+      stroke: "accent",
+      strokeWidth: 1.35,
+      radius: 12,
+      effects: [
+        innerShadow({ color: "text", opacity: 0.13, blur: 1.2, offset: [0, 1] }),
+        shadow({ color: "accent", opacity: 0.3, blur: 18, spread: 1, offset: [0, 4] }),
+        shadow({ color: "canvas", opacity: 0.78, blur: 22, spread: 2, offset: [0, 12] }),
+      ],
+    },
+    inset: {
+      fill: "surfaceMuted",
+      stroke: "border",
+      strokeWidth: 1,
+      radius: 7,
+      effects: [innerShadow({ color: "canvas", opacity: 0.88, blur: 7, offset: [0, 3] })],
+    },
+    glass: {
+      fill: linearGradient(
+        [
+          { at: 0, color: "surfaceRaised", opacity: 0.92 },
+          { at: 1, color: "surface", opacity: 0.7 },
+        ],
+        { angle: 128 },
+      ),
+      stroke: "border",
+      strokeWidth: 1,
+      radius: 12,
+      effects: [
+        innerShadow({ color: "text", opacity: 0.1, blur: 1, offset: [0, 1] }),
+        shadow({ color: "canvas", opacity: 0.58, blur: 14, offset: [0, 8] }),
+      ],
+    },
+  },
+});
+
+export type GlyphStyleThemeName = "signal" | "instrument";
+
+/** Two deliberately different render directions for the same semantic scene graph. */
+export const glyphStyleThemes: Readonly<Record<GlyphStyleThemeName, ThemeTokens>> = {
+  signal: signalTheme,
+  instrument: instrumentTheme,
+};
 
 export type ProfessionalThemeName =
   "kineglyph" | "swiss" | "ledger" | "blueprint" | "fieldManual" | "studio" | "civic";

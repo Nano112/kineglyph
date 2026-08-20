@@ -85,6 +85,8 @@ low-level escape hatch.
   direction.
 - [Professional themes](./theme-gallery.md) applies seven restrained, production-ready visual systems
   to one responsive specimen.
+- [Glyph style laboratory](./glyph-style-lab.md) renders routed, layered, and instrument glyphs in
+  two deliberately different visual directions from the same semantic primitives.
 - [Editorial infographic patterns](./infographic-patterns.md) exercises process narratives,
   activity matrices, convergence lanes, change streams, and before/after claims.
 

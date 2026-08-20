@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A live stress harness for Kineglyph microcharts." />
+    <title>Kineglyph microchart limits</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">KINEGLYPH / LIVE BENCHMARK</p>
+          <h1>Microchart limits</h1>
+          <p class="lede">
+            Separate SVG generation from browser DOM cost, then compare every-chart DOM with a fixed
+            virtual pool.
+          </p>
+        </div>
+        <a href="../../live-data-and-microcharts/">Read the guide</a>
+      </header>
+
+      <section class="controls" aria-label="Benchmark controls">
+        <label>
+          <span>MODE</span>
+          <select id="mode">
+            <option value="virtual">Virtual pool</option>
+            <option value="eager">Every SVG mounted</option>
+          </select>
+        </label>
+        <label>
+          <span>LOGICAL CHARTS</span>
+          <input id="count" type="number" min="100" max="100000" step="100" value="50000" />
+        </label>
+        <label>
+          <span>SAMPLES / CHART</span>
+          <select id="samples">
+            <option>8</option>
+            <option selected>24</option>
+            <option>60</option>
+          </select>
+        </label>
+        <label>
+          <span>WORKLOAD</span>
+          <select id="workload">
+            <option value="mixed">Mixed worst case</option>
+            <option value="line">Lines</option>
+            <option value="bar">Bars</option>
+            <option value="polar">Pie / donut · 4</option>
+          </select>
+        </label>
+        <button id="run" type="button">Run benchmark</button>
+        <button id="stream" type="button" aria-pressed="false">Start live updates</button>
+      </section>
+
+      <section class="metrics" aria-label="Benchmark results">
+        <article>
+          <span>GENERATE</span><strong id="generate">—</strong
+          ><small id="throughput">SVG strings</small>
+        </article>
+        <article><span>MOUNT</span><strong id="mount">—</strong><small>browser DOM</small></article>
+        <article>
+          <span>UPDATE</span><strong id="update">—</strong><small>one visible frame</small>
+        </article>
+        <article>
+          <span>RESIDENT</span><strong id="resident">—</strong
+          ><small id="resident-detail">SVG elements</small>
+        </article>
+      </section>
+
+      <section class="readout" aria-live="polite">
+        <span id="status">Ready.</span>
+        <span id="long-tasks">0 long tasks</span>
+      </section>
+
+      <section class="viewport" id="viewport" aria-label="Microchart matrix" tabindex="0">
+        <div id="stage"></div>
+      </section>
+
+      <section class="cinema" aria-labelledby="cinema-heading">
+        <div class="cinema-copy">
+          <p class="eyebrow">MICROCHART CINEMA / 1,536 LIVE BARS</p>
+          <h2 id="cinema-heading">Video, as bar plots</h2>
+          <p>
+            Twenty-four labelled bar plots form the frame; every plot contains 64 independent bars
+            and aggregates two source scanlines. Use the procedural reel or choose a local video;
+            selected files are decoded entirely in the browser and never leave this page.
+          </p>
+          <div class="cinema-actions">
+            <button id="cinema-toggle" type="button" aria-pressed="false">Play</button>
+            <button id="cinema-demo" type="button">Use demo</button>
+            <button id="cinema-invert" type="button" aria-pressed="false">Invert pixels</button>
+            <label class="file-button">
+              <span>Choose local video</span>
+              <input id="cinema-file" type="file" accept="video/*" />
+            </label>
+          </div>
+          <div class="cinema-readout" aria-live="polite">
+            <span id="cinema-source">Procedural silhouette reel</span>
+            <span id="cinema-frame">— ms update</span>
+            <span id="cinema-fps">24 fps target</span>
+          </div>
+        </div>
+        <div class="cinema-display">
+          <div
+            id="cinema-screen"
+            class="cinema-screen"
+            role="img"
+            aria-label="Video rendered by 24 labelled multi-value bar plots"
+          ></div>
+          <div class="cinema-spec">
+            <span>64 × 48</span>
+            <span>24 SVG plots</span>
+            <span>1,536 bars</span>
+            <span>2 source rows / plot</span>
+          </div>
+        </div>
+        <video id="cinema-video" playsinline hidden></video>
+      </section>
+
+      <section class="api">
+        <div>
+          <p class="eyebrow">THE COMMON CASE</p>
+          <h2>Two names, keyed updates</h2>
+        </div>
+        <pre><code>cell.innerHTML = microchart([12, 18, 15, 24]);
+
+const charts = mountMicrocharts("#services");
+charts.set("api", [31, 28, 35, 42]);
+charts.setMany({ api: nextApi, worker: nextWorker });</code></pre>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

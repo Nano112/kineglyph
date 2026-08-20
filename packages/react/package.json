@@ -1,6 +1,6 @@
 {
   "name": "@kineglyph/react",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "Responsive React bindings for Kineglyph.",
   "license": "MIT",
   "author": "Harrison (https://github.com/Nano112)",
@@ -50,10 +50,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/anime": "^0.2.0",
-    "@kineglyph/core": "^0.2.0",
-    "@kineglyph/svg": "^0.2.0",
-    "@kineglyph/web": "^0.2.0"
+    "@kineglyph/anime": "^0.3.1",
+    "@kineglyph/core": "^0.3.1",
+    "@kineglyph/svg": "^0.3.1",
+    "@kineglyph/web": "^0.3.1"
   },
   "peerDependencies": {
     "react": ">=18",

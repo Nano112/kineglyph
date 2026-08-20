@@ -27,6 +27,25 @@ Each preset changes the full system—type, spacing, radii, stroke weights, moti
 semantic colour roles. Their material roles are deliberately flat: no glow, blur, glass effect, or
 shader fallback is introduced when a scene switches themes.
 
+Two additional themes exercise more opinionated glyph languages:
+
+```ts
+import { glyphStyleThemes, instrumentTheme, signalTheme } from "@kineglyph/core";
+
+const schematic = signalTheme; // grid, outline, explicit signal paths
+const physical = instrumentTheme; // graphite depth, contact shadows, local emission
+const selected = glyphStyleThemes.instrument;
+```
+
+The same scene can switch between them. `tileNode()`, `port()`, `gridPlane()`, and `cardFan()` (or
+`f.tile()`, `f.port()`, `f.gridPlane()`, and `f.cardFan()`) provide the matching portable
+compositions without coupling the scene to either theme. Labelled tiles hug measured content and
+offer icon, compact-horizontal, and centred-labelled variants plus a bindable detail line.
+`f.circuit(nodes, connections)` infers responsive ranks from a netlist and returns its root, edges,
+and ranks for animation; `f.wire()` includes signal, bus, control, data, clock, feedback, optional,
+and flowing presets. Every node also accepts responsive static `rotation`; animation and
+SVG/PNG/GIF export resolve the same centre-origin transform.
+
 ## Files, terminals, and asciinema recordings
 
 `figure()` includes recursive file trees and structured terminals. Commands can be revealed with a

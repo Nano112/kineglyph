@@ -1,6 +1,6 @@
 {
   "name": "@kineglyph/plot",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "Pure chart compiler for Kineglyph: scales, series, axes, and annotations compiled to core scene fragments.",
   "license": "MIT",
   "author": "Harrison (https://github.com/Nano112)",
@@ -51,10 +51,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/core": "^0.2.0"
+    "@kineglyph/core": "^0.3.1"
   },
   "devDependencies": {
-    "@kineglyph/export": "^0.3.0",
-    "@kineglyph/svg": "^0.2.0"
+    "@kineglyph/export": "^0.4.1",
+    "@kineglyph/svg": "^0.3.1"
   }
 }

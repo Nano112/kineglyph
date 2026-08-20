@@ -180,6 +180,8 @@ interface BaseNode {
   readonly onPointer?: string;
   readonly onDrag?: string;
   readonly opacity?: number;
+  /** Clockwise rotation in degrees around the resolved node centre. */
+  readonly rotation?: Responsive<number>;
   readonly metadata?: SceneMetadata;
   readonly bind?: NodeBindings;
   /** Semantic material role or a role with local overrides; shapes keep their explicit paint. */

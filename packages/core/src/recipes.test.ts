@@ -3,6 +3,7 @@ import {
   body,
   caption,
   card,
+  cardFan,
   code,
   codeBlock,
   container,
@@ -11,6 +12,7 @@ import {
   flowLayout,
   gate,
   grid,
+  gridPlane,
   heading,
   highlightCodeLine,
   keyValue,
@@ -19,12 +21,14 @@ import {
   overlay,
   panel,
   pill,
+  port,
   row,
   rule,
   spacer,
   stack,
   terminal,
   text,
+  tileNode,
   title,
 } from "./recipes.js";
 import { resolveScene } from "./resolve.js";
@@ -109,6 +113,97 @@ describe("pill, motif, rule, spacer, keyValue", () => {
     expect(kv.justify).toBe("between");
     expect(kv.children.map((child) => child.id)).toEqual(["kv-key", "kv-value"]);
     expect(kv.children[1]).toMatchObject({ type: "text", textStyle: "code", color: "success" });
+  });
+});
+
+describe("glyph style recipes", () => {
+  it("authors tiles, ports, and a portable construction grid", () => {
+    const tile = tileNode("verify", {
+      icon: "check",
+      eyebrow: "Gate",
+      title: "Verify",
+      active: true,
+    });
+    expect(tile).toMatchObject({
+      type: "group",
+      label: "Verify",
+      width: "hug",
+      minWidth: { wide: 118, compact: 106, narrow: 94 },
+      maxWidth: { wide: 232, compact: 200, narrow: 172 },
+      frame: { material: "floating" },
+      metadata: { diagramRole: "tile-node", active: true },
+    });
+    expect(ids(tile)).toEqual(
+      expect.arrayContaining(["verify-icon", "verify-eyebrow", "verify-title"]),
+    );
+    expect(port("input", { active: true, tone: "success" })).toMatchObject({
+      type: "circle",
+      fill: "success",
+      stroke: "success",
+      metadata: { diagramRole: "port", active: true },
+    });
+    const plane = gridPlane("plane", { columns: 3, rows: 2, height: 120 });
+    expect(plane.children).toHaveLength(7);
+    expect(plane.metadata).toMatchObject({ diagramRole: "grid-plane" });
+
+    const compact = tileNode("compile", {
+      icon: "code",
+      eyebrow: "INPUT",
+      title: "Compile source files",
+      detail: "12 modules",
+      detailStyle: "code",
+      variant: "compact",
+    });
+    expect(compact).toMatchObject({
+      layout: "row",
+      width: "hug",
+      minWidth: { wide: 132, compact: 120, narrow: 108 },
+    });
+    expect(ids(compact)).toEqual(
+      expect.arrayContaining(["compile-copy", "compile-detail", "compile-title"]),
+    );
+    const resolved = resolveScene(
+      { schemaVersion: 2, id: "compact", title: "Compact", root: compact },
+      { width: 520 },
+    );
+    expect(resolved.diagnostics?.filter((entry) => entry.code === "text-truncated") ?? []).toEqual(
+      [],
+    );
+  });
+
+  it("fans cards with responsive positions and static centre rotation", () => {
+    const fan = cardFan(
+      "fan",
+      [
+        card("one", { title: "One" }),
+        card("two", { title: "Two" }),
+        card("three", { title: "Three" }),
+      ],
+      { angle: 12 },
+    );
+    expect(fan.children.map((child) => child.rotation)).toEqual([
+      { wide: -12, compact: -8.64, narrow: -5.04 },
+      { wide: 0, compact: 0, narrow: 0 },
+      { wide: 12, compact: 8.64, narrow: 5.04 },
+    ]);
+    expect(fan.children.map((child) => child.width)).toEqual([
+      { wide: 210, compact: 188, narrow: 152 },
+      { wide: 210, compact: 188, narrow: 152 },
+      { wide: 210, compact: 188, narrow: 152 },
+    ]);
+    const definition = {
+      schemaVersion: 2 as const,
+      id: "fan-scene",
+      title: "Fan",
+      root: fan,
+    };
+    expect(validateScene(definition).ok).toBe(true);
+    expect(
+      resolveScene(definition, { width: 960 }).nodes.find((node) => node.id === "one")?.state,
+    ).toMatchObject({ rotation: -12 });
+    expect(
+      resolveScene(definition, { width: 360 }).nodes.find((node) => node.id === "one")?.state,
+    ).toMatchObject({ rotation: -5.04 });
   });
 });
 

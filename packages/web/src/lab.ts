@@ -251,7 +251,7 @@ async function drawSvgFrame(
 async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
   const view = doc.defaultView;
   if (view === null) throw new Error("GIF export needs a browser window");
-  const { GIFEncoder, applyPalette, quantize } = await loadGifenc();
+  const gifenc = await loadGifenc();
   const scale = Math.min(
     1,
     GIF_MAX_WIDTH / Math.max(1, scene.width),
@@ -268,7 +268,7 @@ async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
   const times = gifFrameTimes(duration);
   const delay =
     times.length <= 1 ? 1_000 : Math.max(20, Math.round(duration / (times.length - 1) / 10) * 10);
-  const encoder = GIFEncoder({ auto: true });
+  const encoder = gifenc.GIFEncoder({ auto: true });
 
   for (const [index, time] of times.entries()) {
     const frame = seekTimeline(scene, time);
@@ -279,8 +279,8 @@ async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
       effects: "portable",
     });
     const rgba = await drawSvgFrame(doc, context, svg, width, height, scene.theme.background);
-    const palette = quantize(rgba, 256);
-    const indexed = applyPalette(rgba, palette);
+    const palette = gifenc.quantize(rgba, 256);
+    const indexed = gifenc.applyPalette(rgba, palette);
     encoder.writeFrame(indexed, width, height, {
       palette,
       delay: index === times.length - 1 ? delay + 800 : delay,

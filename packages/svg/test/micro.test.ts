@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMicroValues, renderMicroSvg } from "../src/micro.js";
+import { microchart, parseMicroValues, renderMicroSvg, resolveMicrochart } from "../src/micro.js";
 
 describe("micro SVG charts", () => {
   it("parses compact table-cell data", () => {
@@ -21,6 +21,24 @@ describe("micro SVG charts", () => {
     expect(area).toContain('fill-opacity=".18"');
   });
 
+  it("offers a concise renderer with a type shorthand", () => {
+    expect(microchart([1, 3, 2])).toContain("<path");
+    expect(microchart([1, -2, 3], "bar").match(/<rect/g)).toHaveLength(3);
+    expect(microchart([37, 63], { type: "donut", label: "Storage used" })).toContain(
+      'aria-label="Storage used"',
+    );
+  });
+
+  it("resolves renderer-neutral marks for persistent DOM updates", () => {
+    const chart = resolveMicrochart([2, 5, 3], { type: "area", label: "Latency" });
+    expect(chart).toMatchObject({ type: "area", width: 64, height: 16, label: "Latency" });
+    expect(chart.marks).toHaveLength(2);
+    expect(chart.marks[0]).toMatchObject({
+      name: "path",
+      attributes: { fill: "var(--kg-color-chart1,currentColor)", "fill-opacity": ".18" },
+    });
+  });
+
   it("uses the full vertical range for unfilled sparklines", () => {
     const line = renderMicroSvg([90, 100, 95]);
     expect(line).toContain('d="M0 16L32 0L64 8"');
@@ -36,6 +54,17 @@ describe("micro SVG charts", () => {
     expect(svg).toContain('fill="#16a34a"');
     expect(svg).toContain('fill="#dc2626"');
     expect(svg.length).toBeLessThan(600);
+  });
+
+  it("can remove the default half-pixel floor for binary raster rows", () => {
+    const chart = resolveMicrochart([0, 1, 0], {
+      type: "bar",
+      min: 0,
+      max: 1,
+      height: 1,
+      minimumBarSize: 0,
+    });
+    expect(chart.marks.map((mark) => mark.attributes.height)).toEqual(["0", "1", "0"]);
   });
 
   it("renders pie and donut segments without the scene runtime", () => {

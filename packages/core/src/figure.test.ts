@@ -412,8 +412,8 @@ describe("figure(): graph() and wire()", () => {
       metadata: { graphStyle: "circuit" },
     });
     expect(scene.root.children[0]).toMatchObject({
-      layout: "grid",
-      columns: { wide: 2, compact: 2, narrow: 2 },
+      layout: "row",
+      justify: "center",
       metadata: { graphRole: "rank", graphStyle: "circuit" },
     });
     expect(scene.edges).toMatchObject([
@@ -432,6 +432,97 @@ describe("figure(): graph() and wire()", () => {
       expect(resolved.diagnostics?.filter((entry) => entry.severity === "error") ?? []).toEqual([]);
       expect(resolved.edges.every((edge) => edge.route === "orthogonal")).toBe(true);
     }
+  });
+
+  it("infers circuit ranks from nets and keeps peer orientation responsive", () => {
+    const scene = figure("auto-circuit", { title: "Auto circuit" }, (f) => {
+      const a = f.tile({ icon: "circle", title: "A", variant: "compact" });
+      const b = f.tile({ icon: "circle", title: "B", variant: "compact" });
+      const xor = f.gate("xor", { text: "XOR" });
+      const sum = f.tile({ icon: "arrow-right", title: "SUM", variant: "compact" });
+      const carry = f.tile({ icon: "arrow-right", title: "CARRY", variant: "compact" });
+      const circuit = f.circuit(
+        [a, b, xor, sum, carry],
+        [
+          { from: a, to: xor, kind: "flow", head: "none" },
+          { from: b, to: xor, kind: "flow", head: "none" },
+          { from: xor, to: sum, kind: "data" },
+          { from: a, to: carry, kind: "data" },
+        ],
+        { padding: 12 },
+      );
+      expect(circuit.ranks.map((rank) => rank.map((node) => node.id))).toEqual([
+        ["tile-a", "tile-b"],
+        ["gate-xor"],
+        ["tile-sum", "tile-carry"],
+      ]);
+      f.root(circuit.root);
+    });
+
+    expect(scene.root.layout).toEqual({ wide: "row", compact: "row", narrow: "stack" });
+    expect(scene.root.children[0]).toMatchObject({
+      layout: { wide: "stack", compact: "stack", narrow: "row" },
+      justify: "center",
+    });
+    expect(scene.edges).toMatchObject([
+      { stroke: "flow", packets: { count: 1, period: 1000 }, head: "none" },
+      { stroke: "flow", packets: { count: 1, period: 1000 }, head: "none" },
+      { route: "orthogonal", width: 2.5, head: "arrow" },
+      { route: "orthogonal", width: 2.5, head: "arrow" },
+    ]);
+    expect(validateScene(scene).ok).toBe(true);
+  });
+
+  it("offers distinct semantic wire grammars without hiding overrides", () => {
+    const scene = figure("wire-kinds", { title: "Wire kinds" }, (f) => {
+      const a = f.tile({ icon: "circle", label: "A" });
+      const b = f.tile({ icon: "circle", label: "B" });
+      f.root(f.row([a, b], { gap: 80 }));
+      f.wire(a, b, { kind: "clock" });
+      f.wire(a, b, { kind: "feedback" });
+      f.wire(a, b, { kind: "optional" });
+      f.wire(a, b, { kind: "flow", tone: "success" });
+    });
+    expect(scene.edges).toMatchObject([
+      { route: "orthogonal", stroke: "dotted", tone: "warning" },
+      { route: "curve", stroke: "dashed", tone: "warning", curvature: 0.32 },
+      { route: "orthogonal", stroke: "dotted", head: "none", tone: "muted" },
+      { route: "orthogonal", stroke: "flow", tone: "success", packets: { count: 1 } },
+    ]);
+  });
+
+  it("turns a multi-target net into one explicit shared fan-out", () => {
+    const scene = figure("fanout", { title: "Fan-out" }, (f) => {
+      const source = f.tile({ icon: "circle", title: "A", variant: "compact" });
+      const xor = f.gate("xor", { text: "XOR" });
+      const and = f.gate("and", { text: "AND" });
+      const circuit = f.circuit(
+        [source, xor, and],
+        [
+          {
+            from: source,
+            to: [xor, and],
+            kind: "flow",
+            head: "none",
+            junction: { id: "a-fanout", tone: "info" },
+          },
+        ],
+      );
+      expect(circuit.ranks.flat().map((node) => node.id)).toEqual([
+        "tile-a",
+        "a-fanout",
+        "gate-xor",
+        "gate-and",
+      ]);
+      expect(circuit.edges).toHaveLength(3);
+      f.root(circuit.root);
+    });
+    expect(scene.edges?.map((edge) => [edge.from, edge.to])).toEqual([
+      ["tile-a", "a-fanout"],
+      ["a-fanout", "gate-xor"],
+      ["a-fanout", "gate-and"],
+    ]);
+    expect(validateScene(scene).ok).toBe(true);
   });
 
   it("supports prose flow and centred tree styles without adding a new IR node kind", () => {
@@ -939,6 +1030,33 @@ describe("figure(): machine and controls", () => {
         f.machine({ initial: "a", states: { a: {} } });
       }),
     ).toThrow(/f\.machine was called twice/);
+  });
+});
+
+describe("figure(): glyph style recipes", () => {
+  it("composes tiles, ports, grids, and an exportable card fan", () => {
+    const scene = figure("style-recipes", { title: "Style recipes" }, (f) => {
+      const left = f.card({ title: "Left", body: "Input" });
+      const centre = f.card({ title: "Centre", body: "Selected" });
+      const right = f.card({ title: "Right", body: "Output" });
+      const fan = f.cardFan([left, centre, right], { angle: 10 });
+      const tile = f.tile({ icon: "check", title: "Approved", active: true });
+      const port = f.port({ label: "Output port", active: true });
+      const grid = f.gridPlane({ columns: 4, rows: 3, height: 160 });
+      f.root(f.stack([f.overlay([grid, tile], { minHeight: 160 }), fan, port], { gap: 16 }));
+    });
+
+    expect(validateScene(scene).ok).toBe(true);
+    const resolved = resolveScene(scene, { width: 960, theme });
+    expect(resolved.nodes.find((node) => node.id === "card-left")?.state.rotation).toBe(-10);
+    expect(resolved.nodes.find((node) => node.id === "tile-approved")?.metadata).toMatchObject({
+      diagramRole: "tile-node",
+      active: true,
+    });
+    expect(resolved.nodes.find((node) => node.id === "port-output-port")?.metadata).toMatchObject({
+      diagramRole: "port",
+      active: true,
+    });
   });
 });
 

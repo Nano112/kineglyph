@@ -27,19 +27,24 @@ import type { Easing } from "./easing.js";
 import { validateStateMachine, type StateMachineDefinition } from "./machine.js";
 import {
   card,
+  cardFan,
   codeBlock,
   container,
   fileTree,
   gate,
   junction,
+  gridPlane,
   keyValue,
   panel,
   pill,
+  port,
   rule,
   spacer,
   stack,
+  tileNode,
   terminal,
   type CardOptions,
+  type CardFanOptions,
   type CodeBlockOptions,
   type CodeBlockSource,
   type ContainerOptions,
@@ -47,13 +52,16 @@ import {
   type LogicGateKind,
   type LogicGateOptions,
   type JunctionOptions,
+  type GridPlaneOptions,
   type FileTreeEntry,
   type FileTreeOptions,
   type PanelOptions,
   type PillOptions,
+  type PortMarkOptions,
   type TextOptions,
   type TerminalLine,
   type TerminalOptions,
+  type TileNodeOptions,
 } from "./recipes.js";
 import type {
   AnimationTimeline,
@@ -132,11 +140,15 @@ export type FigureImageOptions = MarkOptions<ImageMark, "src" | "alt">;
 export type FigureLegendOptions = MarkOptions<LegendMark, "items">;
 export type FigureCalloutOptions = MarkOptions<CalloutMark, "text">;
 export type FigureCardOptions = CardOptions & { readonly id?: string };
+export type FigureCardFanOptions = CardFanOptions & { readonly id?: string };
 export type FigureCodeBlockOptions = CodeBlockOptions & { readonly id?: string };
 export type FigurePanelOptions = PanelOptions & { readonly id?: string };
 export type FigurePillOptions = PillOptions & { readonly id?: string };
 export type FigureGateOptions = LogicGateOptions & { readonly id?: string };
 export type FigureJunctionOptions = JunctionOptions & { readonly id?: string };
+export type FigureGridPlaneOptions = GridPlaneOptions & { readonly id?: string };
+export type FigurePortOptions = PortMarkOptions & { readonly id?: string };
+export type FigureTileNodeOptions = TileNodeOptions & { readonly id?: string };
 export type FigureKeyValueOptions = KeyValueOptions & { readonly id?: string };
 export type FigureTerminalOptions = TerminalOptions & { readonly id?: string };
 export type FigureFileTreeOptions = FileTreeOptions & { readonly id?: string };
@@ -187,10 +199,29 @@ export type NodeRef = SceneNode | string;
 /** A connector endpoint: a node (or id), or a node plus port options. */
 export type EndpointRef = NodeRef | ({ readonly node: NodeRef } & Omit<EdgeEndpoint, "node">);
 export type ConnectOptions = Omit<EdgeDefinition, "id" | "from" | "to"> & { readonly id?: string };
-export type FigureWireKind = "signal" | "bus" | "control";
+export type FigureWireKind =
+  "signal" | "bus" | "control" | "data" | "clock" | "feedback" | "optional" | "flow";
 export interface FigureWireOptions extends ConnectOptions {
   /** Semantic circuit-wire preset; individual connector options still override it. */
   readonly kind?: FigureWireKind;
+}
+export interface FigureCircuitConnection extends FigureWireOptions {
+  readonly from: EndpointRef;
+  /** One target creates an ordinary edge; several targets create a shared fan-out junction. */
+  readonly to: EndpointRef | readonly EndpointRef[];
+  /** Feedback and decorative links default to false; other links participate in rank inference. */
+  readonly contributesToLayout?: boolean;
+  /** Appearance of the automatically inserted fan-out point when `to` contains several targets. */
+  readonly junction?: FigureJunctionOptions;
+}
+export interface FigureCircuitOptions extends Omit<FigureGraphOptions, "style"> {
+  /** Places terminal sink nodes in one final rank (default true). */
+  readonly alignSinks?: boolean;
+}
+export interface FigureCircuitResult {
+  readonly root: GroupNode;
+  readonly edges: readonly EdgeDefinition[];
+  readonly ranks: readonly (readonly SceneNode[])[];
 }
 
 /** Motion targets: nodes, edges, ids, or arrays of those (edges only where the property allows). */
@@ -285,6 +316,8 @@ export interface FigureBuilder {
   callout(text: string, options?: FigureCalloutOptions): CalloutMark;
   // Recipes
   card(options: FigureCardOptions): GroupNode;
+  /** Responsive layered-card composition with static centre rotation. */
+  cardFan(cards: readonly SceneNode[], options?: FigureCardFanOptions): GroupNode;
   /** Syntax-highlighted, line-addressable code compiled to ordinary scene nodes. */
   codeBlock(source: CodeBlockSource, options?: FigureCodeBlockOptions): GroupNode;
   panel(children: readonly SceneNode[], options?: FigurePanelOptions): GroupNode;
@@ -293,6 +326,12 @@ export interface FigureBuilder {
   gate(kind: LogicGateKind, options?: FigureGateOptions): GroupNode;
   /** Filled net junction for explicit signal fan-out. */
   junction(options?: FigureJunctionOptions): CircleMark;
+  /** Outlined or active connection point for a signal or physical control. */
+  port(options?: FigurePortOptions): CircleMark;
+  /** Icon-first semantic node whose material changes with the active state. */
+  tile(options: FigureTileNodeOptions): GroupNode;
+  /** Portable construction grid intended behind content in an overlay. */
+  gridPlane(options?: FigureGridPlaneOptions): GroupNode;
   keyValue(key: string, value: string, options?: FigureKeyValueOptions): GroupNode;
   /** Structured terminal surface; pair with `f.typewrite(terminal)` for seekable typing. */
   terminal(lines: readonly (string | TerminalLine)[], options?: FigureTerminalOptions): GroupNode;
@@ -314,6 +353,12 @@ export interface FigureBuilder {
   flow(edge: EdgeTarget, options?: FlowOptions): MotionStep;
   /** Ranked node-link layout. Circuit ranks stay stable while ordinary flow remains responsive. */
   graph(layers: readonly FigureGraphLayer[], options?: FigureGraphOptions): GroupNode;
+  /** Infers circuit ranks from a netlist, lays them out responsively, and authors its wires. */
+  circuit(
+    nodes: readonly SceneNode[],
+    connections: readonly FigureCircuitConnection[],
+    options?: FigureCircuitOptions,
+  ): FigureCircuitResult;
   // Composition
   /**
    * Adds a fragment (or a `plot()` result). Ids are scoped under `options.id` unless the fragment
@@ -773,7 +818,26 @@ function createBuilder(
             : [layer as SceneNode];
       if (nodes.length === 0) throw fail("f.graph: layers must not be empty");
       if (nodes.length === 1 && nodes[0] !== undefined && rank === undefined) return nodes[0];
-      const defaultLayout = style === "flow" ? "stack" : style === "tree" ? "row" : "grid";
+      const circuitRankLayout = (value: FigureGraphDirection): "stack" | "row" | "grid" =>
+        value === "horizontal" ? "stack" : nodes.length > 2 ? "grid" : "row";
+      const defaultLayout: Responsive<"stack" | "row" | "grid"> =
+        style === "flow"
+          ? "stack"
+          : style === "tree"
+            ? "row"
+            : typeof direction === "string"
+              ? circuitRankLayout(direction)
+              : {
+                  ...(direction.wide === undefined
+                    ? {}
+                    : { wide: circuitRankLayout(direction.wide) }),
+                  ...(direction.compact === undefined
+                    ? {}
+                    : { compact: circuitRankLayout(direction.compact) }),
+                  ...(direction.narrow === undefined
+                    ? {}
+                    : { narrow: circuitRankLayout(direction.narrow) }),
+                };
       const layout = rank?.layout ?? rankLayout ?? defaultLayout;
       const inferredColumns: Responsive<number> = {
         wide: nodes.length,
@@ -796,8 +860,8 @@ function createBuilder(
         ...(id === undefined ? {} : { id }),
         gap: rankGap ?? nodeGap,
         width: rank?.width ?? "fill",
-        align: rank?.align ?? (style === "tree" ? "center" : "stretch"),
-        justify: rank?.justify ?? (style === "tree" ? "center" : "start"),
+        align: rank?.align ?? (style === "flow" ? "stretch" : "center"),
+        justify: rank?.justify ?? (style === "flow" ? "start" : "center"),
         ...(layout === "grid" || typeof layout !== "string"
           ? { columns: columns ?? rankColumns ?? inferredColumns }
           : {}),
@@ -819,6 +883,7 @@ function createBuilder(
       gap: layerGap ?? gap ?? (style === "circuit" ? 56 : style === "tree" ? 40 : 24),
       width: outerOptions.width ?? "fill",
       align: outerOptions.align ?? "stretch",
+      justify: outerOptions.justify ?? (style === "flow" ? "start" : "center"),
       metadata: {
         ...outerOptions.metadata,
         graphStyle: style,
@@ -848,6 +913,225 @@ function createBuilder(
     const edge: EdgeDefinition = { id, from: fromEnd, to: toEnd, ...rest };
     edges.push(edge);
     return edge;
+  };
+
+  const wire = (
+    from: EndpointRef,
+    to: EndpointRef,
+    options: FigureWireOptions = {},
+  ): EdgeDefinition => {
+    const { kind = "signal", ...rest } = options;
+    const preset: ConnectOptions =
+      kind === "bus"
+        ? {
+            route: "orthogonal",
+            head: "none",
+            width: 4,
+            tone: "info",
+            cornerRadius: 4,
+          }
+        : kind === "control"
+          ? {
+              route: "orthogonal",
+              head: "arrow",
+              stroke: "dashed",
+              tone: "muted",
+              cornerRadius: 6,
+            }
+          : kind === "data"
+            ? {
+                route: "orthogonal",
+                head: "arrow",
+                width: 2.5,
+                tone: "info",
+                cornerRadius: 6,
+              }
+            : kind === "clock"
+              ? {
+                  route: "orthogonal",
+                  head: "arrow",
+                  stroke: "dotted",
+                  tone: "warning",
+                  cornerRadius: 4,
+                }
+              : kind === "feedback"
+                ? {
+                    route: "curve",
+                    head: "arrow",
+                    stroke: "dashed",
+                    tone: "warning",
+                    curvature: 0.32,
+                  }
+                : kind === "optional"
+                  ? {
+                      route: "orthogonal",
+                      head: "none",
+                      stroke: "dotted",
+                      tone: "muted",
+                      cornerRadius: 6,
+                    }
+                  : kind === "flow"
+                    ? {
+                        route: "orthogonal",
+                        head: "arrow",
+                        stroke: "flow",
+                        tone: "accent",
+                        cornerRadius: 6,
+                        packets: { count: 1, period: 1_000 },
+                      }
+                    : {
+                        route: "orthogonal",
+                        head: "arrow",
+                        tone: "accent",
+                        cornerRadius: 6,
+                      };
+    return connect(from, to, { ...preset, ...rest });
+  };
+
+  const circuit = (
+    nodes: readonly SceneNode[],
+    connections: readonly FigureCircuitConnection[],
+    options: FigureCircuitOptions = {},
+  ): FigureCircuitResult => {
+    if (nodes.length === 0) throw fail("f.circuit: no nodes given");
+    const circuitDirection: Responsive<FigureGraphDirection> = options.direction ?? {
+      wide: "horizontal",
+      compact: "horizontal",
+      narrow: "vertical",
+    };
+    const circuitNodes = [...nodes];
+    const idForEndpoint = (endpoint: EndpointRef): string =>
+      typeof endpoint === "object" && !isSceneNode(endpoint)
+        ? refId(endpoint.node, "f.circuit")
+        : refId(endpoint, "f.circuit");
+    const isEndpointList = (
+      endpoint: FigureCircuitConnection["to"],
+    ): endpoint is readonly EndpointRef[] => Array.isArray(endpoint);
+    const expandedConnections: Array<
+      Omit<FigureCircuitConnection, "to" | "junction"> & { readonly to: EndpointRef }
+    > = [];
+    for (const connection of connections) {
+      const {
+        to,
+        junction: junctionOptions,
+        from,
+        contributesToLayout,
+        ...wireOptions
+      } = connection;
+      const layoutOption = contributesToLayout === undefined ? {} : { contributesToLayout };
+      const targets: readonly EndpointRef[] = isEndpointList(to) ? to : [to];
+      if (targets.length === 0) throw fail("f.circuit: a fan-out net needs at least one target");
+      if (targets.length === 1) {
+        const target = targets[0];
+        if (target !== undefined)
+          expandedConnections.push({ from, to: target, ...layoutOption, ...wireOptions });
+        continue;
+      }
+      const sourceId = idForEndpoint(from);
+      const label = junctionOptions?.label ?? `${sourceId} fan-out`;
+      const id = inferId("junction", label, junctionOptions?.id);
+      const { id: _id, ...junctionRest } = junctionOptions ?? {};
+      void _id;
+      const branch = commit(junction(id, junctionRest), where("circuit", label));
+      circuitNodes.push(branch);
+      expandedConnections.push({ from, to: branch, ...layoutOption, ...wireOptions });
+      for (const target of targets)
+        expandedConnections.push({
+          from: branch,
+          to: target,
+          ...layoutOption,
+          ...wireOptions,
+        });
+    }
+    const orderedIds = circuitNodes.map((node) => {
+      if (!created.has(node))
+        throw fail(`f.circuit: unknown node "${node.id}"; create it with a builder helper first`);
+      return node.id;
+    });
+    if (new Set(orderedIds).size !== orderedIds.length)
+      throw fail("f.circuit: every node may appear only once");
+    const nodeIds = new Set(orderedIds);
+    const adjacency = new Map<string, string[]>();
+    const indegree = new Map(orderedIds.map((id) => [id, 0]));
+    const hasIncoming = new Set<string>();
+    const rank = new Map(orderedIds.map((id) => [id, 0]));
+    for (const connection of expandedConnections) {
+      const fromId = idForEndpoint(connection.from);
+      const toId = idForEndpoint(connection.to);
+      if (!nodeIds.has(fromId) || !nodeIds.has(toId))
+        throw fail(
+          `f.circuit: connection ${JSON.stringify(fromId)} → ${JSON.stringify(toId)} references a node outside the circuit`,
+        );
+      if (connection.contributesToLayout === false || connection.kind === "feedback") continue;
+      const outgoing = adjacency.get(fromId) ?? [];
+      if (!outgoing.includes(toId)) {
+        outgoing.push(toId);
+        adjacency.set(fromId, outgoing);
+        indegree.set(toId, (indegree.get(toId) ?? 0) + 1);
+        hasIncoming.add(toId);
+      }
+    }
+    const ready = orderedIds.filter((id) => (indegree.get(id) ?? 0) === 0);
+    const visited = new Set<string>();
+    while (ready.length > 0) {
+      const current = ready.shift();
+      if (current === undefined || visited.has(current)) continue;
+      visited.add(current);
+      for (const target of adjacency.get(current) ?? []) {
+        rank.set(target, Math.max(rank.get(target) ?? 0, (rank.get(current) ?? 0) + 1));
+        const remaining = (indegree.get(target) ?? 1) - 1;
+        indegree.set(target, remaining);
+        if (remaining === 0) ready.push(target);
+      }
+    }
+    if (visited.size !== circuitNodes.length) {
+      const fallbackRank = Math.max(0, ...rank.values()) + 1;
+      for (const id of orderedIds) if (!visited.has(id)) rank.set(id, fallbackRank);
+    }
+    if (options.alignSinks !== false) {
+      const sinkRank = Math.max(0, ...rank.values());
+      for (const id of orderedIds)
+        if (hasIncoming.has(id) && (adjacency.get(id)?.length ?? 0) === 0) rank.set(id, sinkRank);
+    }
+    const maxRank = Math.max(0, ...rank.values());
+    const ranks = Array.from({ length: maxRank + 1 }, (_, index) =>
+      circuitNodes.filter((node) => (rank.get(node.id) ?? 0) === index),
+    ).filter((layer) => layer.length > 0);
+    const { alignSinks: _alignSinks, ...graphOptions } = options;
+    void _alignSinks;
+    const rankWidth: Responsive<"hug" | "fill"> =
+      typeof circuitDirection === "string"
+        ? circuitDirection === "horizontal"
+          ? "hug"
+          : "fill"
+        : {
+            ...(circuitDirection.wide === undefined
+              ? {}
+              : { wide: circuitDirection.wide === "horizontal" ? "hug" : "fill" }),
+            ...(circuitDirection.compact === undefined
+              ? {}
+              : { compact: circuitDirection.compact === "horizontal" ? "hug" : "fill" }),
+            ...(circuitDirection.narrow === undefined
+              ? {}
+              : { narrow: circuitDirection.narrow === "horizontal" ? "hug" : "fill" }),
+          };
+    const root = graph(
+      ranks.map((nodes) => ({ nodes, width: rankWidth })),
+      {
+        ...graphOptions,
+        style: "circuit",
+        direction: circuitDirection,
+        layerGap: options.layerGap ?? { wide: 42, compact: 30, narrow: 34 },
+        nodeGap: options.nodeGap ?? { wide: 18, compact: 14, narrow: 12 },
+      },
+    );
+    const circuitEdges = expandedConnections.map(
+      ({ from, to, contributesToLayout: _layout, ...wireOptions }) => {
+        void _layout;
+        return wire(from, to, wireOptions);
+      },
+    );
+    return { root, edges: circuitEdges, ranks };
   };
 
   const builder: FigureBuilder = {
@@ -931,6 +1215,28 @@ function createBuilder(
       const id = inferId("card", rest.title, explicit);
       return commit(card(id, rest), where("card", rest.title));
     },
+    cardFan(cards, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("card-fan", rest.label, explicit);
+      const arranged = cardFan(id, cards, rest);
+      const children = arranged.children.map((placement, index) => {
+        const card = cards[index];
+        if (card === undefined) return placement;
+        if (!created.has(card))
+          throw fail(
+            `f.cardFan: unknown node "${card.id}"; create every card with a builder helper first`,
+          );
+        Object.assign(card, {
+          width: placement.width,
+          position: placement.position,
+          rotation: placement.rotation,
+          z: placement.z,
+          metadata: placement.metadata,
+        });
+        return card;
+      });
+      return commit({ ...arranged, children }, where("cardFan", rest.label));
+    },
     codeBlock(source, options = {}) {
       const { id: explicit, ...rest } = options;
       const primary = rest.title ?? rest.label ?? rest.language;
@@ -957,6 +1263,22 @@ function createBuilder(
       const { id: explicit, ...rest } = options;
       const id = inferId("junction", rest.label, explicit);
       return commit(junction(id, rest), where("junction", rest.label));
+    },
+    port(options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("port", rest.label, explicit);
+      return commit(port(id, rest), where("port", rest.label));
+    },
+    tile(options) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.title ?? rest.eyebrow ?? rest.icon;
+      const id = inferId("tile", primary, explicit);
+      return commit(tileNode(id, rest), where("tile", primary));
+    },
+    gridPlane(options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("grid-plane", rest.label, explicit);
+      return commit(gridPlane(id, rest), where("gridPlane", rest.label));
     },
     keyValue(key, value, options = {}) {
       const { id: explicit, ...rest } = options;
@@ -1003,6 +1325,7 @@ function createBuilder(
     absolute: (children, options) => group("absolute", "absolute", children, options),
     flow,
     graph,
+    circuit,
 
     add(source, options = {}) {
       const fragment = isFragment(source) ? source : source.fragment;
@@ -1060,33 +1383,7 @@ function createBuilder(
     },
 
     connect,
-    wire(from, to, options = {}) {
-      const { kind = "signal", ...rest } = options;
-      const preset: ConnectOptions =
-        kind === "bus"
-          ? {
-              route: "orthogonal",
-              head: "none",
-              width: 4,
-              tone: "info",
-              cornerRadius: 4,
-            }
-          : kind === "control"
-            ? {
-                route: "orthogonal",
-                head: "arrow",
-                stroke: "dashed",
-                tone: "muted",
-                cornerRadius: 6,
-              }
-            : {
-                route: "orthogonal",
-                head: "arrow",
-                tone: "accent",
-                cornerRadius: 6,
-              };
-      return connect(from, to, { ...preset, ...rest });
-    },
+    wire,
 
     reveal(target, options = {}) {
       const { duration = DEFAULTS.reveal, stagger = 0, offset, scale, easing } = options;

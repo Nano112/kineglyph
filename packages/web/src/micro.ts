@@ -1,16 +1,34 @@
-import { parseMicroValues, renderMicroSvg, type MicrochartOptions } from "@kineglyph/svg";
+import {
+  parseMicroValues,
+  renderMicroSvg,
+  resolveMicrochart,
+  type MicrochartInput,
+  type MicrochartOptions,
+  type ResolvedMicrochart,
+  type ResolvedMicrochartMark,
+} from "@kineglyph/svg";
+
+export { microchart } from "@kineglyph/svg";
+export type { MicrochartInput, MicrochartOptions, MicrochartType } from "@kineglyph/svg";
+
+export type MicrochartTarget = number | string | HTMLElement;
+const PREPARED_UPDATE: unique symbol = Symbol("kineglyph.microchart.prepared-update");
 
 export interface MicrochartController {
   readonly element: HTMLElement;
   readonly values: readonly number[];
   readonly options: MicrochartOptions;
-  update(values: string | readonly number[], options?: Partial<MicrochartOptions>): void;
+  update(values: MicrochartInput, options?: Partial<MicrochartOptions>): void;
   destroy(): void;
 }
 
+interface PreparedMicrochartController extends MicrochartController {
+  [PREPARED_UPDATE](values: number[], options?: Partial<MicrochartOptions>): void;
+}
+
 export interface MicrochartBatchUpdate {
-  readonly target: number | HTMLElement;
-  readonly values: string | readonly number[];
+  readonly target: MicrochartTarget;
+  readonly values: MicrochartInput;
   readonly options?: Partial<MicrochartOptions>;
 }
 
@@ -22,40 +40,130 @@ export interface MicrochartBatchOptions {
   /** Remove SVG DOM again when a cell leaves the viewport. Defaults to true. */
   readonly recycle?: boolean;
   readonly rootMargin?: string;
+  /** Defaults shared by the collection; element data attributes take precedence. */
+  readonly defaults?: MicrochartOptions;
+}
+
+export interface MicrochartCollectionOptions extends MicrochartOptions {
+  readonly selector?: string;
+  /** Mount only charts intersecting the viewport. Defaults to `"visible"`. */
+  readonly defer?: "visible" | false;
+  /** Remove SVG DOM again when a chart leaves the viewport. Defaults to true. */
+  readonly recycle?: boolean;
+  readonly rootMargin?: string;
 }
 
 export interface MicrochartBatchController {
   readonly size: number;
   readonly mounted: number;
   update(
-    target: number | HTMLElement,
-    values: string | readonly number[],
+    target: MicrochartTarget,
+    values: MicrochartInput,
     options?: Partial<MicrochartOptions>,
   ): void;
   updateMany(updates: readonly MicrochartBatchUpdate[]): void;
+  /** Concise alias for `update()`. String targets use `data-kineglyph-key` or the element id. */
+  set(
+    target: MicrochartTarget,
+    values: MicrochartInput,
+    options?: Partial<MicrochartOptions>,
+  ): void;
+  /** Updates keyed charts in one coalesced frame. */
+  setMany(values: Readonly<Record<string, MicrochartInput>>): void;
   /** Applies queued changes synchronously; useful before export or deterministic measurement. */
   flush(): void;
   destroy(): void;
 }
 
-function optionsFromElement(element: HTMLElement): MicrochartOptions {
+function optionsFromElement(
+  element: HTMLElement,
+  defaults: MicrochartOptions = {},
+): MicrochartOptions {
+  const type = element.getAttribute("data-kineglyph-microchart");
   return {
-    type: (element.dataset.kineglyphMicrochart as MicrochartOptions["type"]) ?? "line",
+    ...defaults,
+    ...(type === null || type === "" ? {} : { type: type as MicrochartOptions["type"] }),
     ...(element.dataset.width === undefined ? {} : { width: Number(element.dataset.width) }),
     ...(element.dataset.height === undefined ? {} : { height: Number(element.dataset.height) }),
     ...(element.getAttribute("aria-label") === null
       ? {}
       : { label: element.getAttribute("aria-label")! }),
-  };
+  } as MicrochartOptions;
+}
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const microNumber = (value: number): string => {
+  const result = Math.round(value * 100) / 100;
+  return String(Object.is(result, -0) ? 0 : result);
+};
+
+const OPTIONAL_MARK_ATTRIBUTES = {
+  circle: ["stroke", "stroke-width"],
+  path: ["fill-opacity", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"],
+  rect: [],
+} as const;
+
+function patchAttributes(element: SVGElement, attributes: Readonly<Record<string, string>>): void {
+  const optional =
+    OPTIONAL_MARK_ATTRIBUTES[element.localName as keyof typeof OPTIONAL_MARK_ATTRIBUTES];
+  for (const name of optional ?? []) {
+    if (!(name in attributes)) element.removeAttribute(name);
+  }
+  for (const name in attributes) {
+    const value = attributes[name]!;
+    if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+  }
+}
+
+function patchMicroSvg(
+  svg: SVGSVGElement,
+  chart: ResolvedMicrochart,
+  marks: SVGElement[],
+  title: SVGTitleElement | undefined,
+): SVGTitleElement | undefined {
+  const width = microNumber(chart.width);
+  const height = microNumber(chart.height);
+  const viewBox = `0 0 ${width} ${height}`;
+  if (svg.getAttribute("viewBox") !== viewBox) svg.setAttribute("viewBox", viewBox);
+  if (svg.getAttribute("width") !== width) svg.setAttribute("width", width);
+  if (svg.getAttribute("height") !== height) svg.setAttribute("height", height);
+  if (chart.label === undefined) {
+    svg.removeAttribute("role");
+    svg.removeAttribute("aria-label");
+    svg.setAttribute("aria-hidden", "true");
+    title?.remove();
+    title = undefined;
+  } else {
+    svg.removeAttribute("aria-hidden");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", chart.label);
+    title ??= svg.ownerDocument.createElementNS(SVG_NAMESPACE, "title");
+    if (title.textContent !== chart.label) title.textContent = chart.label;
+    if (title.parentNode !== svg) svg.insertBefore(title, marks[0] ?? null);
+  }
+
+  chart.marks.forEach((mark: ResolvedMicrochartMark, index) => {
+    let element = marks[index];
+    if (element === undefined || element.localName !== mark.name) {
+      const replacement = svg.ownerDocument.createElementNS(SVG_NAMESPACE, mark.name);
+      if (element === undefined) svg.append(replacement);
+      else element.replaceWith(replacement);
+      element = replacement;
+      marks[index] = replacement;
+    }
+    patchAttributes(element, mark.attributes);
+  });
+  while (marks.length > chart.marks.length) marks.pop()?.remove();
+  return title;
 }
 
 /**
- * Mounts a runtime-free microchart into one table cell or inline label. Updating replaces only its
- * tiny SVG; no Kineglyph figure shell, observers, timeline, or controls are created.
+ * Mounts a runtime-free microchart into one table cell or inline label. Updates patch persistent
+ * SVG geometry in place; no Kineglyph figure shell, observers, timeline, or controls are created.
  */
 export function mountMicrochart(
   element: HTMLElement,
-  input: string | readonly number[],
+  input: MicrochartInput,
   initialOptions: MicrochartOptions = {},
 ): MicrochartController {
   const original = element.innerHTML;
@@ -63,12 +171,25 @@ export function mountMicrochart(
   let values = parseMicroValues(input);
   let options: MicrochartOptions = { ...initialOptions };
   let destroyed = false;
+  element.innerHTML = renderMicroSvg(values, options);
+  const svg = element.firstElementChild as SVGSVGElement;
+  let title =
+    svg.firstElementChild?.localName === "title"
+      ? (svg.firstElementChild as SVGTitleElement)
+      : undefined;
+  const marks = [...svg.children].filter((child) => child.localName !== "title") as SVGElement[];
   const draw = (): void => {
-    element.innerHTML = renderMicroSvg(values, options);
+    title = patchMicroSvg(svg, resolveMicrochart(values, options), marks, title);
     element.dataset.kineglyphMicrochart = options.type ?? "line";
   };
-  draw();
-  return {
+  element.dataset.kineglyphMicrochart = options.type ?? "line";
+  const updatePrepared = (next: number[], overrides?: Partial<MicrochartOptions>): void => {
+    if (destroyed) throw new Error("microchart controller has been destroyed");
+    values = next;
+    if (overrides !== undefined) options = { ...options, ...overrides };
+    draw();
+  };
+  const controller: PreparedMicrochartController = {
     element,
     get values() {
       return values;
@@ -76,12 +197,10 @@ export function mountMicrochart(
     get options() {
       return options;
     },
-    update(next, overrides = {}) {
-      if (destroyed) throw new Error("microchart controller has been destroyed");
-      values = parseMicroValues(next);
-      options = { ...options, ...overrides };
-      draw();
+    update(next, overrides) {
+      updatePrepared(parseMicroValues(next), overrides);
     },
+    [PREPARED_UPDATE]: updatePrepared,
     destroy() {
       if (destroyed) return;
       destroyed = true;
@@ -90,6 +209,7 @@ export function mountMicrochart(
       else element.setAttribute("data-kineglyph-microchart", originalType);
     },
   };
+  return controller;
 }
 
 /** Converts every matching text node (for example `5,3,9,6`) into a tiny inline SVG. */
@@ -116,11 +236,19 @@ export function mountMicrochartBatch(
   const records = elements.map((element) => ({
     element,
     values: parseMicroValues(element.textContent ?? ""),
-    options: optionsFromElement(element),
+    options: optionsFromElement(element, options.defaults),
+    optionsDirty: false,
     visible: options.defer === false,
-    controller: undefined as MicrochartController | undefined,
+    controller: undefined as PreparedMicrochartController | undefined,
   }));
   const indexes = new Map(elements.map((element, index) => [element, index]));
+  const keys = new Map<string, number>();
+  elements.forEach((element, index) => {
+    const key = element.dataset.kineglyphKey || element.id;
+    if (!key) return;
+    if (keys.has(key)) throw new RangeError(`duplicate microchart key: ${key}`);
+    keys.set(key, index);
+  });
   const dirty = new Set<number>();
   const doc = elements[0]?.ownerDocument ?? (root as Node).ownerDocument ?? document;
   const view = doc.defaultView;
@@ -131,6 +259,7 @@ export function mountMicrochartBatch(
   const recycle = options.recycle ?? true;
   let destroyed = false;
   let scheduled = false;
+  let mountedCount = 0;
   let cancelScheduled: (() => void) | undefined;
 
   const cancelFrame = (): void => {
@@ -142,9 +271,20 @@ export function mountMicrochartBatch(
   const draw = (index: number): void => {
     const record = records[index];
     if (record === undefined || !record.visible) return;
-    if (record.controller === undefined)
-      record.controller = mountMicrochart(record.element, record.values, record.options);
-    else record.controller.update(record.values, record.options);
+    if (record.controller === undefined) {
+      record.controller = mountMicrochart(
+        record.element,
+        record.values,
+        record.options,
+      ) as PreparedMicrochartController;
+      mountedCount += 1;
+    } else {
+      record.controller[PREPARED_UPDATE](
+        record.values,
+        record.optionsDirty ? record.options : undefined,
+      );
+      record.optionsDirty = false;
+    }
   };
 
   const flush = (): void => {
@@ -185,6 +325,7 @@ export function mountMicrochartBatch(
               else if (recycle && record.controller !== undefined) {
                 record.controller.destroy();
                 record.controller = undefined;
+                mountedCount -= 1;
                 dirty.delete(index);
               }
             }
@@ -206,17 +347,25 @@ export function mountMicrochartBatch(
   } else records.forEach((record) => observer.observe(record.element));
 
   const update = (
-    target: number | HTMLElement,
-    values: string | readonly number[],
-    overrides: Partial<MicrochartOptions> = {},
+    target: MicrochartTarget,
+    values: MicrochartInput,
+    overrides?: Partial<MicrochartOptions>,
   ): void => {
     if (destroyed) throw new Error("microchart batch controller has been destroyed");
-    const index = typeof target === "number" ? target : indexes.get(target);
+    const index =
+      typeof target === "number"
+        ? target
+        : typeof target === "string"
+          ? keys.get(target)
+          : indexes.get(target);
     if (index === undefined || records[index] === undefined)
       throw new RangeError("microchart batch target is outside this batch");
     const record = records[index];
     record.values = parseMicroValues(values);
-    record.options = { ...record.options, ...overrides };
+    if (overrides !== undefined) {
+      record.options = { ...record.options, ...overrides };
+      record.optionsDirty = true;
+    }
     if (record.visible) {
       dirty.add(index);
       schedule();
@@ -228,11 +377,15 @@ export function mountMicrochartBatch(
       return records.length;
     },
     get mounted() {
-      return records.reduce((count, record) => count + Number(record.controller !== undefined), 0);
+      return mountedCount;
     },
     update,
     updateMany(updates) {
       updates.forEach((entry) => update(entry.target, entry.values, entry.options));
+    },
+    set: update,
+    setMany(values) {
+      Object.entries(values).forEach(([target, input]) => update(target, input));
     },
     flush,
     destroy() {
@@ -241,7 +394,33 @@ export function mountMicrochartBatch(
       cancelFrame();
       observer?.disconnect();
       records.forEach((record) => record.controller?.destroy());
+      mountedCount = 0;
       dirty.clear();
     },
   };
+}
+
+/**
+ * Mounts every declarative microchart below one root through the virtualized, frame-batched path.
+ * Elements can opt into simple keyed updates with `data-kineglyph-key="latency"`.
+ */
+export function mountMicrocharts(
+  root: ParentNode | string = document,
+  options: MicrochartCollectionOptions = {},
+): MicrochartBatchController {
+  let resolvedRoot: ParentNode;
+  if (typeof root === "string") {
+    const found = document.querySelector(root);
+    if (found === null) throw new RangeError(`microchart root not found: ${root}`);
+    resolvedRoot = found;
+  } else resolvedRoot = root;
+  const { selector, defer, recycle, rootMargin, ...defaults } = options;
+  return mountMicrochartBatch({
+    root: resolvedRoot,
+    ...(selector === undefined ? {} : { selector }),
+    ...(defer === undefined ? {} : { defer }),
+    ...(recycle === undefined ? {} : { recycle }),
+    ...(rootMargin === undefined ? {} : { rootMargin }),
+    defaults,
+  });
 }

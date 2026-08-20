@@ -79,10 +79,11 @@ the builder path in the message.
 | `f.place(node, position)`                                                                                                                                                                                                                            | the same node                   | assigns responsive placement before an existing node enters `coordinates` / `absolute`; preserves identity and ids                                                                                                                                                                                                                                                                                                                                      |
 | `f.stack`, `f.row`, `f.grid`, `f.overlay`, `f.flow`, `f.coordinates`, `f.absolute`                                                                                                                                                                   | `GroupNode`                     | `flow` = row on wide, stack otherwise                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `f.graph(layers, opts)`                                                                                                                                                                                                                              | `GroupNode`                     | ranked node-link layout; presets are `flow`, `circuit`, and `tree`, with responsive `direction`, shared rank defaults, and per-rank layout/columns/gap overrides                                                                                                                                                                                                                                                                                        |
+| `f.circuit(nodes, connections, opts)`                                                                                                                                                                                                                | `{ root, edges, ranks }`        | infers DAG ranks from the netlist, aligns terminal sinks, orients peers for the responsive direction, and authors semantic wires; feedback links can opt out of rank inference                                                                                                                                                                                                                                                                          |
 | `f.add(fragment, opts)`                                                                                                                                                                                                                              | `SceneNode` (the fragment root) | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
 | `f.raw(node)`                                                                                                                                                                                                                                        | the node                        | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `f.connect(from, to, opts)`                                                                                                                                                                                                                          | `EdgeDefinition`                | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
-| `f.wire(from, to, opts)`                                                                                                                                                                                                                             | `EdgeDefinition`                | orthogonal connector presets for `signal`, `bus`, and `control`; every route, port, marker, stroke, label, and tone remains overridable                                                                                                                                                                                                                                                                                                                 |
+| `f.wire(from, to, opts)`                                                                                                                                                                                                                             | `EdgeDefinition`                | semantic presets for `signal`, `bus`, `control`, `data`, `clock`, `feedback`, `optional`, and packet-bearing `flow`; every route, port, marker, stroke, label, and tone remains overridable                                                                                                                                                                                                                                                             |
 | `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rotate(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `rotate` uses clockwise `from` / `to` degrees; edge-capable presets reject node-only transforms; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                                                 |
 | `f.typewrite(target, opts)`                                                                                                                                                                                                                          | `MotionStep`                    | character-level progress for terminal commands or any `TextMark` with `reveal: "characters"`; timing is seekable and uses the ordinary scene timeline                                                                                                                                                                                                                                                                                                   |
 | `f.sequence(steps, opts)`                                                                                                                                                                                                                            | `void`                          | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
@@ -136,6 +137,32 @@ f.wire(branch, { node: xorGate, side: "left", offset: 0.34 }, { head: "none" });
 The named styles are therefore starting grammars rather than locked templates: `flow` follows
 article prose, `tree` centres ranked branches, and `circuit` defaults to stable ranks and
 orthogonal wires. Responsive direction and rank-level overrides work with every preset.
+When the netlist is already known, `f.circuit()` removes the manual rank bookkeeping as well:
+
+```ts
+const circuit = f.circuit(
+  [inputA, inputB, xorGate, andGate, sum, carry],
+  [
+    { from: inputA, to: [xorGate, andGate], kind: "flow", head: "none" },
+    { from: inputB, to: [xorGate, andGate], kind: "flow", head: "none" },
+    { from: xorGate, to: sum, kind: "data" },
+    { from: andGate, to: carry, kind: "data" },
+  ],
+  { direction: { wide: "horizontal", compact: "horizontal", narrow: "vertical" } },
+);
+
+f.root(circuit.root);
+f.sequence([f.reveal(circuit.ranks[0]), f.draw(circuit.edges)]);
+```
+
+Ranks are inferred from the directed connections. Nodes at the same depth become peers; horizontal
+circuits stack peers within a column, vertical circuits place them in a row or two-column grid,
+and terminal sinks align in the final rank. Set `contributesToLayout: false` on a decorative link,
+or use `kind: "feedback"`, when an edge should be routed without changing the DAG. Passing several
+targets creates one shared junction instead of several indistinguishable lines from the source.
+Automatic ports try another side when their nearest exit corridor is blocked, so the same circuit
+can reflow without separate mobile wiring.
+
 Gate shapes and junctions are recipes over normal paths, circles, and groups—not renderer-only
 objects—so the same schematic is available in SVG, PNG, GIF, and the live runtime. Endpoint
 `offset` selects a distinct pin along a gate side (`0.34` and `0.66` are useful two-input defaults).
@@ -146,6 +173,33 @@ the builder node's identity and makes accidental duplicate ids impossible.
 When a line should pass through positioned symbols, create and place the symbols first, then use
 `f.spline([source, stage, output])`. Their positions become the spline knots, so moving a symbol
 also reshapes the line; there is no second point array to keep in sync.
+
+Icon-first topologies and layered physical controls have portable recipes too:
+
+```ts
+const input = f.tile({ icon: "code", eyebrow: "SOURCE", title: "Compile files" });
+const output = f.tile({
+  icon: "export",
+  title: "Output",
+  detail: "12 modules",
+  detailStyle: "code",
+  variant: "compact",
+  active: true,
+});
+const socket = f.port({ active: true });
+const grid = f.gridPlane({ columns: 12, rows: 8 });
+const choices = f.cardFan([draft, selected, archived], { angle: 9, activeIndex: 1 });
+```
+
+Labelled tiles measure their content by default and cap it at a responsive readable width. Choose
+`variant: "icon"` for square topology nodes, `"compact"` for an icon beside copy, or `"labelled"`
+for a centred vertical composition. `detail` and `detailBind` add a live value or third line without
+hand-authoring another container.
+
+`tile`, `port`, `gridPlane`, and `cardFan` compile to ordinary marks and groups. Their standalone
+forms are `tileNode()`, `port()`, `gridPlane()`, and `cardFan()`. The
+[glyph style laboratory](./glyph-style-lab.md) renders all four under both `signalTheme` and
+`instrumentTheme`.
 
 ### Fill paint
 
@@ -203,10 +257,11 @@ springs may overshoot. Exact endpoints make loops and deterministic snapshots sa
 
 ### Deterministic transform motion
 
-Rotation is a first-class timeline property, measured clockwise in degrees around the resolved
-node centre. `rotateTo()` authors the serializable track; `seekTimeline()`, SVG frames, live browser
-playback, PNG, and GIF all evaluate the same angle. Values are not reduced modulo 360, so a track
-from `0` to `720` makes two complete turns instead of becoming a still.
+Rotation is a first-class responsive node property and timeline property, measured clockwise in
+degrees around the resolved node centre. Use `rotation: { wide: -9, narrow: -4 }` for a static
+layered composition; `rotateTo()` authors a serializable motion track. `seekTimeline()`, SVG frames,
+live browser playback, PNG, and GIF all evaluate the same angle. Values are not reduced modulo 360,
+so a track from `0` to `720` makes two complete turns instead of becoming a still.
 
 ```kineglyph live id=authoring-rotation-parity view=preview height=250
 import { defineScene, kineglyphTheme, rotateTo, timeline } from "kineglyph";
@@ -378,9 +433,10 @@ Implementation notes (`packages/core/src/figure.ts`; the cookbook is `cookbook.m
   clock and advances it by its duration (the longest member of a parallel array) plus `opts.gap`
   (default 120). Staggered arrays last `duration + stagger × (n − 1)`. Duplicate track ids get a
   deterministic `#2` suffix; the timeline duration is the last keyframe plus `meta.hold`.
-- Recipes gained a `text` recipe (explicit `textStyle`) and `ContainerOptions` gained
+- Recipes include icon tiles, ports, construction grids, responsive card fans, and a `text` recipe
+  (explicit `textStyle`). `ContainerOptions` includes
   `minHeight`, `justifySelf`, `position`, `opacity`, `focusGroup`, `inspect`, `revealAnchor`,
-  `allowOverflow`; `rule` / `spacer` return `RectMark`. Core exports the flow layout as
+  `allowOverflow`, and responsive `rotation`; `rule` / `spacer` return `RectMark`. Core exports the flow layout as
   `flowLayout` (core's `flow` is the packet timeline helper); `@kineglyph/scenes` re-exports it as
   `flow`.
 

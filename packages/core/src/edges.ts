@@ -602,6 +602,28 @@ function dedupe(points: readonly Point[]): Point[] {
     )
       out.push(point);
   }
+
+  // A visibility graph quite reasonably walks along every obstacle coordinate it encounters.
+  // Those intermediate vertices carry no geometry once the route has been chosen, though, and
+  // rounding every one of them produces tiny hooks and backwards-looking quadratic segments.
+  // Collapse each straight run to its endpoints before corner radii are applied. This also removes
+  // collinear backtracking because the direct A-C segment is contained by A-B plus B-C.
+  for (let index = 1; index < out.length - 1;) {
+    const before = out[index - 1];
+    const current = out[index];
+    const after = out[index + 1];
+    if (before === undefined || current === undefined || after === undefined) break;
+    const vertical =
+      Math.abs(before.x - current.x) <= 1e-6 && Math.abs(current.x - after.x) <= 1e-6;
+    const horizontal =
+      Math.abs(before.y - current.y) <= 1e-6 && Math.abs(current.y - after.y) <= 1e-6;
+    if (vertical || horizontal) {
+      out.splice(index, 1);
+      if (index > 1) index -= 1;
+    } else {
+      index += 1;
+    }
+  }
   return out;
 }
 
@@ -693,19 +715,19 @@ export function resolveEdge(
   const toBox = context.boxes.get(toEnd.node);
   if (fromBox === undefined || toBox === undefined) return undefined;
   const anchored = anchorFacingPorts(fromBox, toBox, requested);
-  const ports = anchored.kind === "aligned" ? anchored : requested;
+  let ports = anchored.kind === "aligned" ? anchored : requested;
   const authored = pickOr(edge.route, context.layout, "straight");
   // Facing sides with no shared axis: a straight line between them can only lean, so it turns.
   const route: EdgeRoute =
     anchored.kind === "traverse" && authored === "straight" ? "orthogonal" : authored;
-  const start = portPoint(
+  let start = portPoint(
     fromBox,
     ports.from.side,
     ports.from.offset,
     fromEnd.gap ?? 0,
     rectCenter(toBox),
   );
-  const end = portPoint(toBox, ports.to.side, ports.to.offset, toEnd.gap ?? 0, rectCenter(fromBox));
+  let end = portPoint(toBox, ports.to.side, ports.to.offset, toEnd.gap ?? 0, rectCenter(fromBox));
   // Endpoint boxes and framed ancestors contain a port by definition; every other surface is an
   // obstacle the connector should travel around.
   const contains = (rect: Rect, point: Point): boolean =>
@@ -713,9 +735,9 @@ export function resolveEdge(
     point.x <= rect.x + rect.width + 0.5 &&
     point.y >= rect.y - 0.5 &&
     point.y <= rect.y + rect.height + 0.5;
-  const obstacles = context.obstacles.filter(
-    (obstacle) => !contains(obstacle, start) && !contains(obstacle, end),
-  );
+  const obstaclesFor = (from: Point, to: Point): readonly Rect[] =>
+    context.obstacles.filter((obstacle) => !contains(obstacle, from) && !contains(obstacle, to));
+  let obstacles = obstaclesFor(start, end);
   const curvature = edge.curvature ?? 0.5;
   let segments: PathSegment[];
   let collidingObstacles = false;
@@ -724,8 +746,7 @@ export function resolveEdge(
       segments = [{ kind: "line", from: start, to: end }];
       break;
     case "orthogonal": {
-      const fallback = orthogonalPoints(start, ports.from.side, end, ports.to.side);
-      const routed = routeOrthogonalAvoidingObstacles(
+      let routed = routeOrthogonalAvoidingObstacles(
         start,
         ports.from.side,
         end,
@@ -733,6 +754,88 @@ export function resolveEdge(
         obstacles,
         context.bounds,
       );
+      const fromAuthored = pickOr<EdgeSide>(fromEnd.side, context.layout, "auto") !== "auto";
+      const toAuthored = pickOr<EdgeSide>(toEnd.side, context.layout, "auto") !== "auto";
+      if (routed === undefined && (!fromAuthored || !toAuthored)) {
+        const sideOrder = (preferred: Side): readonly Side[] => [
+          preferred,
+          ...(["right", "bottom", "left", "top"] as const).filter(
+            (candidate) => candidate !== preferred,
+          ),
+        ];
+        const fromSides = fromAuthored ? [ports.from.side] : sideOrder(ports.from.side);
+        const toSides = toAuthored ? [ports.to.side] : sideOrder(ports.to.side);
+        let best:
+          | {
+              readonly ports: typeof ports;
+              readonly start: Point;
+              readonly end: Point;
+              readonly obstacles: readonly Rect[];
+              readonly points: readonly Point[];
+              readonly score: number;
+            }
+          | undefined;
+        for (const fromSide of fromSides)
+          for (const toSide of toSides) {
+            if (fromSide === "center" || toSide === "center") continue;
+            const candidatePorts = {
+              from: { ...ports.from, side: fromSide },
+              to: { ...ports.to, side: toSide },
+            };
+            const candidateStart = portPoint(
+              fromBox,
+              fromSide,
+              candidatePorts.from.offset,
+              fromEnd.gap ?? 0,
+              rectCenter(toBox),
+            );
+            const candidateEnd = portPoint(
+              toBox,
+              toSide,
+              candidatePorts.to.offset,
+              toEnd.gap ?? 0,
+              rectCenter(fromBox),
+            );
+            const candidateObstacles = obstaclesFor(candidateStart, candidateEnd);
+            const points = routeOrthogonalAvoidingObstacles(
+              candidateStart,
+              fromSide,
+              candidateEnd,
+              toSide,
+              candidateObstacles,
+              context.bounds,
+            );
+            if (points === undefined) continue;
+            const distance = points.slice(1).reduce((total, point, index) => {
+              const previous = points[index];
+              return (
+                total +
+                (previous === undefined
+                  ? 0
+                  : Math.abs(point.x - previous.x) + Math.abs(point.y - previous.y))
+              );
+            }, 0);
+            const bends = Math.max(0, points.length - 2);
+            const score = distance + bends * ROUTE_BEND_COST;
+            if (best === undefined || score < best.score - 1e-6)
+              best = {
+                ports: candidatePorts,
+                start: candidateStart,
+                end: candidateEnd,
+                obstacles: candidateObstacles,
+                points,
+                score,
+              };
+          }
+        if (best !== undefined) {
+          ports = best.ports;
+          start = best.start;
+          end = best.end;
+          obstacles = best.obstacles;
+          routed = best.points;
+        }
+      }
+      const fallback = orthogonalPoints(start, ports.from.side, end, ports.to.side);
       const points = routed ?? fallback;
       collidingObstacles = points.some(
         (point, index) => index > 0 && segmentBlocked(points[index - 1] ?? point, point, obstacles),

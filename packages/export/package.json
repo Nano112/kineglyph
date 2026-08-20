@@ -1,6 +1,6 @@
 {
   "name": "@kineglyph/export",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "Deterministic SVG, PNG (resvg), and GIF export for Kineglyph scenes.",
   "license": "MIT",
   "author": "Harrison (https://github.com/Nano112)",
@@ -59,9 +59,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@kineglyph/core": "^0.2.0",
-    "@kineglyph/svg": "^0.2.0",
-    "@kineglyph/web": "^0.2.0",
+    "@kineglyph/core": "^0.3.1",
+    "@kineglyph/svg": "^0.3.1",
+    "@kineglyph/web": "^0.3.1",
     "@resvg/resvg-js": "^2.6.2",
     "gifenc": "^1.0.3",
     "harfbuzzjs": "^1.6.0"

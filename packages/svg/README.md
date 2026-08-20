@@ -23,6 +23,10 @@ into one document: without it, the second figure's gradients and markers would q
 - `renderToSvg(scene, options)` / `renderSvg` — the whole figure, root element included.
 - `renderMicroSvg(values, options)` — a standalone 16-pixel line, area, bar, pie, or donut chart
   with no scene runtime; useful for dense tables and status lists.
+- `microchart([5, 3, 9])` — the concise standalone SVG renderer; pass `"bar"`, `"area"`, `"pie"`,
+  or `"donut"` as the second argument for a type shorthand.
+- `resolveMicrochart(values, options)` — validated renderer-neutral geometry used by persistent DOM
+  updates and available to custom Canvas or native renderers.
 - `parseMicroValues("5,3,9")` — the compact comma/slash-delimited input accepted by microcharts.
 - `wrapSvgText` — line breaking with the metrics the renderer actually uses, so a label you
   measure yourself lands where the renderer would have put it.

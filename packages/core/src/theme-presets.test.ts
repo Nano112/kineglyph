@@ -3,7 +3,13 @@ import { figure } from "./figure.js";
 import { material } from "./material.js";
 import { resolveScene } from "./resolve.js";
 import { declaredColorRoles, defaultTheme } from "./theme.js";
-import { kineglyphTheme, professionalThemes } from "./theme-presets.js";
+import {
+  glyphStyleThemes,
+  instrumentTheme,
+  kineglyphTheme,
+  professionalThemes,
+  signalTheme,
+} from "./theme-presets.js";
 
 const specimen = figure("theme-specimen", { title: "Release review" }, (f) => {
   const cards = [
@@ -61,6 +67,32 @@ describe("professional theme presets", () => {
           ["overlap", "overflow", "text-truncated", "label-collision"].includes(entry.code),
         );
         expect(layoutProblems, `${name} at ${width}px`).toEqual([]);
+      }
+    }
+  });
+});
+
+describe("glyph style themes", () => {
+  it("keeps the signal direction flat and the instrument direction physically layered", () => {
+    expect(signalTheme.name).toBe("signal");
+    expect(instrumentTheme.name).toBe("instrument");
+    expect(Object.keys(glyphStyleThemes)).toEqual(["signal", "instrument"]);
+    for (const material of Object.values(signalTheme.materials))
+      expect(material.effects ?? []).toEqual([]);
+    expect(
+      instrumentTheme.materials.raised.effects?.some((effect) => effect.type === "shadow"),
+    ).toBe(true);
+    expect(instrumentTheme.materials.floating.effects).toHaveLength(3);
+  });
+
+  it("resolves the same semantic specimen in both directions", () => {
+    for (const [name, theme] of Object.entries(glyphStyleThemes)) {
+      for (const width of [960, 390]) {
+        const scene = resolveScene(specimen, { width, theme });
+        const problems = (scene.diagnostics ?? []).filter((entry) =>
+          ["overlap", "overflow", "text-truncated", "label-collision"].includes(entry.code),
+        );
+        expect(problems, `${name} at ${width}px`).toEqual([]);
       }
     }
   });

@@ -115,6 +115,7 @@ interface View {
     { readonly x: number; readonly y: number; readonly anchor: Anchor } | undefined;
   readonly z: number;
   readonly opacity: number;
+  readonly rotation: number;
   readonly highlight: number;
   readonly progress: number;
   readonly tone: Paint | undefined;
@@ -329,6 +330,7 @@ function buildView(
     z,
     opacity:
       bind.opacity !== undefined ? unit(numeric(signal(bind.opacity)), 1) : (node.opacity ?? 1),
+    rotation: pickOr(node.rotation, layout, 0),
     highlight:
       bind.highlight !== undefined
         ? unit(numeric(signal(bind.highlight)) ?? (truthy(signal(bind.highlight)) ? 1 : 0), 0)
@@ -448,23 +450,38 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
       switch (view.layout) {
         case "row":
           return (
-            children.reduce((sum, child) => sum + intrinsicWidth(child, layout), 0) +
+            children.reduce(
+              (sum, child) => sum + Math.max(intrinsicWidth(child, layout), child.minWidth),
+              0,
+            ) +
             view.gap * Math.max(0, children.length - 1) +
             pad
           );
         case "grid": {
-          const widest = Math.max(0, ...children.map((child) => intrinsicWidth(child, layout)));
+          const widest = Math.max(
+            0,
+            ...children.map((child) => Math.max(intrinsicWidth(child, layout), child.minWidth)),
+          );
           return widest * view.columns + view.gap * (view.columns - 1) + pad;
         }
         case "absolute":
           return (
             Math.max(
               0,
-              ...children.map((child) => (child.position?.x ?? 0) + intrinsicWidth(child, layout)),
+              ...children.map(
+                (child) =>
+                  (child.position?.x ?? 0) +
+                  Math.max(intrinsicWidth(child, layout), child.minWidth),
+              ),
             ) + pad
           );
         default:
-          return Math.max(0, ...children.map((child) => intrinsicWidth(child, layout))) + pad;
+          return (
+            Math.max(
+              0,
+              ...children.map((child) => Math.max(intrinsicWidth(child, layout), child.minWidth)),
+            ) + pad
+          );
       }
     }
   }
@@ -1688,6 +1705,7 @@ function emit(
       translateX: 0,
       translateY: 0,
       scale: 1,
+      rotation: view.rotation,
       progress: view.progress,
       highlight: view.highlight,
     },

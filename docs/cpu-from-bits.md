@@ -130,7 +130,7 @@ An **XOR** gate says “exactly one input is on.” An **AND** gate says “both
 them beside each other and the same two inputs produce the two answers needed for addition: a
 sum bit and a carry bit.
 
-```kineglyph live id=cpu-half-adder view=preview height=760
+```kineglyph live id=cpu-half-adder view=preview height=520
 import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
@@ -146,37 +146,47 @@ const toggle = (name) => [
   { target: "ready", actions: [{ type: "set", var: name, value: 0 }] },
 ];
 
-export default figure("cpu-half-adder", { title: "Two gates make a half adder" }, (f) => {
-  const inputA = f.card({ eyebrow: "INPUT", title: "A", body: "0", bodyBind: { text: "aValue" }, motif: "circle", tone: "accent", interactive: true, onActivate: "TOGGLE_A" });
-  const inputB = f.card({ eyebrow: "INPUT", title: "B", body: "0", bodyBind: { text: "bValue" }, motif: "circle", tone: "info", interactive: true, onActivate: "TOGGLE_B" });
-  const xor = f.card({ eyebrow: "EXACTLY ONE", title: "XOR", body: "A ⊕ B", motif: "spark", tone: "info", frame: material("raised") });
-  const and = f.card({ eyebrow: "BOTH", title: "AND", body: "A · B", motif: "grid", tone: "accent", frame: material("raised") });
-  const sum = f.card({ eyebrow: "LOW BIT", title: "SUM", body: "0", bodyBind: { text: "sum" }, motif: "circle", tone: "warning", bind: { highlight: "sumOn" } });
-  const carry = f.card({ eyebrow: "NEXT COLUMN", title: "CARRY", body: "0", bodyBind: { text: "carry" }, motif: "arrow-right", tone: "success", bind: { highlight: "carryOn" } });
-
-  const inputs = f.stack([inputA, inputB], { gap: 12, width: "fill" });
-  const gates = f.stack([xor, and], { gap: 12, width: "fill" });
-  const outputs = f.stack([sum, carry], { gap: 12, width: "fill" });
-  const circuit = f.flow([inputs, gates, outputs], { gap: 54, align: "center", width: "fill" });
+export default figure("cpu-half-adder", {
+  title: "Two gates make a half adder",
+  description: "Toggle A and B to trace their signals through parallel XOR and AND gates into sum and carry outputs.",
+}, (f) => {
+  const terminal = (id, role, name, value, tone, bind, event) => f.tile({
+    id, icon: role === "INPUT" ? "circle" : "arrow-right", eyebrow: role, title: name,
+    detail: "0", detailStyle: "title", detailTone: tone, detailBind: { text: value },
+    tone, variant: "compact", frame: material("flat"), bind: { highlight: bind },
+    ...(event === undefined ? {} : { interactive: true, onActivate: event }),
+  });
+  const inputA = terminal("input-a", "INPUT", "A", "aValue", "accent", "aOn", "TOGGLE_A");
+  const inputB = terminal("input-b", "INPUT", "B", "bValue", "info", "bOn", "TOGGLE_B");
+  const xor = f.gate("xor", { id: "sum-gate", tone: "warning", text: "XOR", width: { wide: 108, compact: 92, narrow: 96 }, height: { wide: 72, compact: 64, narrow: 66 }, bind: { highlight: "sumOn" } });
+  const and = f.gate("and", { id: "carry-gate", tone: "success", text: "AND", width: { wide: 108, compact: 92, narrow: 96 }, height: { wide: 72, compact: 64, narrow: 66 }, bind: { highlight: "carryOn" } });
+  const sum = terminal("output-sum", "OUTPUT", "SUM", "sum", "warning", "sumOn");
+  const carry = terminal("output-carry", "OUTPUT", "CARRY", "carry", "success", "carryOn");
+  const connections = [
+    { from: inputA, to: [xor, and], kind: "flow", tone: "accent", head: "none", bind: { flow: "aOn", highlight: "aOn" }, junction: { tone: "accent", bind: { highlight: "aOn" } } },
+    { from: inputB, to: [xor, and], kind: "flow", tone: "info", head: "none", bind: { flow: "bOn", highlight: "bOn" }, junction: { tone: "info", bind: { highlight: "bOn" } } },
+    { from: xor, to: sum, kind: "flow", tone: "warning", head: "none", bind: { flow: "sumOn", highlight: "sumOn" } },
+    { from: and, to: carry, kind: "flow", tone: "success", head: "none", bind: { flow: "carryOn", highlight: "carryOn" } },
+  ];
+  const circuit = f.circuit([inputA, inputB, xor, and, sum, carry], connections, {
+    direction: { wide: "horizontal", compact: "vertical", narrow: "vertical" },
+    layerGap: { wide: 38, compact: 36, narrow: 34 }, padding: { wide: 18, compact: 14, narrow: 10 },
+    width: "fill",
+  });
   const tableRows = states.map(([state, a, b, s, c]) => f.row([
     f.code(a, { width: 26 }), f.code(b, { width: 26 }),
     f.code(s, { width: 40, tone: "warning" }), f.code(c, { width: 48, tone: "success" }),
   ], { gap: 18, padding: [6, 10], width: "fill", frame: material("flat"), bind: { highlight: state } }));
 
   f.root(f.stack([
-    circuit,
+    circuit.root,
     f.stack([
       f.row([f.eyebrow("A", { tone: "textMuted" }), f.eyebrow("B", { tone: "textMuted" }), f.eyebrow("SUM", { tone: "warning" }), f.eyebrow("CARRY", { tone: "success" })], { gap: 18, padding: [0, 10], width: "fill" }),
       ...tableRows,
     ], { gap: 6, width: "fill" }),
   ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
 
-  for (const source of [inputA, inputB]) {
-    f.connect(source, xor, { route: "curve", head: "arrow" });
-    f.connect(source, and, { route: "curve", head: "arrow" });
-  }
-  f.connect(xor, sum, { head: "arrow" });
-  f.connect(and, carry, { head: "arrow" });
+  f.sequence([f.reveal(circuit.ranks[0]), f.draw(circuit.edges, { stagger: 45 }), f.reveal(circuit.ranks.slice(1).flat(), { stagger: 70 })]);
 
   f.machine({
     initial: "ready",
@@ -191,6 +201,8 @@ export default figure("cpu-half-adder", { title: "Two gates make a half adder" }
       carry: expr.format(expr.signal("carryBit")),
       sumOn: expr.signal("sumBit"),
       carryOn: expr.signal("carryBit"),
+      aOn: expr.var("a"),
+      bOn: expr.var("b"),
       q00: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 0),
       q01: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 1),
       q10: expr.eq(expr.add(expr.multiply(expr.var("a"), 2), expr.var("b")), 2),
@@ -209,7 +221,7 @@ two XOR stages, two AND stages, and an OR. Toggle the three input terminals: liv
 gate outlines, junctions, and wires, while particles travel only along nets currently carrying a
 `1`. Each input lands on a distinct pin, and the whole schematic turns downward on a narrow screen.
 
-```kineglyph live id=cpu-full-adder view=preview height=360
+```kineglyph live id=cpu-full-adder view=preview height=430
 import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
@@ -226,151 +238,51 @@ export default figure("cpu-full-adder", {
   title: "Interactive one-bit full adder",
   description: "Toggle A, B, and carry-in to animate live Boolean signals through two XOR gates, two AND gates, and an OR.",
 }, (f) => {
-  const input = (name, event, value, active, tone) => f.stack([
-    f.eyebrow("INPUT", { tone: "textMuted", hidden: { narrow: true } }),
-    f.row([
-      f.code(name, { textStyle: { wide: "bodyStrong", compact: "bodyStrong", narrow: "code" }, tone }),
-      f.code("0", { textStyle: "title", tone, bind: { text: value } }),
-    ], { justify: "between", align: "center", width: "fill" }),
-  ], {
-    id: `input-${name.toLowerCase()}`,
-    label: `Toggle input ${name}`,
-    description: `Set the ${name} input to zero or one.`,
-    interactive: true,
-    onActivate: event,
-    gap: 4,
-    padding: { wide: [8, 10], compact: [7, 9], narrow: [6, 8] },
-    width: { wide: 92, compact: 78, narrow: 70 },
-    height: { wide: 66, compact: 72, narrow: 50 },
-    justify: "center",
-    frame: material("flat"),
-    bind: { highlight: active },
+  const terminal = (id, role, name, value, tone, active, event) => f.tile({
+    id, icon: role === "INPUT" ? "circle" : "arrow-right", eyebrow: role, title: name,
+    detail: "0", detailStyle: "title", detailTone: tone, detailBind: { text: value },
+    tone, variant: "compact", frame: material("flat"), bind: { highlight: active },
+    ...(event === undefined ? {} : { interactive: true, onActivate: event }),
   });
-  const output = (name, value, active, tone) => f.stack([
-    f.eyebrow("OUTPUT", { tone: "textMuted", hidden: { narrow: true } }),
-    f.row([
-      f.code(name, { textStyle: { wide: "bodyStrong", compact: "bodyStrong", narrow: "code" }, tone }),
-      f.code("0", { textStyle: "title", tone, bind: { text: value } }),
-    ], { justify: "between", align: "center", width: "fill" }),
-  ], {
-    id: `output-${name.toLowerCase()}`,
-    gap: 4,
-    padding: { wide: [8, 10], compact: [7, 9], narrow: [6, 8] },
-    width: { wide: 104, compact: 96, narrow: 76 },
-    height: { wide: 66, compact: 72, narrow: 50 },
-    justify: "center",
-    frame: material("flat"),
-    bind: { highlight: active },
-  });
-  const a = input("A", "TOGGLE_A", "aValue", "aOn", "info");
-  const b = input("B", "TOGGLE_B", "bValue", "bOn", "accent");
-  const cin = input("CIN", "TOGGLE_CIN", "cinValue", "cinOn", "success");
-  const aBranch = f.junction({ id: "a-branch", tone: "info", label: "A fan-out", bind: { highlight: "aOn" } });
-  const bBranch = f.junction({ id: "b-branch", tone: "accent", label: "B fan-out", bind: { highlight: "bOn" } });
-  const cinBranch = f.junction({ id: "cin-branch", tone: "success", label: "carry-in fan-out", bind: { highlight: "cinOn" } });
+  const a = terminal("input-a", "INPUT", "A", "aValue", "info", "aOn", "TOGGLE_A");
+  const b = terminal("input-b", "INPUT", "B", "bValue", "accent", "bOn", "TOGGLE_B");
+  const cin = terminal("input-cin", "INPUT", "CIN", "cinValue", "success", "cinOn", "TOGGLE_CIN");
   const gateSize = {
-    width: { wide: 104, compact: 86, narrow: 72 },
-    height: { wide: 70, compact: 60, narrow: 50 },
-    showText: false,
+    width: { wide: 102, compact: 82, narrow: 94 },
+    height: { wide: 68, compact: 58, narrow: 64 },
   };
-  const xor1 = f.gate("xor", { id: "xor-1", tone: "info", bind: { highlight: "xor1On" }, ...gateSize });
-  const and1 = f.gate("and", { id: "and-1", tone: "accent", bind: { highlight: "and1On" }, ...gateSize });
-  const xor2 = f.gate("xor", { id: "xor-2", tone: "warning", bind: { highlight: "sumOn" }, ...gateSize });
-  const and2 = f.gate("and", { id: "and-2", tone: "success", bind: { highlight: "and2On" }, ...gateSize });
-  const or = f.gate("or", { id: "carry-or", tone: "success", bind: { highlight: "carryOn" }, ...gateSize });
-  const sum = output("SUM", "sumValue", "sumOn", "warning");
-  const cout = output("COUT", "carryValue", "carryOn", "success");
-  const xorTap = f.junction({ id: "xor-tap", tone: "info", label: "first XOR fan-out", bind: { highlight: "xor1On" } });
-  const cinTap = f.junction({ id: "cin-tap", tone: "success", label: "carry-in second-stage fan-out", bind: { highlight: "cinOn" } });
-  const carryTap = f.junction({ id: "carry-tap", tone: "accent", label: "first carry route", bind: { highlight: "and1On" } });
-  const at = (node, wide, compact, narrow) => f.place(node, {
-      wide: { x: wide[0], y: wide[1], anchor: "center" },
-      compact: { x: compact[0], y: compact[1], anchor: "center" },
-      narrow: { x: narrow[0], y: narrow[1], anchor: "center" },
+  const xor1 = f.gate("xor", { id: "xor-1", text: "XOR", tone: "info", bind: { highlight: "xor1On" }, ...gateSize });
+  const and1 = f.gate("and", { id: "and-1", text: "AND", tone: "accent", bind: { highlight: "and1On" }, ...gateSize });
+  const xor2 = f.gate("xor", { id: "xor-2", text: "XOR", tone: "warning", bind: { highlight: "sumOn" }, ...gateSize });
+  const and2 = f.gate("and", { id: "and-2", text: "AND", tone: "success", bind: { highlight: "and2On" }, ...gateSize });
+  const or = f.gate("or", { id: "carry-or", text: "OR", tone: "success", bind: { highlight: "carryOn" }, ...gateSize });
+  const sum = terminal("output-sum", "OUTPUT", "SUM", "sumValue", "warning", "sumOn");
+  const cout = terminal("output-cout", "OUTPUT", "COUT", "carryValue", "success", "carryOn");
+  const net = (from, to, signal) => ({
+    from, to, kind: "flow", head: "none", tone: "connector",
+    bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
   });
-
-  f.root(f.coordinates([
-    at(a, [0.06, 0.20], [0.06, 0.20], [0.18, 0.05]),
-    at(b, [0.06, 0.50], [0.06, 0.50], [0.50, 0.05]),
-    at(cin, [0.06, 0.80], [0.06, 0.80], [0.82, 0.05]),
-    at(aBranch, [0.18, 0.20], [0.18, 0.20], [0.18, 0.13]),
-    at(bBranch, [0.18, 0.50], [0.18, 0.50], [0.50, 0.13]),
-    at(cinBranch, [0.18, 0.80], [0.18, 0.80], [0.82, 0.13]),
-    at(xor1, [0.33, 0.30], [0.33, 0.30], [0.25, 0.27]),
-    at(and1, [0.33, 0.69], [0.33, 0.69], [0.75, 0.27]),
-    at(xorTap, [0.46, 0.30], [0.46, 0.30], [0.25, 0.38]),
-    at(cinTap, [0.46, 0.80], [0.46, 0.80], [0.50, 0.38]),
-    at(carryTap, [0.46, 0.94], [0.46, 0.94], [0.92, 0.38]),
-    at(xor2, [0.59, 0.30], [0.59, 0.30], [0.25, 0.50]),
-    at(and2, [0.59, 0.66], [0.59, 0.66], [0.72, 0.50]),
-    at(sum, [0.80, 0.28], [0.80, 0.28], [0.25, 0.69]),
-    at(or, [0.76, 0.72], [0.76, 0.72], [0.72, 0.69]),
-    at(cout, [0.94, 0.72], [0.92, 0.72], [0.72, 0.88]),
-  ], {
-    id: "full-adder-plane",
-    height: { wide: 300, compact: 270, narrow: 820 },
-    width: "fill",
+  const connections = [
+    { ...net(a, [xor1, and1], "a"), junction: { tone: "info", bind: { highlight: "aOn" } } },
+    { ...net(b, [xor1, and1], "b"), junction: { tone: "accent", bind: { highlight: "bOn" } } },
+    { ...net(xor1, [xor2, and2], "xor1"), junction: { tone: "info", bind: { highlight: "xor1On" } } },
+    { ...net(cin, [xor2, and2], "cin"), junction: { tone: "success", bind: { highlight: "cinOn" } } },
+    net(and1, or, "and1"), net(and2, or, "and2"),
+    net(xor2, sum, "sum"), net(or, cout, "carry"),
+  ];
+  const circuit = f.circuit([a, b, cin, xor1, and1, xor2, and2, or, sum, cout], connections, {
+    direction: { wide: "horizontal", compact: "vertical", narrow: "vertical" },
+    layerGap: { wide: 28, compact: 34, narrow: 32 },
+    nodeGap: { wide: 18, compact: 12, narrow: 12 },
+    padding: { wide: 18, compact: 12, narrow: 10 }, width: "fill",
+  });
+  f.root(f.stack([circuit.root], {
+    padding: { wide: 14, compact: 10, narrow: 8 }, width: "fill", frame: material("raised"),
   }));
-
-  const sourceSide = { wide: "right", compact: "right", narrow: "bottom" };
-  const targetSide = { wide: "left", compact: "left", narrow: "top" };
-  const wire = (from, to, signal, input = 0.5) => f.wire(
-    { node: from, side: sourceSide },
-    { node: to, side: targetSide, offset: input },
-    {
-      tone: "connector",
-      head: "none",
-      packets: { count: 1, size: 3.5, period: 900 },
-      bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
-    },
-  );
-  const lead = (from, to, signal) => f.wire(
-    { node: from, side: sourceSide },
-    { node: to, side: targetSide },
-    {
-      tone: "connector",
-      head: "none",
-      route: "straight",
-      packets: { count: 1, size: 3.5, period: 900 },
-      bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
-    },
-  );
-
-  const inputs = [
-    lead(a, aBranch, "a"),
-    lead(b, bBranch, "b"),
-    lead(cin, cinBranch, "cin"),
-  ];
-  const first = [
-    wire(aBranch, xor1, "a", 0.34),
-    wire(bBranch, xor1, "b", 0.66),
-    wire(aBranch, and1, "a", 0.34),
-    wire(bBranch, and1, "b", 0.66),
-  ];
-  const bridge = [
-    wire(xor1, xorTap, "xor1"),
-    wire(cinBranch, cinTap, "cin"),
-    wire(and1, carryTap, "and1"),
-  ];
-  const second = [
-    wire(xorTap, xor2, "xor1", 0.34),
-    wire(cinTap, xor2, "cin", 0.66),
-    wire(xorTap, and2, "xor1", 0.34),
-    wire(cinTap, and2, "cin", 0.66),
-  ];
-  const finish = [
-    wire(carryTap, or, "and1", 0.34),
-    wire(and2, or, "and2", 0.66),
-    wire(xor2, sum, "sum"),
-    wire(or, cout, "carry"),
-  ];
   f.sequence([
-    f.reveal([a, b, cin], { stagger: 70 }),
-    [f.draw(inputs, { stagger: 50 }), f.reveal([aBranch, bBranch, cinBranch], { stagger: 50 })],
-    [f.draw(first, { stagger: 50 }), f.reveal([xor1, and1])],
-    [f.draw(bridge, { stagger: 50 }), f.reveal([xorTap, cinTap, carryTap], { stagger: 45 })],
-    [f.draw(second, { stagger: 50 }), f.reveal([xor2, and2])],
-    [f.draw(finish, { stagger: 50 }), f.reveal([or, sum, cout], { stagger: 60 })],
+    f.reveal(circuit.ranks[0], { stagger: 60 }),
+    f.draw(circuit.edges, { stagger: 35 }),
+    f.reveal(circuit.ranks.slice(1).flat(), { stagger: 55 }),
   ]);
 
   f.machine({
@@ -428,18 +340,23 @@ Four full adders can add two four-bit words. Each slice owns one column. The sum
 the carry travels to the next slice, which is why this simple design is called a **ripple-carry
 adder**.
 
-```kineglyph live id=cpu-ripple-adder view=preview height=600
+```kineglyph live id=cpu-ripple-adder view=preview height=420
 import { counterTerminalTheme, expr, figure, material } from "kineglyph";
 
 export const theme = counterTerminalTheme;
 
-export default figure("cpu-ripple-adder", { title: "Four-bit ripple-carry adder" }, (f) => {
-  const bits = [0, 1, 2, 3].map((bit) => f.card({
+export default figure("cpu-ripple-adder", {
+  title: "Four-bit ripple-carry adder",
+  description: "Four compact full-adder slices pass a carry signal from the least significant bit to the most significant bit.",
+}, (f) => {
+  const bits = [0, 1, 2, 3].map((bit) => f.tile({
     id: `adder-${bit}`,
     eyebrow: `BIT ${bit}`,
     title: "FULL ADDER",
-    body: bit === 0 ? "A₀ + B₀ + 0" : `A${bit} + B${bit} + carry`,
-    motif: "circuit",
+    detail: bit === 0 ? "A₀ + B₀ + 0" : `A${bit} + B${bit} + carry`,
+    detailStyle: "code",
+    icon: "circuit",
+    variant: "labelled",
     tone: bit === 3 ? "warning" : bit === 2 ? "success" : bit === 1 ? "info" : "accent",
     frame: material("raised"),
   }));
@@ -452,13 +369,17 @@ export default figure("cpu-ripple-adder", { title: "Four-bit ripple-carry adder"
     f.code("1000", { textStyle: "display", tone: "warning" }),
     f.caption("5 + 3 = 8", { tone: "textMuted" }),
   ], { gap: 5, align: "center", width: "fill" });
-  const chain = f.flow(bits, { gap: 54, align: "stretch", width: "fill" });
-  f.root(f.stack([inputs, chain, result], { gap: 24, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  const chain = f.circuit(bits, bits.slice(0, -1).map((bit, index) => ({
+    from: bit, to: bits[index + 1], kind: "flow", tone: "accent",
+    labels: [{ text: `carry ${index + 1}`, placement: "middle", offset: -12 }],
+  })), {
+    direction: { wide: "horizontal", compact: "horizontal", narrow: "vertical" },
+    layerGap: { wide: 28, compact: 18, narrow: 34 },
+    padding: { wide: 14, compact: 10, narrow: 8 }, width: "fill",
+  });
+  f.root(f.stack([inputs, chain.root, result], { gap: 20, padding: { wide: 20, compact: 14, narrow: 10 }, width: "fill", frame: material("raised") }));
 
-  const carries = bits.slice(0, -1).map((bit, index) => f.connect(
-    { node: bit, side: "right" }, { node: bits[index + 1], side: "left" },
-    { head: "arrow", style: "flow", packets: { count: 1 }, labels: [{ text: `carry ${index + 1}` }] },
-  ));
+  const carries = chain.edges;
   f.sequence([
     f.reveal(inputs),
     f.reveal(bits[0]),

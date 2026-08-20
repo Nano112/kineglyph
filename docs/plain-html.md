@@ -40,7 +40,7 @@ site reproducible; update it deliberately when you update the figure.
         createTheme,
         figure,
         mountKineglyph,
-      } from "https://esm.sh/@kineglyph/web@0.2.0/bundle?bundle";
+      } from "https://esm.sh/@kineglyph/web@0.3.0/bundle?bundle";
 
       const theme = createTheme({
         name: "plain-html",
