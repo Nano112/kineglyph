@@ -625,6 +625,7 @@ function renderMaterialFilterDefinition(
       const turbulence = next("noise");
       const toned = next("noise-tone");
       const alpha = next("noise-alpha");
+      const blended = next("noise-blend");
       const result = next("with-noise");
       const amount = unit(firstNumber(effect.amount), 0.03);
       const scale = Math.max(0.01, finiteNumber(effect.scale, 0.8));
@@ -677,6 +678,18 @@ function renderMaterialFilterDefinition(
             ["in", current],
             ["in2", alpha],
             ["mode", effect.monochrome === false ? "screen" : "soft-light"],
+            ["result", blended],
+          ],
+          "",
+        ),
+        // The blend covers the whole filter region; clip the grain back to the shape so a small
+        // plate does not paint a halo of speckle around itself.
+        element(
+          "feComposite",
+          [
+            ["in", blended],
+            ["in2", "SourceAlpha"],
+            ["operator", "in"],
             ["result", result],
           ],
           "",
@@ -687,18 +700,26 @@ function renderMaterialFilterDefinition(
   }
 
   for (const shader of shaders) {
-    if (string(shader.name) !== "liquid") continue;
-    const turbulence = next("liquid-field");
-    const result = next("liquid");
+    const name = string(shader.name);
+    if (name !== "liquid" && name !== "sketch") continue;
+    const turbulence = next(`${name}-field`);
+    const result = next(name);
     const uniforms = record(shader.uniforms);
+    // `liquid` ripples with true turbulence; `sketch` wanders with fractal noise, which reads as a
+    // hand that never quite follows the ruler rather than as water.
+    const sketchy = name === "sketch";
     parts.push(
       element(
         "feTurbulence",
         [
-          ["type", "turbulence"],
-          ["baseFrequency", number(finiteNumber(uniforms.frequency, 0.018), context.precision)],
+          ["type", sketchy ? "fractalNoise" : "turbulence"],
+          [
+            "baseFrequency",
+            number(finiteNumber(uniforms.frequency, sketchy ? 0.01 : 0.018), context.precision),
+          ],
+          // Two octaves keep the wobble a slow wander; a third adds per-pixel grain that reads as blur.
           ["numOctaves", "2"],
-          ["seed", String(Math.round(finiteNumber(uniforms.seed, 23)))],
+          ["seed", String(Math.round(finiteNumber(uniforms.seed, sketchy ? 7 : 23)))],
           ["result", turbulence],
         ],
         "",
@@ -708,7 +729,7 @@ function renderMaterialFilterDefinition(
         [
           ["in", current],
           ["in2", turbulence],
-          ["scale", number(finiteNumber(uniforms.strength, 5), context.precision)],
+          ["scale", number(finiteNumber(uniforms.strength, sketchy ? 4.5 : 5), context.precision)],
           ["xChannelSelector", "R"],
           ["yChannelSelector", "G"],
           ["result", result],
@@ -773,7 +794,7 @@ function materialPaintAttrs(
   return [
     [
       "filter",
-      portable || shaderNames.includes("liquid")
+      portable || shaderNames.includes("liquid") || shaderNames.includes("sketch")
         ? `url(#${materialFilterId(context.rootId, ownerId)})`
         : undefined,
     ],
@@ -974,7 +995,10 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
   const label = firstString(edge.label, edge.title);
   const labels = records(edge.labels);
   const packets = records(edge.packets);
+  const metadata = record(edge.metadata);
   const flow = unit(firstNumber(state.flow), packets.length > 0 ? 1 : 0);
+  const signal = firstNumber(state.signal);
+  const signalOn = signal !== undefined && signal > 0.5;
   const pathAttrs: Attrs = [
     ["id", `${rootId}-${domId(id)}`],
     [
@@ -1009,6 +1033,7 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
       tail !== "none" && progress > 0 ? `url(#${markerId(rootId, tail, paint.stroke)})` : undefined,
     ],
     ["data-edge-id", id],
+    ["data-interaction-group", string(edge.interactionGroup)],
     ["data-kineglyph-edge", id],
     ["data-from", from],
     ["data-to", to],
@@ -1020,6 +1045,7 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
     ["data-base-stroke", firstString(appearance.stroke, edge.color)],
     ["data-base-width", numeric(appearance.strokeWidth, precision)],
     ["data-highlight", paint.highlight > 0 ? number(paint.highlight, precision) : undefined],
+    ["data-signal", signal === undefined ? undefined : signalOn ? "on" : "off"],
   ];
   const path = element("path", pathAttrs, "");
   const parts: string[] = [];
@@ -1040,7 +1066,72 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
       ),
     );
   }
+  const casing = record(edge.casing);
+  const casingStroke = string(casing.stroke);
+  if (casingStroke !== undefined) {
+    const casingWidth = finiteNumber(casing.strokeWidth, paint.strokeWidth + 3);
+    const casingOpacity = opacity * unit(firstNumber(casing.opacity), 1);
+    const casingDash = edgeDashArray(dashKind, casingWidth, length, progress, precision);
+    parts.push(
+      element(
+        "path",
+        [
+          ["class", "kg-edge-casing"],
+          ["d", d],
+          ["fill", "none"],
+          ["stroke", casingStroke],
+          ["stroke-width", number(casingWidth, precision)],
+          ["stroke-linecap", casingDash.linecap ?? "round"],
+          ["stroke-linejoin", "round"],
+          ["opacity", casingOpacity === 1 ? undefined : number(casingOpacity, precision)],
+          ["pathLength", casingDash.pathLength],
+          ["stroke-dasharray", casingDash.dasharray],
+          ["data-edge-casing", id],
+          ["data-length", number(length, precision)],
+          ["data-dash", dashKind],
+        ],
+        "",
+      ),
+    );
+  }
   parts.push(path);
+  if (metadata.packetTrail === true && packets.length > 0) {
+    const trailCount = Math.max(1, Math.floor(finiteNumber(metadata.packetCount, packets.length)));
+    const authoredLength = Math.min(
+      0.45,
+      Math.max(0.02, finiteNumber(metadata.packetTrailLength, 0.085)),
+    );
+    const trailLength = Math.min(authoredLength, 0.72 / trailCount);
+    const trailGap = Math.max(0.001, 1 / trailCount - trailLength);
+    const trailWidth = Math.max(
+      0.5,
+      finiteNumber(metadata.packetTrailWidth, paint.strokeWidth * 0.78),
+    );
+    const trailOpacity = unit(firstNumber(metadata.packetTrailOpacity), 0.72);
+    const phase = unit(firstNumber(metadata.packetPhase), 0);
+    const color = string(edge.packetColor) ?? paint.stroke;
+    parts.push(
+      element(
+        "path",
+        [
+          ["class", "kg-edge-flow-trace"],
+          ["d", d],
+          ["fill", "none"],
+          ["stroke", color],
+          ["stroke-width", number(trailWidth, precision)],
+          ["stroke-linecap", "round"],
+          ["stroke-linejoin", "round"],
+          ["pathLength", "1"],
+          ["stroke-dasharray", `${number(trailLength, precision)} ${number(trailGap, precision)}`],
+          ["stroke-dashoffset", number(-phase, precision)],
+          ["opacity", number(flow * opacity * trailOpacity, precision)],
+          ["data-edge-trace", id],
+          ["data-period", String(finiteNumber(metadata.packetPeriod, 2_400))],
+        ],
+        "",
+      ),
+    );
+  }
   if (labels.length > 0) {
     for (const item of labels) {
       if (item.hidden === true) continue;
@@ -1140,13 +1231,21 @@ function renderEdge(edge: UnknownRecord, index: number, context: RenderContext):
     });
   }
   const groupAttrs: Attrs = [
-    ["class", classes("kg-edge-group", paint.highlight > 0 && "kg-edge-group--highlight")],
+    [
+      "class",
+      classes(
+        "kg-edge-group",
+        paint.highlight > 0 && "kg-edge-group--highlight",
+        signal !== undefined && (signalOn ? "kg-edge-group--on" : "kg-edge-group--off"),
+      ),
+    ],
     ["data-edge-group", id],
     ["role", description !== undefined ? "img" : undefined],
     ["aria-label", description],
     ["aria-hidden", description === undefined ? "true" : undefined],
     ["display", hidden ? "none" : undefined],
     ["data-hidden", hidden ? "true" : undefined],
+    ["data-signal", signal === undefined ? undefined : signalOn ? "on" : "off"],
   ];
   return element("g", groupAttrs, parts.join(""));
 }
@@ -1269,6 +1368,7 @@ function renderStructuredNode(
     ["opacity", opacity === 1 ? undefined : number(opacity, precision)],
     ["display", hidden ? "none" : undefined],
     ["data-node-id", id],
+    ["data-interaction-group", string(node.interactionGroup)],
     ["data-kineglyph-node", id],
     ["data-kind", kind],
     ["data-interactive", interactive ? "true" : undefined],
@@ -2620,7 +2720,9 @@ function tokenise(svg: string, palette: Palette): string {
 
 const BASE_STYLES = escapeXml(
   ".kg-scene{color:var(--kg-text)}" +
-    ".kg-node-shape{vector-effect:non-scaling-stroke}" +
+    // Path marks are drawn through a viewBox transform and already divide their stroke width by
+    // that scale, so they must scale with it; a non-scaling stroke would render 1/scale too thick.
+    ".kg-node-shape:not(.kg-path){vector-effect:non-scaling-stroke}" +
     ".kg-nodes>.kg-node .kg-node-shape:not([fill]){fill:var(--kg-node-fill)}" +
     ".kg-node text{stroke:none}" +
     ".kg-node-label,.kg-node-body,.kg-node-icon,.kg-edge-label{font-family:var(--kg-font-family)}" +
@@ -2631,7 +2733,8 @@ const BASE_STYLES = escapeXml(
     ".kg-node-motif{fill:none;stroke:var(--kg-accent);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}" +
     ".kg-node-motif .kg-motif-backed{fill:var(--kg-background)}" +
     ".kg-node-motif .kg-motif-solid{fill:var(--kg-accent)}" +
-    ".kg-edge{vector-effect:non-scaling-stroke}" +
+    ".kg-edge,.kg-edge-casing,.kg-edge-flow-trace{vector-effect:non-scaling-stroke}" +
+    ".kg-edge-casing,.kg-edge-flow-trace{pointer-events:none}" +
     ".kg-edge-label{fill:var(--kg-text)}" +
     ".kg-node--interactive{cursor:pointer;outline:none}" +
     ".kg-node--interactive:focus-visible>.kg-node-shape,.kg-node--interactive[data-inspected=true]>.kg-node-shape{stroke:var(--kg-accent);stroke-width:2}" +

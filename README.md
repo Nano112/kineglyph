@@ -10,6 +10,7 @@
   <a href="./docs/cookbook.md">Cookbook</a> ·
   <a href="./docs/authoring-api.md">Authoring API</a> ·
   <a href="./docs/materials-and-effects.md">Materials</a> ·
+  <a href="./docs/drafting-sheets.md">Drafting sheets</a> ·
   <a href="./packages/plot/README.md">Plots</a> ·
   <a href="./packages/web/README.md">Web runtime</a> ·
   <a href="./packages/export/README.md">Export</a>
@@ -169,6 +170,12 @@ For a restrained starting point, core also ships seven complete, effect-free sys
 and `civicTheme`.
 They differ in typography, density, geometry, line language, motion, and semantic colour—not just
 their accent swatch. See the editable [professional themes gallery](./docs/theme-gallery.md).
+
+The [drafting sheets](./docs/drafting-sheets.md) push the system furthest: a graphite-paper
+`draftingTheme`, a `drafting` toolkit (indexed frame, grained paper, raised cartouches with drop
+shadows, dimension lines, leaders, a hand-drawn `sketch` material), an `orbital` mechanics module,
+typeset TeX through `@kineglyph/math`, and host-side `deriveSignals` so a slider changes real physics
+while the entrance animation keeps playing.
 
 ```ts
 import {
@@ -330,6 +337,7 @@ working [Laravel example](./examples/laravel-blade/README.md).
 | `@kineglyph/react`  | React component and imperative handle                             |
 | `@kineglyph/export` | SVG, PNG, GIF, and the `kineglyph-export` CLI                     |
 | `@kineglyph/scenes` | twelve catalogue scenes, shared recipes, and three themes         |
+| `@kineglyph/math`   | TeX formulas as deterministic path marks (MathJax, loaded lazily) |
 
 ## Run the workbench
 

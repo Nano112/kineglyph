@@ -49,7 +49,7 @@ export interface NoiseEffect {
 
 export type PortableMaterialEffect = ShadowEffect | BlurEffect | BackdropEffect | NoiseEffect;
 
-export type ShaderName = "frosted-glass" | "iridescence" | "liquid" | "grain";
+export type ShaderName = "frosted-glass" | "iridescence" | "liquid" | "grain" | "sketch";
 export type ShaderUniform = number | readonly [number, number] | readonly [number, number, number];
 
 /**
@@ -109,6 +109,23 @@ export function backdrop(options: Omit<BackdropEffect, "type"> = {}): BackdropEf
 
 export function noise(options: Omit<NoiseEffect, "type"> = {}): NoiseEffect {
   return { type: "noise", ...options };
+}
+
+/**
+ * Hand-drawn displacement: seeded fractal noise nudges every stroke the way a pen wanders over
+ * paper. `strength` is the maximum displacement in pixels, `frequency` the noise scale (smaller is
+ * a slower wander), and `seed` freezes the wobble across frames and exports.
+ */
+export function sketch(
+  options: { readonly strength?: number; readonly frequency?: number; readonly seed?: number } = {},
+): ShaderEffect {
+  return shader("sketch", {
+    uniforms: {
+      strength: options.strength ?? 4.5,
+      frequency: options.frequency ?? 0.01,
+      seed: options.seed ?? 7,
+    },
+  });
 }
 
 export function shader(

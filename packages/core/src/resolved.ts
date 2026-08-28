@@ -130,6 +130,8 @@ export interface ResolvedEdgeState {
   readonly highlight?: number;
   /** Packet visibility 0..1. */
   readonly flow?: number;
+  /** Digital/logical connection state: 0 is inactive, 1 is active. */
+  readonly signal?: number;
 }
 
 export type ResolvedNodeKind =
@@ -170,6 +172,15 @@ export interface ResolvedLegendItem {
 
 export interface ResolvedNode extends Rect {
   readonly id: string;
+  readonly interactionGroup?: string;
+  /** Absolute attachment points exposed to composition debuggers and editor tooling. */
+  readonly ports?: readonly {
+    readonly id: string;
+    readonly side: "left" | "right" | "top" | "bottom" | "center";
+    readonly offset: number;
+    readonly x: number;
+    readonly y: number;
+  }[];
   readonly kind: ResolvedNodeKind;
   readonly label: string;
   readonly description?: string;
@@ -253,6 +264,7 @@ export interface ResolvedEdgeLabel {
 
 export interface ResolvedEdge {
   readonly id: string;
+  readonly interactionGroup?: string;
   readonly from: string;
   readonly to: string;
   readonly start: Point;
@@ -261,6 +273,8 @@ export interface ResolvedEdge {
   readonly directed: boolean;
   readonly label?: string;
   readonly appearance: ResolvedEdgeAppearance;
+  /** Wider stroke painted below the primary wire. */
+  readonly casing?: ResolvedEdgeAppearance;
   readonly state: ResolvedEdgeState;
   readonly route?: EdgeRoute;
   readonly head?: MarkerKind;

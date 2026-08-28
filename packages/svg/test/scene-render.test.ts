@@ -234,6 +234,50 @@ describe("material effects", () => {
 });
 
 describe("structured scene rendering", () => {
+  it("emits stable active and inactive wire state hooks", () => {
+    const signalScene: SceneDefinition = {
+      ...markerScene,
+      id: "signals",
+      edges: [
+        {
+          id: "on-wire",
+          from: "n1",
+          to: "n2",
+          signal: { value: true, onTone: "success" },
+          casing: { tone: "canvas", width: 6, opacity: 0.9 },
+          packets: { count: 1, period: 900, trail: true },
+        },
+        {
+          id: "off-wire",
+          from: "n4",
+          to: "n5",
+          signal: { value: false, offTone: "connector" },
+          packets: { count: 1 },
+        },
+      ],
+    };
+    const svg = renderSvg(resolveScene(signalScene, { width: 900, theme }), {
+      idPrefix: "signals",
+    });
+    expect(svg).toMatch(/kg-edge-group kg-edge-group--on[^>]*data-edge-group="on-wire"/);
+    expect(svg).toMatch(/kg-edge-group kg-edge-group--off[^>]*data-edge-group="off-wire"/);
+    expect(svg).toMatch(/data-edge-id="on-wire"[^>]*data-signal="on"/);
+    expect(svg).toMatch(/data-edge-id="off-wire"[^>]*data-signal="off"/);
+    expect(svg).toMatch(
+      /class="kg-edge-casing"[^>]*stroke-width="6"[^>]*data-edge-casing="on-wire"/,
+    );
+    expect(svg.indexOf('data-edge-casing="on-wire"')).toBeLessThan(
+      svg.indexOf('data-edge-id="on-wire"'),
+    );
+    expect(svg).toMatch(
+      /class="kg-edge-flow-trace"[^>]*pathLength="1"[^>]*data-edge-trace="on-wire"/,
+    );
+    expect(svg).toMatch(/data-edge-trace="on-wire"[^>]*data-period="900"/);
+    expect(svg.indexOf('data-edge-id="on-wire"')).toBeLessThan(
+      svg.indexOf('data-edge-trace="on-wire"'),
+    );
+  });
+
   it("emits every marker style with root-scoped ids and derived dash patterns", () => {
     const resolved = resolveScene(markerScene, { width: 900, theme });
     const svg = renderSvg(resolved, { idPrefix: "fig-a" });

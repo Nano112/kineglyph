@@ -122,6 +122,7 @@
     "@codemirror/state": "^6.5.2",
     "@kineglyph/anime": "^0.3.1",
     "@kineglyph/core": "^0.3.1",
+    "@kineglyph/math": "^0.3.1",
     "@kineglyph/plot": "^0.3.1",
     "@kineglyph/svg": "^0.3.1",
     "@lezer/highlight": "^1.2.3",

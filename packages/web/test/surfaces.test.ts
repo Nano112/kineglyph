@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultTheme, type ResolvedNode, type ResolvedScene } from "@kineglyph/core";
 import {
   adaptLiveSurface,
+  bindLiveSurface,
   videoSurface,
   type LiveSurfaceContext,
   type LiveSurfaceHandle,
@@ -35,7 +36,10 @@ const scene = {
   theme: {},
 } as unknown as ResolvedScene;
 
-function context(time = 0): LiveSurfaceContext {
+function context(
+  time = 0,
+  signals: Readonly<Record<string, number | string | boolean>> = {},
+): LiveSurfaceContext {
   const element = document.createElement("div");
   document.body.append(element);
   return {
@@ -44,7 +48,7 @@ function context(time = 0): LiveSurfaceContext {
     scene,
     theme: defaultTheme,
     machineState: undefined,
-    signals: {},
+    signals,
     time,
     playing: false,
     signal: new AbortController().signal,
@@ -52,12 +56,15 @@ function context(time = 0): LiveSurfaceContext {
   };
 }
 
-function update(time: number): LiveSurfaceUpdate {
+function update(
+  time: number,
+  signals: Readonly<Record<string, number | string | boolean>> = {},
+): LiveSurfaceUpdate {
   return {
     frame: { ...scene, time, progress: 0, nodes: [node] },
     node,
     machineState: undefined,
-    signals: {},
+    signals,
     time,
   };
 }
@@ -98,6 +105,46 @@ describe("adaptLiveSurface", () => {
     release();
     await first;
     expect(rendered).toEqual([10, 30]);
+  });
+});
+
+describe("bindLiveSurface", () => {
+  it("applies initial signals, observes selected changes, and keeps timeline updates optional", async () => {
+    const applied: Array<{ initial: boolean; changed: readonly string[]; time: number }> = [];
+    const surface = bindLiveSurface({
+      mount: () => ({ runtime: "expensive" }),
+      watch: ["radius"],
+      apply(_target, next) {
+        applied.push({ initial: next.initial, changed: next.changed, time: next.time });
+      },
+    });
+    const mounted = await handle(surface, context(0, { radius: 4, ignored: 1 }));
+    await mounted.ready;
+    await mounted.update?.(update(100, { radius: 4, ignored: 2 }));
+    await mounted.update?.(update(200, { radius: 5, ignored: 2 }));
+    expect(applied).toEqual([
+      { initial: true, changed: ["ignored", "radius"], time: 0 },
+      { initial: false, changed: ["radius"], time: 200 },
+    ]);
+  });
+
+  it("can slave an external runtime to Kineglyph time without rebuilding it", async () => {
+    let mounts = 0;
+    const times: number[] = [];
+    const surface = bindLiveSurface({
+      mount: () => ({ id: ++mounts }),
+      watch: ["shape"],
+      includeTime: true,
+      apply(_target, next) {
+        times.push(next.time);
+      },
+    });
+    const mounted = await handle(surface, context(0, { shape: "torus" }));
+    await mounted.ready;
+    await mounted.update?.(update(120, { shape: "torus" }));
+    await mounted.update?.(update(240, { shape: "torus" }));
+    expect(mounts).toBe(1);
+    expect(times).toEqual([0, 120, 240]);
   });
 });
 

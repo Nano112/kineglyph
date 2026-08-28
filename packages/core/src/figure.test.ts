@@ -3,7 +3,14 @@ import { cubicBezier, spring } from "./easing.js";
 import { figure, type FigureBuilder } from "./figure.js";
 import type { SceneFragment } from "./fragment.js";
 import { resolveScene } from "./resolve.js";
-import { defineScene, validateScene, walkScene, type SceneDefinition } from "./scene.js";
+import {
+  defineScene,
+  endpointNode,
+  validateScene,
+  walkScene,
+  type SceneDefinition,
+  type SceneNode,
+} from "./scene.js";
 import { seekTimeline } from "./seek.js";
 import { createTheme } from "./theme.js";
 
@@ -15,6 +22,14 @@ function nodeIds(scene: SceneDefinition): string[] {
   const ids: string[] = [];
   walkScene(scene.root, (node) => ids.push(node.id));
   return ids;
+}
+
+function findNode(scene: SceneDefinition, id: string): SceneNode | undefined {
+  let result: SceneNode | undefined;
+  walkScene(scene.root, (node) => {
+    if (node.id === id) result = node;
+  });
+  return result;
 }
 
 function track(scene: SceneDefinition, id: string) {
@@ -292,6 +307,26 @@ describe("figure(): terminal and file-tree authoring", () => {
     expect(validateScene(scene).ok).toBe(true);
   });
 
+  it("authors a split terminal window through the compact builder", () => {
+    const scene = figure("workspace", { title: "Workspace" }, (f) => {
+      f.terminalWindow(
+        [
+          { title: "server", lines: [{ kind: "command", text: "bun dev" }] },
+          { title: "tests", lines: [{ kind: "success", text: "ready" }] },
+        ],
+        { title: "local", statusBar: { left: "0:server*", right: "main" } },
+      );
+    });
+    expect(nodeIds(scene)).toContain("terminal-window-local");
+    expect(nodeIds(scene)).toEqual(
+      expect.arrayContaining([
+        "terminal-window-local-pane-1",
+        "terminal-window-local-pane-2",
+        "terminal-window-local-status-bar",
+      ]),
+    );
+  });
+
   it("types every marked terminal line with one seekable motion step", () => {
     const scene = figure("terminal", { title: "Terminal" }, (f) => {
       const terminal = f.terminal([
@@ -302,10 +337,52 @@ describe("figure(): terminal and file-tree authoring", () => {
       f.fileTree([{ name: "src", children: [{ name: "index.ts" }] }], { root: "demo" });
       f.sequence([f.typewrite(terminal, { duration: 400, stagger: 100 })]);
     });
-    expect(track(scene, "terminal-line-1-text:progress").keyframes.at(-1)?.time).toBe(400);
-    expect(track(scene, "terminal-line-3-text:progress").keyframes.at(-1)?.time).toBe(500);
+    const firstPrompt = track(scene, "terminal-line-1-prompt:progress");
+    const firstCommand = track(scene, "terminal-line-1-text:progress");
+    const secondPrompt = track(scene, "terminal-line-3-prompt:progress");
+    const secondCommand = track(scene, "terminal-line-3-text:progress");
+    expect(firstPrompt.keyframes.at(-1)?.time).toBeLessThan(
+      firstCommand.keyframes.at(-2)?.time ?? 0,
+    );
+    expect(firstCommand.keyframes.at(-1)?.time).toBeLessThan(
+      secondPrompt.keyframes.at(-2)?.time ?? 0,
+    );
+    expect(secondPrompt.keyframes.at(-1)?.time).toBeLessThan(
+      secondCommand.keyframes.at(-2)?.time ?? 0,
+    );
     expect(nodeIds(scene)).toEqual(
       expect.arrayContaining(["terminal", "file-tree-demo", "file-tree-demo-entry-1-guide"]),
+    );
+  });
+
+  it("can retain staggered overlapping typewrite tracks explicitly", () => {
+    const scene = figure("terminal-overlap", { title: "Terminal overlap" }, (f) => {
+      const terminal = f.terminal([
+        { kind: "command", text: "npm run build" },
+        { kind: "command", text: "npm test" },
+      ]);
+      f.sequence([f.typewrite(terminal, { duration: 400, stagger: 100, mode: "overlap" })]);
+    });
+    expect(track(scene, "terminal-line-1-prompt:progress").keyframes.at(-1)?.time).toBe(400);
+    expect(track(scene, "terminal-line-1-text:progress").keyframes.at(-1)?.time).toBe(500);
+  });
+
+  it("writes syntax-highlighted token nodes in source order instead of colour batches", () => {
+    const scene = figure("typed-code", { title: "Typed code" }, (f) => {
+      const source = f.codeBlock("const answer = 42;", {
+        language: "typescript",
+        typing: true,
+      });
+      f.sequence([f.typewrite(source, { duration: 300, lineDelay: 0 })]);
+    });
+    const keyword = track(scene, "code-block-typescript-line-1-token-1:progress");
+    const whitespace = track(scene, "code-block-typescript-line-1-token-2:progress");
+    const identifier = track(scene, "code-block-typescript-line-1-token-3:progress");
+    expect(keyword.keyframes.at(-1)?.time).toBeLessThanOrEqual(
+      whitespace.keyframes.at(-2)?.time ?? 0,
+    );
+    expect(whitespace.keyframes.at(-1)?.time).toBeLessThanOrEqual(
+      identifier.keyframes.at(-2)?.time ?? 0,
     );
   });
 
@@ -387,7 +464,7 @@ describe("figure(): graph() and wire()", () => {
       f.wire(branch, { node: xor, side: "left", offset: 0.35 });
     });
     expect(scene.root.children).toMatchObject([
-      { id: "junction-a-fan-out", type: "circle" },
+      { id: "junction-a-fan-out", type: "group" },
       { id: "gate-xor", type: "group", metadata: { gateKind: "xor" } },
     ]);
     expect(scene.edges?.[0]?.to).toEqual({ node: "gate-xor", side: "left", offset: 0.35 });
@@ -456,6 +533,18 @@ describe("figure(): graph() and wire()", () => {
         ["gate-xor"],
         ["tile-sum", "tile-carry"],
       ]);
+      const entranceTracks = circuit.entrance.tracks(0);
+      const enteringGate = circuit.edges.find((edge) =>
+        typeof edge.to === "string" ? edge.to === xor.id : edge.to.node === xor.id,
+      );
+      const gateReveal = entranceTracks.find(
+        (track) => track.target === xor.id && track.property === "opacity",
+      );
+      const wireDraw = entranceTracks.find(
+        (track) => track.target === enteringGate?.id && track.property === "edgeReveal",
+      );
+      expect(gateReveal?.keyframes[1]?.time).toBe(wireDraw?.keyframes[1]?.time);
+      expect(circuit.entrance.duration).toBeGreaterThan(0);
       f.root(circuit.root);
     });
 
@@ -464,13 +553,76 @@ describe("figure(): graph() and wire()", () => {
       layout: { wide: "stack", compact: "stack", narrow: "row" },
       justify: "center",
     });
+    expect(findNode(scene, "gate-xor")).toMatchObject({
+      width: { wide: 108, compact: 96, narrow: 60 },
+      height: { wide: 72, compact: 64, narrow: 90 },
+      metadata: { gateOrientation: "responsive", gateAutoOrient: true },
+    });
+    expect(findNode(scene, "gate-xor-graphic")).toMatchObject({
+      width: { wide: 108, compact: 96, narrow: 90 },
+      height: { wide: 72, compact: 64, narrow: 60 },
+      rotation: { wide: 0, compact: 0, narrow: 90 },
+    });
     expect(scene.edges).toMatchObject([
-      { stroke: "flow", packets: { count: 1, period: 1000 }, head: "none" },
-      { stroke: "flow", packets: { count: 1, period: 1000 }, head: "none" },
-      { route: "orthogonal", width: 2.5, head: "arrow" },
-      { route: "orthogonal", width: 2.5, head: "arrow" },
+      {
+        to: { node: "gate-xor", port: "in-0" },
+        stroke: "solid",
+        packets: { count: 1, speed: 96 },
+        head: "none",
+        avoid: "nodes",
+        casing: { tone: "canvas", width: 4.75, opacity: 0.94 },
+      },
+      {
+        to: { node: "gate-xor", port: "in-1" },
+        stroke: "solid",
+        packets: { count: 1, speed: 96 },
+        head: "none",
+        avoid: "nodes",
+        casing: { tone: "canvas", width: 4.75, opacity: 0.94 },
+      },
+      {
+        from: { node: "gate-xor", port: "out" },
+        route: "orthogonal",
+        width: 2.5,
+        head: "none",
+        avoid: "nodes",
+        casing: { tone: "canvas", width: 4.75, opacity: 0.94 },
+      },
+      {
+        route: "orthogonal",
+        width: 2.5,
+        head: "none",
+        avoid: "nodes",
+        casing: { tone: "canvas", width: 4.75, opacity: 0.94 },
+      },
     ]);
     expect(validateScene(scene).ok).toBe(true);
+
+    // Responsive layout may rotate and resize a gate, but incoming ink must overlap its visible
+    // pin to the body while the output begins at the outer endpoint.
+    const resolved = resolveScene(scene, { width: 390, theme });
+    const authoredEdges = scene.edges ?? [];
+    const gate = resolved.nodes.find((node) => node.id === "gate-xor");
+    const firstInput = resolved.edges.find((edge) => edge.id === authoredEdges[0]?.id);
+    const secondInput = resolved.edges.find((edge) => edge.id === authoredEdges[1]?.id);
+    const output = resolved.edges.find((edge) => edge.id === authoredEdges[2]?.id);
+    expect(gate).toBeDefined();
+    expect(firstInput).toBeDefined();
+    expect(secondInput).toBeDefined();
+    expect(output).toBeDefined();
+    if (
+      gate !== undefined &&
+      firstInput !== undefined &&
+      secondInput !== undefined &&
+      output !== undefined
+    ) {
+      expect(firstInput.end.y).toBeCloseTo(gate.y + 12, 2);
+      expect(firstInput.end.x).toBeCloseTo(gate.x + gate.width * (53 / 80), 2);
+      expect(secondInput.end.y).toBeCloseTo(gate.y + 12, 2);
+      expect(secondInput.end.x).toBeCloseTo(gate.x + gate.width * (27 / 80), 2);
+      expect(output.start.x).toBeCloseTo(gate.x + gate.width / 2, 2);
+      expect(output.start.y).toBeCloseTo(gate.y + gate.height, 2);
+    }
   });
 
   it("offers distinct semantic wire grammars without hiding overrides", () => {
@@ -482,16 +634,79 @@ describe("figure(): graph() and wire()", () => {
       f.wire(a, b, { kind: "feedback" });
       f.wire(a, b, { kind: "optional" });
       f.wire(a, b, { kind: "flow", tone: "success" });
+      f.wire(a, b, { kind: "spline" });
     });
     expect(scene.edges).toMatchObject([
       { route: "orthogonal", stroke: "dotted", tone: "warning" },
-      { route: "curve", stroke: "dashed", tone: "warning", curvature: 0.32 },
+      {
+        route: "spline",
+        spline: "fluid",
+        stroke: "dashed",
+        tone: "warning",
+      },
       { route: "orthogonal", stroke: "dotted", head: "none", tone: "muted" },
-      { route: "orthogonal", stroke: "flow", tone: "success", packets: { count: 1 } },
+      {
+        route: "orthogonal",
+        stroke: "solid",
+        tone: "success",
+        packets: { count: 1, speed: 96, trail: true },
+      },
+      {
+        route: "spline",
+        spline: "fluid",
+        stroke: "solid",
+        packets: { count: 1, speed: 96, trail: true },
+      },
     ]);
   });
 
-  it("turns a multi-target net into one explicit shared fan-out", () => {
+  it("auto-fits circuit rank columns from allocated width", () => {
+    const scene = figure("auto-grid", { title: "Auto grid" }, (f) => {
+      const sources = ["A", "B", "C"].map((title) =>
+        f.tile({ title, variant: "compact", icon: "circle" }),
+      );
+      const sink = f.gate("and");
+      const circuit = f.circuit(
+        [...sources, sink],
+        sources.map((source) => ({ from: source, to: sink })),
+        { direction: "vertical", width: "fill" },
+      );
+      f.root(circuit.root);
+    });
+    expect(scene.root.children[0]).toMatchObject({ layout: "grid", columns: "auto" });
+    const wideEnough = resolveScene(scene, { width: 520, theme });
+    const compact = resolveScene(scene, { width: 300, theme });
+    const positions = (resolved: typeof wideEnough) =>
+      ["tile-a", "tile-b", "tile-c"].map((id) => {
+        const node = resolved.nodes.find((candidate) => candidate.id === id);
+        return node === undefined ? undefined : [node.x, node.y];
+      });
+    expect(new Set(positions(wideEnough).map((position) => position?.[1])).size).toBe(1);
+    expect(new Set(positions(compact).map((position) => position?.[1])).size).toBeGreaterThan(1);
+  });
+
+  it("shares a source port for multi-target nets without inventing a layout node", () => {
+    const scene = figure("direct-fanout", { title: "Direct fan-out" }, (f) => {
+      const source = f.tile({ icon: "circle", title: "A", variant: "compact" });
+      const xor = f.gate("xor", { text: "XOR" });
+      const and = f.gate("and", { text: "AND" });
+      const circuit = f.circuit(
+        [source, xor, and],
+        [{ from: source, to: [xor, and], kind: "flow", head: "none" }],
+      );
+      expect(circuit.ranks.flat().map((node) => node.id)).toEqual([
+        "tile-a",
+        "gate-xor",
+        "gate-and",
+      ]);
+      expect(circuit.edges).toHaveLength(2);
+      f.root(circuit.root);
+    });
+    expect(scene.edges?.map((edge) => endpointNode(edge.from))).toEqual(["tile-a", "tile-a"]);
+    expect(validateScene(scene).ok).toBe(true);
+  });
+
+  it("adds a laid-out fan-out point only when a junction is explicit", () => {
     const scene = figure("fanout", { title: "Fan-out" }, (f) => {
       const source = f.tile({ icon: "circle", title: "A", variant: "compact" });
       const xor = f.gate("xor", { text: "XOR" });
@@ -518,10 +733,61 @@ describe("figure(): graph() and wire()", () => {
       f.root(circuit.root);
     });
     expect(scene.edges?.map((edge) => [edge.from, edge.to])).toEqual([
-      ["tile-a", "a-fanout"],
-      ["a-fanout", "gate-xor"],
-      ["a-fanout", "gate-and"],
+      [
+        { node: "tile-a", side: { wide: "right", compact: "right", narrow: "bottom" } },
+        { node: "a-fanout", side: "center" },
+      ],
+      [
+        { node: "a-fanout", side: "center" },
+        { node: "gate-xor", port: "in-0" },
+      ],
+      [
+        { node: "a-fanout", side: "center" },
+        { node: "gate-and", port: "in-0" },
+      ],
     ]);
+    expect(validateScene(scene).ok).toBe(true);
+  });
+
+  it("compiles declarative Boolean logic into a responsive circuit and machine", () => {
+    const scene = figure("logic-full-adder", { title: "Logic full adder" }, (f) => {
+      const adder = f.logicCircuit({
+        inputs: {
+          a: { label: "A", tone: "info" },
+          b: { label: "B", tone: "accent" },
+          cin: { label: "CIN", tone: "success" },
+        },
+        gates: {
+          carry: { kind: "or", inputs: ["and1", "and2"], tone: "success" },
+          xor1: { kind: "xor", inputs: ["a", "b"], tone: "info" },
+          and1: { kind: "and", inputs: ["a", "b"], tone: "accent" },
+          xor2: { kind: "xor", inputs: ["xor1", "cin"], tone: "warning" },
+          and2: { kind: "and", inputs: ["xor1", "cin"], tone: "success" },
+        },
+        outputs: {
+          sum: { from: "xor2", label: "SUM", tone: "warning" },
+          cout: { from: "carry", label: "COUT", tone: "success" },
+        },
+      });
+      f.root(adder.root);
+      f.sequence([adder.entrance]);
+      f.machine(adder.machine);
+    });
+
+    expect(scene.root.children.map((node) => node.id)).not.toContain("junction");
+    expect(scene.edges).toHaveLength(12);
+    expect(scene.machine?.variables).toEqual({ a: false, b: false, cin: false });
+    expect(scene.machine?.signals).toHaveProperty("xor1");
+    expect(scene.machine?.signals).toHaveProperty("sumValue");
+    expect(findNode(scene, "input-a")).toMatchObject({
+      interactive: true,
+      onActivate: "TOGGLE_A",
+      bind: { highlight: "a" },
+    });
+    expect(findNode(scene, "gate-xor1-signal")).toMatchObject({ bind: { opacity: "xor1" } });
+    expect(findNode(scene, "output-sum")).toMatchObject({
+      bind: { highlight: "xor2" },
+    });
     expect(validateScene(scene).ok).toBe(true);
   });
 
@@ -1168,4 +1434,48 @@ describe("figure(): a complete figure resolves cleanly", () => {
       expect(bar?.state.revealY).toBe(1);
     });
   }
+
+  it("authors semantic surfaces and concise reusable topologies", () => {
+    const authored = figure("topology-recipes", { title: "Topology recipes" }, (f) => {
+      const source = f.card({ title: "Source" });
+      const host = f.card({ title: "Host" });
+      const web = f.card({ title: "Web" });
+      const cli = f.card({ title: "CLI" });
+      const map = f.hubMap({ host, upstream: [source], clients: [web, cli] });
+      expect(map.ranks.map((rank) => rank.length)).toEqual([1, 1, 2]);
+      expect(map.edges).toHaveLength(3);
+      f.root(f.surface(map.root, { appearance: "card", exportCrop: "surface" }));
+    });
+    expect(authored.root.metadata).toMatchObject({
+      figureSurface: true,
+      surfaceAppearance: "card",
+      exportCrop: "surface",
+    });
+    expect(authored.root.padding).toEqual({ wide: 24, compact: 20, narrow: 14 });
+    expect(authored.root.frame).toMatchObject({ material: "raised" });
+    for (const width of WIDTHS) {
+      const resolved = resolveScene(authored, { width, theme });
+      expect(resolved.edges).toHaveLength(3);
+      expect(resolved.diagnostics?.filter((entry) => entry.severity === "error") ?? []).toEqual([]);
+    }
+  });
+
+  it("builds pipelines, fan-outs, feedback loops, and layered architectures", () => {
+    const authored = figure("all-topologies", { title: "All topologies" }, (f) => {
+      const tile = (title: string) => f.tile({ icon: "circle", title });
+      const pipeline = f.pipeline([tile("P1"), tile("P2"), tile("P3")]);
+      expect(pipeline.edges).toHaveLength(2);
+      const fanSource = tile("Fan source");
+      const fan = f.fanOut(fanSource, [tile("Fan one"), tile("Fan two")]);
+      expect(fan.edges).toHaveLength(2);
+      const loop = f.feedbackLoop([tile("Loop one"), tile("Loop two"), tile("Loop three")]);
+      expect(loop.edges.at(-1)).toMatchObject({ route: "spline", stroke: "dashed" });
+      const architecture = f.layeredArchitecture({
+        layers: [[tile("Layer input")], [tile("Layer A"), tile("Layer B")], [tile("Layer output")]],
+      });
+      expect(architecture.edges).toHaveLength(4);
+      f.root(f.stack([pipeline.root, fan.root, loop.root, architecture.root]));
+    });
+    expect(authored.edges).toHaveLength(11);
+  });
 });

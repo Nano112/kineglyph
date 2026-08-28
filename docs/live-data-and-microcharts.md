@@ -1,6 +1,6 @@
 # Live data and microcharts
 
-Kineglyph now has two deliberately different data paths:
+Kineglyph nowsdfdsfsdf
 
 - A full figure can accept named values with `controller.setSignals()`. Layout, themes, bindings,
   interaction, and animation remain available.
@@ -128,6 +128,13 @@ sockets, and observers do not leak while someone edits.
 
 Declare the keys and useful empty-state defaults in figure metadata. Bindings are checked against
 those declarations at build time, even when the figure has no state machine.
+
+When the values are a _function of the figure's own controls_ — geometry that needs
+trigonometry, a numerical root, a propagated trajectory — pass `deriveSignals` to
+`mountKineglyph` (or export it from a live block). It is called with the machine's variables once
+at mount and after every transition, and whatever it returns is merged into the live signals
+before the scene re-resolves, so the entrance timeline keeps playing while the drawing follows the
+control. The [drafting sheets](./drafting-sheets.md) use it for orbital mechanics.
 
 ```ts
 import { figure } from "@kineglyph/core";

@@ -2,7 +2,7 @@
 import { chmodSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-for (const file of ["cli.js", "doctor-cli.js"]) {
+for (const file of ["cli.js", "doctor-cli.js", "main-cli.js"]) {
   const cli = fileURLToPath(new URL(`../dist/${file}`, import.meta.url));
   if (existsSync(cli)) chmodSync(cli, 0o755);
 }

@@ -3,11 +3,13 @@
 A CPU is not one mysterious object. It is a ladder of small, deterministic ideas: a bit, a rule
 for combining bits, a place to remember them, and a loop that moves them at the right moment.
 
-This page builds that ladder visually. Every figure uses the high-contrast monospace language of
-the [binary counter automaton](./gallery.md#interactive-simulation-binary-counter-automaton): violet
-for low-order structure, warm colours for active data, dim cells for zero, and bright cells for one.
-Some figures simply reveal themselves, some animate signal flow, and the instruments with buttons
-are real state machines running entirely in the browser.
+This page builds that ladder visually. Every figure uses `editorialCircuitTheme`: the high-contrast
+monospace language of the
+[binary counter automaton](./gallery.md#interactive-simulation-binary-counter-automaton), with the
+surface discipline of the Instrument specimens. Violet establishes structure, warm colours carry
+active data, neutral wire casings separate crossings, and restrained contact shadows give terminal
+cards hierarchy without glow. Some figures simply reveal themselves, some animate signal flow, and
+the instruments with buttons are real state machines running entirely in the browser.
 
 ## 1. One bit, two meanings
 
@@ -17,11 +19,11 @@ A bit answers one yes-or-no question. The voltage is physical; `0` and `1` are t
 two safe ranges of that voltage. Everything later on this page is built by composing this choice.
 
 ```kineglyph live id=cpu-bit-basics view=preview height=430
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, expr, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
-export default figure("cpu-bit-basics", { title: "One bit, two stable ranges" }, (f) => {
+export default figure("cpu-bit-basics", { title: "One bit, two stable ranges", background: "transparent" }, (f) => {
   const zero = f.stack([
     f.eyebrow("LOW RANGE", { tone: "textMuted" }),
     f.code("0", { textStyle: "display" }),
@@ -44,7 +46,7 @@ export default figure("cpu-bit-basics", { title: "One bit, two stable ranges" },
   f.root(f.stack([
     f.row([f.eyebrow("BIT", { tone: "info" }), f.caption("smallest addressable fact")], { justify: "between", width: "fill" }),
     f.flow([zero, one, switchNode], { gap: 16, align: "stretch", width: "fill" }),
-  ], { gap: 18, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("flat") }));
+  ], { gap: 18, width: "fill" }));
   f.sequence([f.reveal(zero), f.reveal(one), f.reveal(switchNode)]);
 });
 ```
@@ -58,9 +60,9 @@ Click any bit to toggle it in place. The word, decimal value, and active-weight 
 together, so you can construct all sixteen combinations directly.
 
 ```kineglyph live id=cpu-binary-place-value view=preview height=560
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, expr, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 const values = Array.from({ length: 16 }, (_, value) => value);
 const weights = [8, 4, 2, 1];
@@ -78,6 +80,7 @@ const toggleTransitions = (weight) => values.map((value) => ({
 export default figure("cpu-binary-place-value", {
   title: "Four-bit place value",
   description: "An interactive four-bit word showing decimal value, binary digits, and active positional weights.",
+  background: "transparent",
 }, (f) => {
   const decimal = f.code("0", { textStyle: "display", bind: { text: "value" } });
   const word = f.code("0000", { textStyle: "title", tone: "info", bind: { text: "binary" } });
@@ -102,7 +105,7 @@ export default figure("cpu-binary-place-value", {
     ], { justify: "between", align: "end", width: "fill" }),
     f.grid(cells, { columns: { wide: 4, compact: 4, narrow: 2 }, gap: 10, width: "fill", focusGroup: true }),
     f.stack([f.eyebrow("ACTIVE WEIGHTS", { tone: "info" }), equation], { gap: 7, width: "fill" }),
-  ], { gap: 22, padding: { wide: 24, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 22, width: "fill" }));
 
   f.machine({
     initial: "choosing",
@@ -131,9 +134,9 @@ them beside each other and the same two inputs produce the two answers needed fo
 sum bit and a carry bit.
 
 ```kineglyph live id=cpu-half-adder view=preview height=520
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, expr, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 const states = [
   ["q00", "0", "0", "0", "0"],
@@ -149,6 +152,7 @@ const toggle = (name) => [
 export default figure("cpu-half-adder", {
   title: "Two gates make a half adder",
   description: "Toggle A and B to trace their signals through parallel XOR and AND gates into sum and carry outputs.",
+  background: "transparent",
 }, (f) => {
   const terminal = (id, role, name, value, tone, bind, event) => f.tile({
     id, icon: role === "INPUT" ? "circle" : "arrow-right", eyebrow: role, title: name,
@@ -158,19 +162,18 @@ export default figure("cpu-half-adder", {
   });
   const inputA = terminal("input-a", "INPUT", "A", "aValue", "accent", "aOn", "TOGGLE_A");
   const inputB = terminal("input-b", "INPUT", "B", "bValue", "info", "bOn", "TOGGLE_B");
-  const xor = f.gate("xor", { id: "sum-gate", tone: "warning", text: "XOR", width: { wide: 108, compact: 92, narrow: 96 }, height: { wide: 72, compact: 64, narrow: 66 }, bind: { highlight: "sumOn" } });
-  const and = f.gate("and", { id: "carry-gate", tone: "success", text: "AND", width: { wide: 108, compact: 92, narrow: 96 }, height: { wide: 72, compact: 64, narrow: 66 }, bind: { highlight: "carryOn" } });
+  const xor = f.gate("xor", { id: "sum-gate", tone: "warning", bind: { highlight: "sumOn" } });
+  const and = f.gate("and", { id: "carry-gate", tone: "success", bind: { highlight: "carryOn" } });
   const sum = terminal("output-sum", "OUTPUT", "SUM", "sum", "warning", "sumOn");
   const carry = terminal("output-carry", "OUTPUT", "CARRY", "carry", "success", "carryOn");
   const connections = [
-    { from: inputA, to: [xor, and], kind: "flow", tone: "accent", head: "none", bind: { flow: "aOn", highlight: "aOn" }, junction: { tone: "accent", bind: { highlight: "aOn" } } },
-    { from: inputB, to: [xor, and], kind: "flow", tone: "info", head: "none", bind: { flow: "bOn", highlight: "bOn" }, junction: { tone: "info", bind: { highlight: "bOn" } } },
-    { from: xor, to: sum, kind: "flow", tone: "warning", head: "none", bind: { flow: "sumOn", highlight: "sumOn" } },
-    { from: and, to: carry, kind: "flow", tone: "success", head: "none", bind: { flow: "carryOn", highlight: "carryOn" } },
+    { from: inputA, to: [xor, and], kind: "flow", signal: { onTone: "accent" }, bind: { signal: "aOn" } },
+    { from: inputB, to: [xor, and], kind: "flow", signal: { onTone: "info" }, bind: { signal: "bOn" } },
+    { from: xor, to: sum, kind: "flow", signal: { onTone: "warning" }, bind: { signal: "sumOn" } },
+    { from: and, to: carry, kind: "flow", signal: { onTone: "success" }, bind: { signal: "carryOn" } },
   ];
   const circuit = f.circuit([inputA, inputB, xor, and, sum, carry], connections, {
     direction: { wide: "horizontal", compact: "vertical", narrow: "vertical" },
-    layerGap: { wide: 38, compact: 36, narrow: 34 }, padding: { wide: 18, compact: 14, narrow: 10 },
     width: "fill",
   });
   const tableRows = states.map(([state, a, b, s, c]) => f.row([
@@ -184,9 +187,9 @@ export default figure("cpu-half-adder", {
       f.row([f.eyebrow("A", { tone: "textMuted" }), f.eyebrow("B", { tone: "textMuted" }), f.eyebrow("SUM", { tone: "warning" }), f.eyebrow("CARRY", { tone: "success" })], { gap: 18, padding: [0, 10], width: "fill" }),
       ...tableRows,
     ], { gap: 6, width: "fill" }),
-  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 22, width: "fill" }));
 
-  f.sequence([f.reveal(circuit.ranks[0]), f.draw(circuit.edges, { stagger: 45 }), f.reveal(circuit.ranks.slice(1).flat(), { stagger: 70 })]);
+  f.sequence([circuit.entrance]);
 
   f.machine({
     initial: "ready",
@@ -218,117 +221,42 @@ _Interactive circuit · toggle A, B, and carry-in directly_
 
 A half adder cannot accept a carry from the column on its right. A **full adder** solves that with
 two XOR stages, two AND stages, and an OR. Toggle the three input terminals: live signals light the
-gate outlines, junctions, and wires, while particles travel only along nets currently carrying a
-`1`. Each input lands on a distinct pin, and the whole schematic turns downward on a narrow screen.
+gate outlines, junctions, and wires, while short ink trails travel only along nets currently
+carrying a `1`. Gates and wires share the same neutral casing plus active signal ink, so the signal
+reads as one continuous circuit. Each input lands on a distinct pin, and the whole schematic turns
+downward on a narrow screen.
 
 ```kineglyph live id=cpu-full-adder view=preview height=430
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, figure } from "kineglyph";
 
-export const theme = counterTerminalTheme;
-
-const on = (name) => ({ var: name, op: "truthy" });
-
-const aOn = on("a");
-const bOn = on("b");
-const cinOn = on("cin");
-const bit = (condition) => expr.when(condition, 1, 0);
-const tone = (signal, activeTone) => expr.match(expr.signal(signal), { 1: activeTone }, "connector");
+export const theme = editorialCircuitTheme;
 
 export default figure("cpu-full-adder", {
   title: "Interactive one-bit full adder",
   description: "Toggle A, B, and carry-in to animate live Boolean signals through two XOR gates, two AND gates, and an OR.",
+  background: "transparent",
 }, (f) => {
-  const terminal = (id, role, name, value, tone, active, event) => f.tile({
-    id, icon: role === "INPUT" ? "circle" : "arrow-right", eyebrow: role, title: name,
-    detail: "0", detailStyle: "title", detailTone: tone, detailBind: { text: value },
-    tone, variant: "compact", frame: material("flat"), bind: { highlight: active },
-    ...(event === undefined ? {} : { interactive: true, onActivate: event }),
-  });
-  const a = terminal("input-a", "INPUT", "A", "aValue", "info", "aOn", "TOGGLE_A");
-  const b = terminal("input-b", "INPUT", "B", "bValue", "accent", "bOn", "TOGGLE_B");
-  const cin = terminal("input-cin", "INPUT", "CIN", "cinValue", "success", "cinOn", "TOGGLE_CIN");
-  const gateSize = {
-    width: { wide: 102, compact: 82, narrow: 94 },
-    height: { wide: 68, compact: 58, narrow: 64 },
-  };
-  const xor1 = f.gate("xor", { id: "xor-1", text: "XOR", tone: "info", bind: { highlight: "xor1On" }, ...gateSize });
-  const and1 = f.gate("and", { id: "and-1", text: "AND", tone: "accent", bind: { highlight: "and1On" }, ...gateSize });
-  const xor2 = f.gate("xor", { id: "xor-2", text: "XOR", tone: "warning", bind: { highlight: "sumOn" }, ...gateSize });
-  const and2 = f.gate("and", { id: "and-2", text: "AND", tone: "success", bind: { highlight: "and2On" }, ...gateSize });
-  const or = f.gate("or", { id: "carry-or", text: "OR", tone: "success", bind: { highlight: "carryOn" }, ...gateSize });
-  const sum = terminal("output-sum", "OUTPUT", "SUM", "sumValue", "warning", "sumOn");
-  const cout = terminal("output-cout", "OUTPUT", "COUT", "carryValue", "success", "carryOn");
-  const net = (from, to, signal) => ({
-    from, to, kind: "flow", head: "none", tone: "connector",
-    bind: { tone: `${signal}Tone`, flow: `${signal}On`, highlight: `${signal}On` },
-  });
-  const connections = [
-    { ...net(a, [xor1, and1], "a"), junction: { tone: "info", bind: { highlight: "aOn" } } },
-    { ...net(b, [xor1, and1], "b"), junction: { tone: "accent", bind: { highlight: "bOn" } } },
-    { ...net(xor1, [xor2, and2], "xor1"), junction: { tone: "info", bind: { highlight: "xor1On" } } },
-    { ...net(cin, [xor2, and2], "cin"), junction: { tone: "success", bind: { highlight: "cinOn" } } },
-    net(and1, or, "and1"), net(and2, or, "and2"),
-    net(xor2, sum, "sum"), net(or, cout, "carry"),
-  ];
-  const circuit = f.circuit([a, b, cin, xor1, and1, xor2, and2, or, sum, cout], connections, {
-    direction: { wide: "horizontal", compact: "vertical", narrow: "vertical" },
-    layerGap: { wide: 28, compact: 34, narrow: 32 },
-    nodeGap: { wide: 18, compact: 12, narrow: 12 },
-    padding: { wide: 18, compact: 12, narrow: 10 }, width: "fill",
-  });
-  f.root(f.stack([circuit.root], {
-    padding: { wide: 14, compact: 10, narrow: 8 }, width: "fill", frame: material("raised"),
-  }));
-  f.sequence([
-    f.reveal(circuit.ranks[0], { stagger: 60 }),
-    f.draw(circuit.edges, { stagger: 35 }),
-    f.reveal(circuit.ranks.slice(1).flat(), { stagger: 55 }),
-  ]);
-
-  f.machine({
-    initial: "ready",
-    variables: { a: false, b: false, cin: false },
-    states: {
-      ready: {
-        on: {
-          TOGGLE_A: { target: "ready", actions: [{ type: "toggle", var: "a" }] },
-          TOGGLE_B: { target: "ready", actions: [{ type: "toggle", var: "b" }] },
-          TOGGLE_CIN: { target: "ready", actions: [{ type: "toggle", var: "cin" }] },
-        },
-      },
+  const adder = f.logicCircuit({
+    inputs: {
+      a:   { label: "A",   tone: "info" },
+      b:   { label: "B",   tone: "accent" },
+      cin: { label: "CIN", tone: "success" },
     },
-    signals: {
-      aBit: bit(aOn),
-      bBit: bit(bOn),
-      cinBit: bit(cinOn),
-      xor1Bit: expr.bitXor(expr.signal("aBit"), expr.signal("bBit")),
-      and1Bit: expr.bitAnd(expr.signal("aBit"), expr.signal("bBit")),
-      sumBit: expr.bitXor(expr.signal("xor1Bit"), expr.signal("cinBit")),
-      and2Bit: expr.bitAnd(expr.signal("xor1Bit"), expr.signal("cinBit")),
-      carryBit: expr.bitOr(expr.signal("and1Bit"), expr.signal("and2Bit")),
-      aValue: expr.format(expr.signal("aBit")),
-      bValue: expr.format(expr.signal("bBit")),
-      cinValue: expr.format(expr.signal("cinBit")),
-      sumValue: expr.format(expr.signal("sumBit")),
-      carryValue: expr.format(expr.signal("carryBit")),
-      aOn: expr.signal("aBit"),
-      bOn: expr.signal("bBit"),
-      cinOn: expr.signal("cinBit"),
-      xor1On: expr.signal("xor1Bit"),
-      and1On: expr.signal("and1Bit"),
-      and2On: expr.signal("and2Bit"),
-      sumOn: expr.signal("sumBit"),
-      carryOn: expr.signal("carryBit"),
-      aTone: tone("aBit", "info"),
-      bTone: tone("bBit", "accent"),
-      cinTone: tone("cinBit", "success"),
-      xor1Tone: tone("xor1Bit", "info"),
-      and1Tone: tone("and1Bit", "accent"),
-      and2Tone: tone("and2Bit", "success"),
-      sumTone: tone("sumBit", "warning"),
-      carryTone: tone("carryBit", "success"),
+    gates: {
+      xor1:  { kind: "xor", inputs: ["a", "b"],       tone: "info" },
+      and1:  { kind: "and", inputs: ["a", "b"],       tone: "accent" },
+      xor2:  { kind: "xor", inputs: ["xor1", "cin"],  tone: "warning" },
+      and2:  { kind: "and", inputs: ["xor1", "cin"],  tone: "success" },
+      carry: { kind: "or",  inputs: ["and1", "and2"], tone: "success" },
+    },
+    outputs: {
+      sum:  { from: "xor2",  label: "SUM",  tone: "warning" },
+      cout: { from: "carry", label: "COUT", tone: "success" },
     },
   });
+  f.root(f.surface(adder.root, { appearance: "card" }));
+  f.sequence([adder.entrance]);
+  f.machine(adder.machine);
 });
 ```
 
@@ -341,13 +269,14 @@ the carry travels to the next slice, which is why this simple design is called a
 adder**.
 
 ```kineglyph live id=cpu-ripple-adder view=preview height=420
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, expr, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 export default figure("cpu-ripple-adder", {
   title: "Four-bit ripple-carry adder",
   description: "Four compact full-adder slices pass a carry signal from the least significant bit to the most significant bit.",
+  background: "transparent",
 }, (f) => {
   const bits = [0, 1, 2, 3].map((bit) => f.tile({
     id: `adder-${bit}`,
@@ -377,15 +306,9 @@ export default figure("cpu-ripple-adder", {
     layerGap: { wide: 28, compact: 18, narrow: 34 },
     padding: { wide: 14, compact: 10, narrow: 8 }, width: "fill",
   });
-  f.root(f.stack([inputs, chain.root, result], { gap: 20, padding: { wide: 20, compact: 14, narrow: 10 }, width: "fill", frame: material("raised") }));
+  f.root(f.stack([inputs, chain.root, result], { gap: 20, width: "fill" }));
 
-  const carries = chain.edges;
-  f.sequence([
-    f.reveal(inputs),
-    f.reveal(bits[0]),
-    ...bits.slice(1).map((bit, index) => [f.draw(carries[index]), f.reveal(bit), f.flow(carries[index])]),
-    f.reveal(result),
-  ]);
+  f.sequence([f.reveal(inputs), chain.entrance, f.reveal(result)]);
 });
 ```
 
@@ -399,9 +322,9 @@ carry words through the bank and multiplexer; the dashed control wire only choos
 separation keeps data flow and control flow visually distinct.
 
 ```kineglyph live id=cpu-alu view=preview height=650
-import { counterTerminalTheme, expr, figure, material } from "kineglyph";
+import { editorialCircuitTheme, expr, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 const operations = [
   ["add", "ADD"],
@@ -410,7 +333,7 @@ const operations = [
   ["xor", "XOR"],
 ];
 
-export default figure("cpu-alu", { title: "A four-operation ALU" }, (f) => {
+export default figure("cpu-alu", { title: "A four-operation ALU", background: "transparent" }, (f) => {
   const a = f.card({ eyebrow: "REGISTER A", title: "0101", body: "decimal 5", motif: "blocks", tone: "info", compact: true, frame: material("raised") });
   const b = f.card({ eyebrow: "REGISTER B", title: "0011", body: "decimal 3", motif: "blocks", tone: "success", compact: true, frame: material("raised") });
   const selector = f.card({
@@ -472,8 +395,6 @@ export default figure("cpu-alu", { title: "A four-operation ALU" }, (f) => {
     style: "circuit",
     layerGap: { wide: 44, compact: 38, narrow: 34 },
     nodeGap: 12,
-    padding: { wide: 18, compact: 14, narrow: 10 },
-    frame: material("flat"),
   }));
 
   f.wire({ node: a, side: "bottom" }, { node: operands, side: "top", offset: 0.32 }, { kind: "bus", tone: "info" });
@@ -517,11 +438,11 @@ clock edge and holds that answer steady for the rest of the cycle. This rhythm t
 into a sequence of dependable steps.
 
 ```kineglyph live id=cpu-clocked-register view=preview height=520
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { editorialCircuitTheme, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
-export default figure("cpu-clocked-register", { title: "A register captures on the rising edge" }, (f) => {
+export default figure("cpu-clocked-register", { title: "A register captures on the rising edge", background: "transparent" }, (f) => {
   const samples = [0, 1, 0, 1, 0, 1, 0, 1].map((high, index) => f.stack([
     f.rect({ id: `clock-${index}`, width: "fill", height: high ? 48 : 16, radius: 4, fill: high ? "chart6" : "surfaceMuted" }),
     f.code(String(index), { tone: "textMuted" }),
@@ -534,7 +455,7 @@ export default figure("cpu-clocked-register", { title: "A register captures on t
   f.root(f.stack([
     f.stack([f.eyebrow("CLOCK", { tone: "warning" }), clock], { gap: 8, width: "fill" }),
     path,
-  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 22, width: "fill" }));
   const sample = f.connect(before, edge, { head: "arrow", labels: [{ text: "sample" }] });
   const hold = f.connect(edge, after, { head: "arrow", style: "flow", packets: { count: 2 }, labels: [{ text: "hold" }] });
   f.sequence([
@@ -554,9 +475,9 @@ Registers are tiny, fast words inside the CPU. This toy register file has only t
 it already demonstrates the essential operations: accept a value, move it, transform it, and reset.
 
 ```kineglyph live id=cpu-register-file view=preview height=560
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { editorialCircuitTheme, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 const snapshots = {
   empty: ["0000", "0000", "bus idle"],
@@ -566,7 +487,7 @@ const snapshots = {
 };
 const snapshotCases = (index) => Object.fromEntries(Object.entries(snapshots).map(([state, values]) => [state, values[index]]));
 
-export default figure("cpu-register-file", { title: "A two-register scratchpad" }, (f) => {
+export default figure("cpu-register-file", { title: "A two-register scratchpad", background: "transparent" }, (f) => {
   const bus = f.stack([
     f.eyebrow("SHARED DATA BUS", { tone: "info" }),
     f.rect({ width: "fill", height: 12, radius: 6, fill: "chart3" }),
@@ -578,7 +499,7 @@ export default figure("cpu-register-file", { title: "A two-register scratchpad" 
   f.root(f.stack([
     bus,
     f.flow([registerA, incrementer, registerB], { gap: 58, align: "stretch", width: "fill" }),
-  ], { gap: 24, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 24, width: "fill" }));
   f.connect(bus, registerA, { head: "arrow" });
   f.connect(registerA, incrementer, { head: "arrow" });
   f.connect(registerA, registerB, { route: "curve", head: "arrow" });
@@ -618,11 +539,11 @@ each instruction through **fetch**, **decode**, **execute**, and **write back**,
 paths on each clock edge.
 
 ```kineglyph live id=cpu-instruction-cycle view=preview height=510
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { editorialCircuitTheme, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
-export default figure("cpu-instruction-cycle", { title: "The four-phase instruction cycle" }, (f) => {
+export default figure("cpu-instruction-cycle", { title: "The four-phase instruction cycle", background: "transparent" }, (f) => {
   const fetch = f.card({ eyebrow: "01", title: "FETCH", body: "Memory[PC] → IR", motif: "file", tone: "accent", frame: material("raised") });
   const decode = f.card({ eyebrow: "10", title: "DECODE", body: "bits → control lines", motif: "branch", tone: "info", frame: material("raised") });
   const execute = f.card({ eyebrow: "11", title: "EXECUTE", body: "ALU applies the rule", motif: "circuit", tone: "warning", frame: material("raised") });
@@ -631,7 +552,7 @@ export default figure("cpu-instruction-cycle", { title: "The four-phase instruct
   f.root(f.stack([
     f.row([f.eyebrow("ONE CLOCKED LOOP", { tone: "info" }), f.code("PC → IR → ALU → REG", { tone: "textMuted" })], { justify: "between", width: "fill" }),
     f.flow(phases, { gap: 58, align: "stretch", width: "fill" }),
-  ], { gap: 20, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 20, width: "fill" }));
   const edges = phases.slice(0, -1).map((phase, index) => f.connect(phase, phases[index + 1], {
     head: "arrow", style: "flow", packets: { count: 1 }, labels: [{ text: "clock" }],
   }));
@@ -653,9 +574,9 @@ instruction, the instruction register hold it, and the accumulator change only w
 written back.
 
 ```kineglyph live id=cpu-data-loop view=preview height=900
-import { counterTerminalTheme, figure, material } from "kineglyph";
+import { editorialCircuitTheme, figure, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = editorialCircuitTheme;
 
 const steps = Array.from({ length: 8 }, (_, step) => step);
 const table = {
@@ -671,6 +592,7 @@ const active = (...wanted) => Object.fromEntries(steps.map((step) => [step, want
 export default figure("cpu-data-loop", {
   title: "A two-instruction accumulator CPU",
   description: "Eight reversible microsteps across fetch, decode, execute, and write-back.",
+  background: "transparent",
 }, (f) => {
   const phaseWord = f.code("FETCH", { textStyle: "title", tone: "warning", bind: { text: "phase" } });
   const phaseCards = [
@@ -706,7 +628,7 @@ export default figure("cpu-data-loop", {
     ], { justify: "between", align: "end", width: "fill" }),
     f.grid(phaseCards, { columns: { wide: 4, compact: 4, narrow: 2 }, gap: 8, width: "fill" }),
     f.flow([memory, datapath], { gap: 52, align: "center", width: "fill" }),
-  ], { gap: 22, padding: { wide: 22, compact: 18, narrow: 14 }, width: "fill", frame: material("raised") }));
+  ], { gap: 22, width: "fill" }));
 
   f.connect(pc, memory, { route: "curve", head: "arrow" });
   f.connect(memory, ir, { route: "curve", head: "arrow" });

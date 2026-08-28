@@ -1,5 +1,5 @@
-import type { ResolvedScene } from "@kineglyph/core";
-import { seekTimeline } from "@kineglyph/core";
+import type { ResolvedScene, ResolvedSceneCrop } from "@kineglyph/core";
+import { resolvedSceneBounds, seekTimeline } from "@kineglyph/core";
 import type { SvgRenderOptions } from "@kineglyph/svg";
 import { renderSvg } from "@kineglyph/svg";
 import { KineglyphExportError } from "./errors.js";
@@ -45,6 +45,10 @@ export interface SvgExportOptions {
    * own background is already drawn by the renderer, from a token, so nothing is lost.
    */
   readonly destination?: "standalone" | "inline";
+  /** Crop to the authored scene, semantic `f.surface()`, or visible content bounds. */
+  readonly crop?: ResolvedSceneCrop;
+  /** Extra scene units around a `surface` or `content` crop. */
+  readonly cropPadding?: number;
 }
 
 export const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>';
@@ -88,10 +92,11 @@ export function buildSvgDocument(
   options: SvgExportOptions,
   build: BuildOptions,
 ): SvgDocument {
-  const sceneSize = sceneDimensions(scene);
-  const size = resolveOutputSize(sceneSize, options, build.raster);
+  sceneDimensions(scene);
   const time = build.time ?? resolveTime(scene, options.time);
   const frame = seekTimeline(scene, time);
+  const viewBox = resolvedSceneBounds(frame, options.crop ?? "scene", options.cropPadding ?? 0);
+  const size = resolveOutputSize(viewBox, options, build.raster);
   const renderOptions: SvgRenderOptions = {
     ...(options.idPrefix === undefined ? {} : { idPrefix: options.idPrefix }),
     ...(options.title === undefined ? {} : { title: options.title }),
@@ -103,12 +108,6 @@ export function buildSvgDocument(
     throw new KineglyphExportError("encoder", "the SVG renderer did not produce an <svg> root");
   }
 
-  const viewBox = parseViewBox(root.attributes.get("viewBox")) ?? {
-    x: 0,
-    y: 0,
-    width: sceneSize.width,
-    height: sceneSize.height,
-  };
   const attributes = new Map(root.attributes);
   attributes.set(
     "viewBox",
@@ -261,35 +260,6 @@ function parseRootTag(svg: string): RootTag | undefined {
   if (rest === null) return undefined;
   const end = cursor + rest[0].length;
   return { start, end, selfClosing: rest[1] === "/", attributes };
-}
-
-interface ViewBox {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
-function parseViewBox(value: string | undefined): ViewBox | undefined {
-  if (value === undefined) return undefined;
-  const parts = value
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number);
-  const [x, y, width, height] = parts;
-  if (
-    parts.length !== 4 ||
-    x === undefined ||
-    y === undefined ||
-    width === undefined ||
-    height === undefined ||
-    !parts.every(Number.isFinite) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return undefined;
-  }
-  return { x, y, width, height };
 }
 
 function isPositiveFinite(value: unknown): value is number {

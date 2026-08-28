@@ -27,24 +27,53 @@ Each preset changes the full system—type, spacing, radii, stroke weights, moti
 semantic colour roles. Their material roles are deliberately flat: no glow, blur, glass effect, or
 shader fallback is introduced when a scene switches themes.
 
-Two additional themes exercise more opinionated glyph languages:
+Four additional themes exercise more opinionated glyph languages:
 
 ```ts
-import { glyphStyleThemes, instrumentTheme, signalTheme } from "@kineglyph/core";
+import {
+  editorialCircuitTheme,
+  glyphStyleThemes,
+  integrationTheme,
+  instrumentTheme,
+  signalTheme,
+} from "@kineglyph/core";
 
 const schematic = signalTheme; // grid, outline, explicit signal paths
+const integration = integrationTheme; // dark host maps, restrained cyan-to-blue hierarchy
 const physical = instrumentTheme; // graphite depth, contact shadows, local emission
+const editorialCircuit = editorialCircuitTheme; // inked signal channels, restrained card depth
 const selected = glyphStyleThemes.instrument;
 ```
 
 The same scene can switch between them. `tileNode()`, `port()`, `gridPlane()`, and `cardFan()` (or
 `f.tile()`, `f.port()`, `f.gridPlane()`, and `f.cardFan()`) provide the matching portable
-compositions without coupling the scene to either theme. Labelled tiles hug measured content and
+compositions without coupling the scene to a particular theme. Labelled tiles hug measured content and
 offer icon, compact-horizontal, and centred-labelled variants plus a bindable detail line.
 `f.circuit(nodes, connections)` infers responsive ranks from a netlist and returns its root, edges,
-and ranks for animation; `f.wire()` includes signal, bus, control, data, clock, feedback, optional,
-and flowing presets. Every node also accepts responsive static `rotation`; animation and
-SVG/PNG/GIF export resolve the same centre-origin transform.
+ranks, and a progressive `entrance` motion. The entrance draws the wires entering a rank while its
+nodes reveal, so loading never exposes disconnected holes. Gates automatically face right in horizontal circuits and down in vertical
+circuits; named `in-0`, `in-1`, and `out` ports sit on the exact visible pin endpoints and are
+assigned from netlist order. Every node can declare named ports, targeted with
+`{ node, port: "name" }`, while an explicit responsive `orientation` can override automatic gate
+direction. Circuit ranks auto-fit their columns from allocated width, and their
+wires avoid nodes by default and receive a wider canvas casing that keeps crossings legible;
+`avoid: "nodes-and-edges"` also reserves prior lanes. `f.wire()` includes signal, bus, control,
+data, clock, feedback, optional, packet-bearing flow, and obstacle-routed spline presets. Flow and
+spline wires include a short animated ink trail by default; customize it with
+`packets: { count, speed, period, trail, trailLength, trailWidth, trailOpacity }`. Prefer `speed` for
+constant pixels-per-second motion across differently sized routes; an explicit `period` deliberately
+synchronises whole-edge loops and takes precedence. The trail follows the
+same resolved route as the wire, continues after an entrance sequence finishes, pauses with the
+figure, and seeks deterministically for SVG/PNG/GIF export. Use
+`signal: { onTone, offTone }` with `bind: { signal }` for live/inactive nets without separate tone
+and packet expressions. Every node also accepts responsive static
+`rotation`; animation and SVG/PNG/GIF export resolve the same centre-origin transform.
+
+`f.logicCircuit({ inputs, gates, outputs })` is the concise Boolean layer over `f.circuit()`. Named
+gate inputs form the netlist; the helper creates toggleable terminals, expressions, signal-bound
+wires, output values, a state machine, and the same progressive entrance. Multi-target
+`f.circuit()` connections share their source port by default instead of inserting a surprise layout
+node; pass an explicit `junction` when the contact itself should be visible.
 
 ## Files, terminals, and asciinema recordings
 

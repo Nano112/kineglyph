@@ -340,7 +340,16 @@ function updateEdge(
       ? packetPositions(edge.samples, count, period, time)
       : edge.packets;
   if (tracks.length === 0 && packets === edge.packets) return edge;
-  return { ...edge, appearance, state, ...(packets === undefined ? {} : { packets }) };
+  return {
+    ...edge,
+    appearance,
+    state,
+    ...(packets === undefined ? {} : { packets }),
+    metadata: {
+      ...(edge.metadata ?? {}),
+      ...(period > 0 ? { packetPhase: (((time % period) + period) % period) / period } : {}),
+    },
+  };
 }
 
 function numberValue(value: unknown): number {

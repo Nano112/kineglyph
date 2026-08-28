@@ -214,6 +214,28 @@ states, timeline times, output sizes, layouts, GIF frame rates, and explicit fon
 
 ## Fast iteration
 
+The shortest path is the bundled development CLI:
+
+```sh
+npx kineglyph create first-glyph
+cd first-glyph
+npm install
+npm run dev
+```
+
+This opens a live-reloading TypeScript preview with an optional responsive composition debugger.
+The generated project also includes `npm run render` and `npm run doctor`; it is intentionally
+small enough to understand in one screen.
+
+For an existing scene, run the server directly:
+
+```sh
+npx kineglyph dev ./figures/build-step.ts --port 4178
+npx kineglyph render ./figures/build-step.ts --format svg --out ./public/build-step.svg --crop surface
+```
+
+The lower-level watch loop remains useful when a script produces several related files:
+
 Both runtimes can rerun the generator whenever source files change:
 
 ```sh

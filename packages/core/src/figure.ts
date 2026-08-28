@@ -24,18 +24,27 @@ import {
 } from "./authoring.js";
 import { scopeFragment, shiftTracks, tracksDuration, type SceneFragment } from "./fragment.js";
 import type { Easing } from "./easing.js";
-import { validateStateMachine, type StateMachineDefinition } from "./machine.js";
+import { expr } from "./machine.js";
+import {
+  validateStateMachine,
+  type SignalExpression,
+  type StateMachineDefinition,
+} from "./machine.js";
+import { material } from "./material.js";
 import {
   card,
   cardFan,
   codeBlock,
   container,
   fileTree,
+  figureSurface,
   gate,
+  orientGate,
   junction,
   gridPlane,
   keyValue,
   panel,
+  paneLayout,
   pill,
   port,
   rule,
@@ -43,6 +52,8 @@ import {
   stack,
   tileNode,
   terminal,
+  terminalWindow,
+  windowFrame,
   type CardOptions,
   type CardFanOptions,
   type CodeBlockOptions,
@@ -51,17 +62,24 @@ import {
   type KeyValueOptions,
   type LogicGateKind,
   type LogicGateOptions,
+  type LogicGateOrientation,
   type JunctionOptions,
   type GridPlaneOptions,
   type FileTreeEntry,
   type FileTreeOptions,
+  type FigureSurfaceOptions,
   type PanelOptions,
+  type PaneLayoutOptions,
   type PillOptions,
   type PortMarkOptions,
   type TextOptions,
   type TerminalLine,
   type TerminalOptions,
+  type TerminalPane,
+  type TerminalWindowOptions,
   type TileNodeOptions,
+  type WindowFrameOptions,
+  type WorkspacePane,
 } from "./recipes.js";
 import type {
   AnimationTimeline,
@@ -78,6 +96,7 @@ import {
   type CircleMark,
   type EdgeDefinition,
   type EdgeEndpoint,
+  type EdgeSide,
   type GroupLayout,
   type GroupNode,
   type IconMark,
@@ -143,6 +162,8 @@ export type FigureCardOptions = CardOptions & { readonly id?: string };
 export type FigureCardFanOptions = CardFanOptions & { readonly id?: string };
 export type FigureCodeBlockOptions = CodeBlockOptions & { readonly id?: string };
 export type FigurePanelOptions = PanelOptions & { readonly id?: string };
+export type FigurePaneLayoutOptions = PaneLayoutOptions & { readonly id?: string };
+export type FigureSurfaceBuilderOptions = FigureSurfaceOptions & { readonly id?: string };
 export type FigurePillOptions = PillOptions & { readonly id?: string };
 export type FigureGateOptions = LogicGateOptions & { readonly id?: string };
 export type FigureJunctionOptions = JunctionOptions & { readonly id?: string };
@@ -151,6 +172,8 @@ export type FigurePortOptions = PortMarkOptions & { readonly id?: string };
 export type FigureTileNodeOptions = TileNodeOptions & { readonly id?: string };
 export type FigureKeyValueOptions = KeyValueOptions & { readonly id?: string };
 export type FigureTerminalOptions = TerminalOptions & { readonly id?: string };
+export type FigureTerminalWindowOptions = TerminalWindowOptions & { readonly id?: string };
+export type FigureWindowFrameOptions = WindowFrameOptions & { readonly id?: string };
 export type FigureFileTreeOptions = FileTreeOptions & { readonly id?: string };
 export interface FigureRuleOptions {
   readonly id?: string;
@@ -177,7 +200,7 @@ export interface FigureGraphOptions extends FigureGroupOptions {
   /** Default layout inside every multi-node rank; individual ranks may override it. */
   readonly rankLayout?: Responsive<"stack" | "row" | "grid">;
   /** Default column count for grid ranks; individual ranks may override it. */
-  readonly rankColumns?: Responsive<number>;
+  readonly rankColumns?: Responsive<number | "auto">;
   /** Space between ranked stages; `gap` remains a concise alias. */
   readonly layerGap?: Responsive<number>;
   /** Space between nodes that share a stage. */
@@ -200,28 +223,107 @@ export type NodeRef = SceneNode | string;
 export type EndpointRef = NodeRef | ({ readonly node: NodeRef } & Omit<EdgeEndpoint, "node">);
 export type ConnectOptions = Omit<EdgeDefinition, "id" | "from" | "to"> & { readonly id?: string };
 export type FigureWireKind =
-  "signal" | "bus" | "control" | "data" | "clock" | "feedback" | "optional" | "flow";
+  "signal" | "bus" | "control" | "data" | "clock" | "feedback" | "optional" | "flow" | "spline";
 export interface FigureWireOptions extends ConnectOptions {
   /** Semantic circuit-wire preset; individual connector options still override it. */
   readonly kind?: FigureWireKind;
 }
 export interface FigureCircuitConnection extends FigureWireOptions {
   readonly from: EndpointRef;
-  /** One target creates an ordinary edge; several targets create a shared fan-out junction. */
+  /** Several targets share the source port without adding a layout node. */
   readonly to: EndpointRef | readonly EndpointRef[];
   /** Feedback and decorative links default to false; other links participate in rank inference. */
   readonly contributesToLayout?: boolean;
-  /** Appearance of the automatically inserted fan-out point when `to` contains several targets. */
+  /** Opts a multi-target net into one explicit, laid-out fan-out junction. */
   readonly junction?: FigureJunctionOptions;
 }
 export interface FigureCircuitOptions extends Omit<FigureGraphOptions, "style"> {
   /** Places terminal sink nodes in one final rank (default true). */
   readonly alignSinks?: boolean;
+  /** Progressive rank-by-rank entrance authored onto `result.entrance`. */
+  readonly entrance?: {
+    readonly nodeDuration?: number;
+    readonly edgeDuration?: number;
+    readonly nodeStagger?: number;
+    readonly edgeStagger?: number;
+    readonly stageGap?: number;
+    readonly easing?: Easing;
+  };
 }
 export interface FigureCircuitResult {
   readonly root: GroupNode;
   readonly edges: readonly EdgeDefinition[];
   readonly ranks: readonly (readonly SceneNode[])[];
+  /** Reveals each rank while the wires entering it draw, preventing unfinished holes. */
+  readonly entrance: MotionStep;
+}
+
+/** Shared styling for the concise topology recipes. */
+export interface FigureTopologyOptions extends FigureCircuitOptions {
+  /** Applied to every generated connection. */
+  readonly edge?: FigureWireOptions;
+}
+export interface FigureHubMapSpec {
+  readonly host: SceneNode;
+  readonly upstream?: readonly SceneNode[];
+  readonly clients: readonly SceneNode[];
+}
+export interface FigureHubMapResult extends FigureCircuitResult {
+  readonly host: SceneNode;
+  readonly upstream: readonly SceneNode[];
+  readonly clients: readonly SceneNode[];
+}
+export interface FigurePipelineResult extends FigureCircuitResult {
+  readonly stages: readonly SceneNode[];
+}
+export interface FigureFanOutResult extends FigureCircuitResult {
+  readonly source: SceneNode;
+  readonly targets: readonly SceneNode[];
+}
+export interface FigureLayeredArchitectureSpec {
+  readonly layers: readonly (readonly SceneNode[])[];
+  /** Omit to connect every node in a rank to every node in the following rank. */
+  readonly connections?: readonly FigureCircuitConnection[];
+}
+export interface FigureLayeredArchitectureResult extends FigureCircuitResult {
+  readonly layers: readonly (readonly SceneNode[])[];
+}
+
+/** Declarative input terminal for `f.logicCircuit()`. */
+export interface FigureLogicInput {
+  readonly label?: string;
+  readonly tone?: Paint;
+  readonly initial?: boolean;
+}
+
+/** Declarative Boolean gate. References name inputs or earlier/later gates in the same spec. */
+export interface FigureLogicGate {
+  readonly kind: Exclude<LogicGateKind, "mux">;
+  readonly inputs: readonly string[];
+  readonly tone?: Paint;
+  readonly label?: string;
+}
+
+/** Declarative output terminal fed by an input or gate. */
+export interface FigureLogicOutput {
+  readonly from: string;
+  readonly label?: string;
+  readonly tone?: Paint;
+}
+
+export interface FigureLogicCircuitSpec {
+  readonly inputs: Readonly<Record<string, FigureLogicInput>>;
+  readonly gates: Readonly<Record<string, FigureLogicGate>>;
+  readonly outputs: Readonly<Record<string, FigureLogicOutput>>;
+}
+
+export interface FigureLogicCircuitResult extends FigureCircuitResult {
+  readonly machine: FigureMachine;
+  readonly nodes: {
+    readonly inputs: Readonly<Record<string, GroupNode>>;
+    readonly gates: Readonly<Record<string, GroupNode>>;
+    readonly outputs: Readonly<Record<string, GroupNode>>;
+  };
 }
 
 /** Motion targets: nodes, edges, ids, or arrays of those (edges only where the property allows). */
@@ -265,7 +367,17 @@ export interface RotateOptions extends MotionOptions {
 }
 export type RiseOptions = MotionOptions;
 export type WipeOptions = MotionOptions;
-export type TypewriteOptions = MotionOptions;
+export interface TypewriteOptions extends MotionOptions {
+  /**
+   * `sequential` writes descendant text as one source-ordered stream. `overlap` retains the
+   * per-node staggered animation used by older figures.
+   */
+  readonly mode?: "sequential" | "overlap";
+  /** Milliseconds per visible character. When supplied it takes precedence over `duration`. */
+  readonly characterDuration?: number;
+  /** Additional pause when sequential writing advances to another authored line. */
+  readonly lineDelay?: number;
+}
 
 /** A schedulable unit of motion; `f.sequence` and `f.at` decide when it starts. */
 export interface MotionStep {
@@ -321,11 +433,17 @@ export interface FigureBuilder {
   /** Syntax-highlighted, line-addressable code compiled to ordinary scene nodes. */
   codeBlock(source: CodeBlockSource, options?: FigureCodeBlockOptions): GroupNode;
   panel(children: readonly SceneNode[], options?: FigurePanelOptions): GroupNode;
+  /** Responsive application panes for editors, inspectors, sidebars, and previews. */
+  panes(panes: readonly WorkspacePane[], options?: FigurePaneLayoutOptions): GroupNode;
+  /** Generic portable application chrome around any existing scene node. */
+  window(content: SceneNode, options?: FigureWindowFrameOptions): GroupNode;
+  /** Semantic outer boundary: bare, card, inset, or edge-to-edge bleed. */
+  surface(child: SceneNode, options?: FigureSurfaceBuilderOptions): GroupNode;
   pill(text: string, options?: FigurePillOptions): BadgeMark;
   /** Standard logic-gate silhouette with pins; connect using normal endpoint sides/offsets. */
   gate(kind: LogicGateKind, options?: FigureGateOptions): GroupNode;
   /** Filled net junction for explicit signal fan-out. */
-  junction(options?: FigureJunctionOptions): CircleMark;
+  junction(options?: FigureJunctionOptions): GroupNode;
   /** Outlined or active connection point for a signal or physical control. */
   port(options?: FigurePortOptions): CircleMark;
   /** Icon-first semantic node whose material changes with the active state. */
@@ -335,6 +453,8 @@ export interface FigureBuilder {
   keyValue(key: string, value: string, options?: FigureKeyValueOptions): GroupNode;
   /** Structured terminal surface; pair with `f.typewrite(terminal)` for seekable typing. */
   terminal(lines: readonly (string | TerminalLine)[], options?: FigureTerminalOptions): GroupNode;
+  /** Responsive one-or-many-pane terminal window with optional tmux-style status chrome. */
+  terminalWindow(panes: readonly TerminalPane[], options?: FigureTerminalWindowOptions): GroupNode;
   /** Recursive directory tree with optional branch guides, details, and status badges. */
   fileTree(entries: readonly FileTreeEntry[], options?: FigureFileTreeOptions): GroupNode;
   rule(options?: FigureRuleOptions): RectMark;
@@ -359,6 +479,28 @@ export interface FigureBuilder {
     connections: readonly FigureCircuitConnection[],
     options?: FigureCircuitOptions,
   ): FigureCircuitResult;
+  /** Builds terminals, gates, nets, signal expressions, and input toggles from Boolean logic. */
+  logicCircuit(
+    spec: FigureLogicCircuitSpec,
+    options?: FigureCircuitOptions,
+  ): FigureLogicCircuitResult;
+  /** One host between optional upstreams and one or more clients. */
+  hubMap(spec: FigureHubMapSpec, options?: FigureTopologyOptions): FigureHubMapResult;
+  /** Sequential stages with responsive placement and authored flow edges. */
+  pipeline(stages: readonly SceneNode[], options?: FigureTopologyOptions): FigurePipelineResult;
+  /** A source feeding several targets through one concise recipe. */
+  fanOut(
+    source: SceneNode,
+    targets: readonly SceneNode[],
+    options?: FigureTopologyOptions,
+  ): FigureFanOutResult;
+  /** A pipeline with a non-ranking feedback connection from the last stage to the first. */
+  feedbackLoop(stages: readonly SceneNode[], options?: FigureTopologyOptions): FigurePipelineResult;
+  /** Explicit architectural ranks with optional custom connections. */
+  layeredArchitecture(
+    spec: FigureLayeredArchitectureSpec,
+    options?: FigureTopologyOptions,
+  ): FigureLayeredArchitectureResult;
   // Composition
   /**
    * Adds a fragment (or a `plot()` result). Ids are scoped under `options.id` unless the fragment
@@ -385,7 +527,7 @@ export interface FigureBuilder {
   rise(target: MotionTarget, options?: RiseOptions): MotionStep;
   /** Anchored horizontal reveal (`revealX` 0 → 1). */
   wipe(target: MotionTarget, options?: WipeOptions): MotionStep;
-  /** Reveals the character-mode text inside a terminal or an individual text node. */
+  /** Writes character-mode text in source order; prompts and syntax tokens remain one stream. */
   typewrite(target: MotionTarget, options?: TypewriteOptions): MotionStep;
   // Scheduling
   sequence(steps: readonly SequenceEntry[], options?: SequenceOptions): void;
@@ -839,11 +981,7 @@ function createBuilder(
                     : { narrow: circuitRankLayout(direction.narrow) }),
                 };
       const layout = rank?.layout ?? rankLayout ?? defaultLayout;
-      const inferredColumns: Responsive<number> = {
-        wide: nodes.length,
-        compact: nodes.length,
-        narrow: Math.min(nodes.length, 2),
-      };
+      const inferredColumns: Responsive<number | "auto"> = "auto";
       const {
         nodes: _nodes,
         layout: _layout,
@@ -956,11 +1094,13 @@ function createBuilder(
                 }
               : kind === "feedback"
                 ? {
-                    route: "curve",
+                    route: "spline",
                     head: "arrow",
                     stroke: "dashed",
                     tone: "warning",
-                    curvature: 0.32,
+                    spline: "fluid",
+                    avoid: "nodes-and-edges",
+                    cornerRadius: 22,
                   }
                 : kind === "optional"
                   ? {
@@ -974,17 +1114,28 @@ function createBuilder(
                     ? {
                         route: "orthogonal",
                         head: "arrow",
-                        stroke: "flow",
+                        stroke: "solid",
                         tone: "accent",
                         cornerRadius: 6,
-                        packets: { count: 1, period: 1_000 },
+                        packets: { count: 1, speed: 96, trail: true },
                       }
-                    : {
-                        route: "orthogonal",
-                        head: "arrow",
-                        tone: "accent",
-                        cornerRadius: 6,
-                      };
+                    : kind === "spline"
+                      ? {
+                          route: "spline",
+                          spline: "fluid",
+                          avoid: "nodes-and-edges",
+                          head: "arrow",
+                          stroke: "solid",
+                          tone: "accent",
+                          cornerRadius: 22,
+                          packets: { count: 1, speed: 96, trail: true },
+                        }
+                      : {
+                          route: "orthogonal",
+                          head: "arrow",
+                          tone: "accent",
+                          cornerRadius: 6,
+                        };
     return connect(from, to, { ...preset, ...rest });
   };
 
@@ -999,7 +1150,39 @@ function createBuilder(
       compact: "horizontal",
       narrow: "vertical",
     };
-    const circuitNodes = [...nodes];
+    for (const node of nodes) {
+      if (!created.has(node))
+        throw fail(`f.circuit: unknown node "${node.id}"; create it with a builder helper first`);
+    }
+    const orientationFor = (direction: FigureGraphDirection): LogicGateOrientation =>
+      direction === "vertical" ? "down" : "right";
+    const gateOrientation: Responsive<LogicGateOrientation> =
+      typeof circuitDirection === "string"
+        ? orientationFor(circuitDirection)
+        : {
+            wide: orientationFor(circuitDirection.wide ?? "horizontal"),
+            compact: orientationFor(
+              circuitDirection.compact ?? circuitDirection.wide ?? "horizontal",
+            ),
+            narrow: orientationFor(
+              circuitDirection.narrow ??
+                circuitDirection.compact ??
+                circuitDirection.wide ??
+                "horizontal",
+            ),
+          };
+    const circuitNodes = nodes.map((node) => {
+      if (
+        node.type !== "group" ||
+        node.metadata?.circuitRole !== "gate" ||
+        node.metadata.gateAutoOrient !== true
+      )
+        return node;
+      const oriented = orientGate(node, gateOrientation);
+      created.add(oriented);
+      nodesById.set(oriented.id, oriented);
+      return oriented;
+    });
     const idForEndpoint = (endpoint: EndpointRef): string =>
       typeof endpoint === "object" && !isSceneNode(endpoint)
         ? refId(endpoint.node, "f.circuit")
@@ -1027,12 +1210,20 @@ function createBuilder(
           expandedConnections.push({ from, to: target, ...layoutOption, ...wireOptions });
         continue;
       }
+      if (junctionOptions === undefined) {
+        for (const target of targets)
+          expandedConnections.push({ from, to: target, ...layoutOption, ...wireOptions });
+        continue;
+      }
       const sourceId = idForEndpoint(from);
       const label = junctionOptions?.label ?? `${sourceId} fan-out`;
       const id = inferId("junction", label, junctionOptions?.id);
       const { id: _id, ...junctionRest } = junctionOptions ?? {};
       void _id;
-      const branch = commit(junction(id, junctionRest), where("circuit", label));
+      const branch = commit(
+        junction(id, { size: junctionRest.size ?? 8, ...junctionRest }),
+        where("circuit", label),
+      );
       circuitNodes.push(branch);
       expandedConnections.push({ from, to: branch, ...layoutOption, ...wireOptions });
       for (const target of targets)
@@ -1044,8 +1235,6 @@ function createBuilder(
         });
     }
     const orderedIds = circuitNodes.map((node) => {
-      if (!created.has(node))
-        throw fail(`f.circuit: unknown node "${node.id}"; create it with a builder helper first`);
       return node.id;
     });
     if (new Set(orderedIds).size !== orderedIds.length)
@@ -1097,7 +1286,7 @@ function createBuilder(
     const ranks = Array.from({ length: maxRank + 1 }, (_, index) =>
       circuitNodes.filter((node) => (rank.get(node.id) ?? 0) === index),
     ).filter((layer) => layer.length > 0);
-    const { alignSinks: _alignSinks, ...graphOptions } = options;
+    const { alignSinks: _alignSinks, entrance: entranceOptions = {}, ...graphOptions } = options;
     void _alignSinks;
     const rankWidth: Responsive<"hug" | "fill"> =
       typeof circuitDirection === "string"
@@ -1125,13 +1314,459 @@ function createBuilder(
         nodeGap: options.nodeGap ?? { wide: 18, compact: 14, narrow: 12 },
       },
     );
+    const sideFor = (
+      direction: FigureGraphDirection,
+      end: "from" | "to",
+    ): Exclude<EdgeSide, "auto" | "center"> =>
+      direction === "vertical"
+        ? end === "from"
+          ? "bottom"
+          : "top"
+        : end === "from"
+          ? "right"
+          : "left";
+    const directionalSide = (end: "from" | "to"): Responsive<EdgeSide> =>
+      typeof circuitDirection === "string"
+        ? sideFor(circuitDirection, end)
+        : {
+            wide: sideFor(circuitDirection.wide ?? "horizontal", end),
+            compact: sideFor(
+              circuitDirection.compact ?? circuitDirection.wide ?? "horizontal",
+              end,
+            ),
+            narrow: sideFor(
+              circuitDirection.narrow ??
+                circuitDirection.compact ??
+                circuitDirection.wide ??
+                "horizontal",
+              end,
+            ),
+          };
+    const incomingIndexes = new Map<string, number>();
+    const circuitEndpoint = (reference: EndpointRef, end: "from" | "to"): EndpointRef => {
+      const authored =
+        typeof reference === "object" && !isSceneNode(reference) ? reference : undefined;
+      if (
+        authored !== undefined &&
+        (authored.port !== undefined ||
+          authored.side !== undefined ||
+          authored.offset !== undefined)
+      )
+        return reference;
+      const id = idForEndpoint(reference);
+      const node = nodesById.get(id);
+      const target: NodeRef = authored === undefined ? (reference as NodeRef) : authored.node;
+      if (node?.metadata?.circuitRole === "gate") {
+        if (end === "from") return { ...(authored ?? { node: target }), node: target, port: "out" };
+        const count =
+          node.metadata.gateKind === "not" || node.metadata.gateKind === "buffer" ? 1 : 2;
+        const index = incomingIndexes.get(id) ?? 0;
+        incomingIndexes.set(id, index + 1);
+        // A two-input gate owns two visible pins. Extra incoming nets intentionally share the
+        // nearest pin rather than landing on an arbitrary point of the silhouette.
+        const port = `in-${Math.min(index, count - 1)}`;
+        return { ...(authored ?? { node: target }), node: target, port };
+      }
+      if (node?.metadata?.circuitRole === "junction")
+        return { ...(authored ?? { node: target }), node: target, side: "center" };
+      return {
+        ...(authored ?? { node: target }),
+        node: target,
+        side: directionalSide(end),
+      };
+    };
     const circuitEdges = expandedConnections.map(
       ({ from, to, contributesToLayout: _layout, ...wireOptions }) => {
         void _layout;
-        return wire(from, to, wireOptions);
+        const signal = wireOptions.signal;
+        return wire(circuitEndpoint(from, "from"), circuitEndpoint(to, "to"), {
+          avoid: "nodes",
+          laneGap: 14,
+          head: "none",
+          cornerRadius: 10,
+          casing: { tone: "canvas", width: 4.75, opacity: 0.94 },
+          ...wireOptions,
+          ...(signal === undefined
+            ? {}
+            : {
+                signal: {
+                  onWidth: 2.35,
+                  offWidth: 1.15,
+                  onOpacity: 1,
+                  offOpacity: 0.72,
+                  ...signal,
+                },
+              }),
+        });
       },
     );
-    return { root, edges: circuitEdges, ranks };
+    const nodeDuration = entranceOptions.nodeDuration ?? 420;
+    const edgeDuration = entranceOptions.edgeDuration ?? 460;
+    const nodeStagger = entranceOptions.nodeStagger ?? 45;
+    const edgeStagger = entranceOptions.edgeStagger ?? 28;
+    const stageGap = entranceOptions.stageGap ?? 70;
+    const entranceEasing = entranceOptions.easing ?? "easeOut";
+    const rankByNode = new Map<string, number>();
+    ranks.forEach((rank, index) => rank.forEach((node) => rankByNode.set(node.id, index)));
+    const incomingByRank = ranks.map((_, index) =>
+      circuitEdges.filter((edge) => rankByNode.get(endpointNode(edge.to)) === index),
+    );
+    const entranceTracks = (start: number): readonly TimelineTrack[] => {
+      const tracks: TimelineTrack[] = [];
+      let cursor = start;
+      ranks.forEach((rank, index) => {
+        const phase: TimelineTrack[] = [];
+        rank.forEach((node, nodeIndex) =>
+          phase.push(
+            ...withEasing(
+              revealTracks(
+                node.id,
+                cursor + nodeIndex * nodeStagger,
+                cursor + nodeIndex * nodeStagger + nodeDuration,
+              ),
+              entranceEasing,
+            ).map(tidy),
+          ),
+        );
+        (incomingByRank[index] ?? []).forEach((edge, edgeIndex) =>
+          phase.push(
+            ...withEasing(
+              drawEdge(
+                edge.id,
+                cursor + edgeIndex * edgeStagger,
+                cursor + edgeIndex * edgeStagger + edgeDuration,
+              ),
+              entranceEasing,
+            ).map(tidy),
+          ),
+        );
+        tracks.push(...phase);
+        const nodeSpan = rank.length === 0 ? 0 : nodeDuration + (rank.length - 1) * nodeStagger;
+        const incoming = incomingByRank[index] ?? [];
+        const edgeSpan =
+          incoming.length === 0 ? 0 : edgeDuration + (incoming.length - 1) * edgeStagger;
+        cursor += Math.max(nodeSpan, edgeSpan) + stageGap;
+      });
+      return tracks;
+    };
+    const entrance: MotionStep = {
+      kind: "motion",
+      label: "circuit-entrance",
+      duration: tracksDuration(entranceTracks(0)),
+      tracks: entranceTracks,
+    };
+    return { root, edges: circuitEdges, ranks, entrance };
+  };
+
+  const logicCircuit = (
+    spec: FigureLogicCircuitSpec,
+    options: FigureCircuitOptions = {},
+  ): FigureLogicCircuitResult => {
+    const inputEntries = Object.entries(spec.inputs);
+    const gateEntries = Object.entries(spec.gates);
+    const outputEntries = Object.entries(spec.outputs);
+    if (inputEntries.length === 0) throw fail("f.logicCircuit: no inputs given");
+    if (gateEntries.length === 0) throw fail("f.logicCircuit: no gates given");
+    if (outputEntries.length === 0) throw fail("f.logicCircuit: no outputs given");
+
+    const keys = [...inputEntries, ...gateEntries, ...outputEntries].map(([key]) => key);
+    for (const key of keys)
+      if (!ID_PATTERN.test(key))
+        throw fail(`f.logicCircuit: key "${key}" is not a valid portable id`);
+    if (new Set(keys).size !== keys.length)
+      throw fail("f.logicCircuit: input, gate, and output keys must be unique");
+
+    const inputKeys = new Set(inputEntries.map(([key]) => key));
+    const gateKeys = new Set(gateEntries.map(([key]) => key));
+    const sourceExists = (key: string): boolean => inputKeys.has(key) || gateKeys.has(key);
+    const labelFor = (key: string): string => key.replace(/[-_]+/g, " ").toUpperCase();
+    const eventFor = (key: string): string =>
+      `TOGGLE_${key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}`;
+    const bitExpression = (key: string): SignalExpression =>
+      inputKeys.has(key) ? expr.when({ var: key, op: "truthy" }, 1, 0) : expr.signal(key);
+
+    for (const [key, definition] of gateEntries) {
+      const expected = definition.kind === "not" || definition.kind === "buffer" ? 1 : 2;
+      if (definition.inputs.length !== expected)
+        throw fail(
+          `f.logicCircuit: gate "${key}" (${definition.kind}) needs ${expected} input${expected === 1 ? "" : "s"}`,
+        );
+      for (const source of definition.inputs)
+        if (!sourceExists(source))
+          throw fail(`f.logicCircuit: gate "${key}" references unknown source "${source}"`);
+    }
+    for (const [key, definition] of outputEntries)
+      if (!sourceExists(definition.from))
+        throw fail(
+          `f.logicCircuit: output "${key}" references unknown source "${definition.from}"`,
+        );
+
+    const orderedGateEntries: Array<[string, FigureLogicGate]> = [];
+    const available = new Set(inputKeys);
+    const remaining = new Map(gateEntries);
+    while (remaining.size > 0) {
+      let progressed = false;
+      for (const [key, definition] of remaining) {
+        if (!definition.inputs.every((source) => available.has(source))) continue;
+        orderedGateEntries.push([key, definition]);
+        available.add(key);
+        remaining.delete(key);
+        progressed = true;
+      }
+      if (!progressed)
+        throw fail(
+          `f.logicCircuit: gate dependency cycle among ${[...remaining.keys()]
+            .map((key) => `"${key}"`)
+            .join(", ")}`,
+        );
+    }
+
+    const inputNodes: Record<string, GroupNode> = {};
+    const gateNodes: Record<string, GroupNode> = {};
+    const outputNodes: Record<string, GroupNode> = {};
+    const sourceNodes = new Map<string, GroupNode>();
+    const sourceTones = new Map<string, Paint>();
+
+    for (const [key, definition] of inputEntries) {
+      const tone = definition.tone ?? "accent";
+      const node = commit(
+        tileNode(`input-${key}`, {
+          icon: "circle",
+          eyebrow: "INPUT",
+          title: definition.label ?? labelFor(key),
+          detail: "0",
+          detailStyle: "title",
+          detailTone: tone,
+          detailBind: { text: `${key}Value` },
+          tone,
+          variant: "compact",
+          frame: material("flat"),
+          bind: { highlight: key },
+          interactive: true,
+          onActivate: eventFor(key),
+        }),
+        where("logicCircuit input", key),
+      );
+      inputNodes[key] = node;
+      sourceNodes.set(key, node);
+      sourceTones.set(key, tone);
+    }
+
+    for (const [key, definition] of orderedGateEntries) {
+      const tone = definition.tone ?? "accent";
+      const node = commit(
+        gate(`gate-${key}`, definition.kind, {
+          tone,
+          ...(definition.label === undefined ? {} : { text: definition.label }),
+          bind: { highlight: key },
+        }),
+        where("logicCircuit gate", key),
+      );
+      gateNodes[key] = node;
+      sourceNodes.set(key, node);
+      sourceTones.set(key, tone);
+    }
+
+    for (const [key, definition] of outputEntries) {
+      const tone = definition.tone ?? sourceTones.get(definition.from) ?? "accent";
+      const node = commit(
+        tileNode(`output-${key}`, {
+          icon: "arrow-right",
+          eyebrow: "OUTPUT",
+          title: definition.label ?? labelFor(key),
+          detail: "0",
+          detailStyle: "title",
+          detailTone: tone,
+          detailBind: { text: `${key}Value` },
+          tone,
+          variant: "compact",
+          frame: material("flat"),
+          bind: { highlight: definition.from },
+        }),
+        where("logicCircuit output", key),
+      );
+      outputNodes[key] = node;
+    }
+
+    const connections: FigureCircuitConnection[] = [];
+    for (const [key, definition] of orderedGateEntries) {
+      const target = gateNodes[key];
+      if (target === undefined) continue;
+      for (const source of definition.inputs) {
+        const from = sourceNodes.get(source);
+        if (from === undefined) continue;
+        connections.push({
+          from,
+          to: target,
+          kind: "flow",
+          signal: { onTone: sourceTones.get(source) ?? "accent", offTone: "connector" },
+          bind: { signal: source },
+        });
+      }
+    }
+    for (const [key, definition] of outputEntries) {
+      const from = sourceNodes.get(definition.from);
+      const to = outputNodes[key];
+      if (from === undefined || to === undefined) continue;
+      connections.push({
+        from,
+        to,
+        kind: "flow",
+        signal: {
+          onTone: definition.tone ?? sourceTones.get(definition.from) ?? "accent",
+          offTone: "connector",
+        },
+        bind: { signal: definition.from },
+      });
+    }
+
+    const signals: Record<string, SignalExpression> = {};
+    for (const [key] of inputEntries) signals[`${key}Value`] = expr.format(bitExpression(key));
+    for (const [key, definition] of orderedGateEntries) {
+      const values = definition.inputs.map(bitExpression);
+      const combined =
+        definition.kind === "and" || definition.kind === "nand"
+          ? expr.bitAnd(...values)
+          : definition.kind === "or" || definition.kind === "nor"
+            ? expr.bitOr(...values)
+            : definition.kind === "xor" || definition.kind === "xnor"
+              ? expr.bitXor(...values)
+              : (values[0] ?? 0);
+      signals[key] =
+        definition.kind === "not" ||
+        definition.kind === "nand" ||
+        definition.kind === "nor" ||
+        definition.kind === "xnor"
+          ? expr.bitXor(combined, 1)
+          : combined;
+    }
+    for (const [key, definition] of outputEntries)
+      signals[`${key}Value`] = expr.format(bitExpression(definition.from));
+
+    const circuitResult = circuit(
+      [...Object.values(inputNodes), ...Object.values(gateNodes), ...Object.values(outputNodes)],
+      connections,
+      {
+        direction: { wide: "horizontal", compact: "vertical", narrow: "vertical" },
+        width: "fill",
+        ...options,
+      },
+    );
+    const machineDefinition: FigureMachine = {
+      initial: "ready",
+      variables: Object.fromEntries(
+        inputEntries.map(([key, definition]) => [key, definition.initial ?? false]),
+      ),
+      states: {
+        ready: {
+          on: Object.fromEntries(
+            inputEntries.map(([key]) => [
+              eventFor(key),
+              { target: "ready", actions: [{ type: "toggle" as const, var: key }] },
+            ]),
+          ),
+        },
+      },
+      signals,
+      events: inputEntries.map(([key]) => eventFor(key)),
+    };
+    return {
+      ...circuitResult,
+      machine: machineDefinition,
+      nodes: { inputs: inputNodes, gates: gateNodes, outputs: outputNodes },
+    };
+  };
+
+  const topologyOptions = (
+    options: FigureTopologyOptions,
+  ): { readonly circuit: FigureCircuitOptions; readonly edge: FigureWireOptions } => {
+    const { edge = {}, ...circuitOptions } = options;
+    return { circuit: circuitOptions, edge };
+  };
+
+  const pipelineTopology = (
+    stages: readonly SceneNode[],
+    options: FigureTopologyOptions = {},
+    closeLoop = false,
+  ): FigurePipelineResult => {
+    if (stages.length < 2) throw fail("f.pipeline: give at least two stages");
+    const authored = topologyOptions(options);
+    const connections: FigureCircuitConnection[] = stages.slice(0, -1).map((stage, index) => ({
+      from: stage,
+      to: stages[index + 1] as SceneNode,
+      kind: "flow",
+      ...authored.edge,
+    }));
+    if (closeLoop)
+      connections.push({
+        from: stages[stages.length - 1] as SceneNode,
+        to: stages[0] as SceneNode,
+        kind: "feedback",
+        contributesToLayout: false,
+        ...authored.edge,
+      });
+    return { ...circuit(stages, connections, authored.circuit), stages };
+  };
+
+  const hubMapTopology = (
+    spec: FigureHubMapSpec,
+    options: FigureTopologyOptions = {},
+  ): FigureHubMapResult => {
+    if (spec.clients.length === 0) throw fail("f.hubMap: give at least one client");
+    const upstream = spec.upstream ?? [];
+    const authored = topologyOptions(options);
+    const connections: FigureCircuitConnection[] = [
+      ...upstream.map((node) => ({
+        from: node,
+        to: spec.host,
+        kind: "spline" as const,
+        ...authored.edge,
+      })),
+      { from: spec.host, to: spec.clients, kind: "spline", ...authored.edge },
+    ];
+    return {
+      ...circuit([...upstream, spec.host, ...spec.clients], connections, authored.circuit),
+      host: spec.host,
+      upstream,
+      clients: spec.clients,
+    };
+  };
+
+  const fanOutTopology = (
+    source: SceneNode,
+    targets: readonly SceneNode[],
+    options: FigureTopologyOptions = {},
+  ): FigureFanOutResult => {
+    if (targets.length === 0) throw fail("f.fanOut: give at least one target");
+    const authored = topologyOptions(options);
+    return {
+      ...circuit(
+        [source, ...targets],
+        [{ from: source, to: targets, kind: "spline", ...authored.edge }],
+        authored.circuit,
+      ),
+      source,
+      targets,
+    };
+  };
+
+  const layeredArchitectureTopology = (
+    spec: FigureLayeredArchitectureSpec,
+    options: FigureTopologyOptions = {},
+  ): FigureLayeredArchitectureResult => {
+    if (spec.layers.length < 2 || spec.layers.some((layer) => layer.length === 0))
+      throw fail("f.layeredArchitecture: give at least two non-empty layers");
+    const authored = topologyOptions(options);
+    const generated = spec.layers.slice(0, -1).flatMap((layer, index) => {
+      const next = spec.layers[index + 1] ?? [];
+      return layer.flatMap((from) =>
+        next.map((to) => ({ from, to, kind: "flow" as const, ...authored.edge })),
+      );
+    });
+    return {
+      ...circuit(spec.layers.flat(), spec.connections ?? generated, authored.circuit),
+      layers: spec.layers,
+    };
   };
 
   const builder: FigureBuilder = {
@@ -1249,6 +1884,25 @@ function createBuilder(
       const id = inferId("panel", primary, explicit);
       return commit(panel(id, children, rest), where("panel", primary));
     },
+    panes(panes, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.label ?? panes.find((pane) => pane.active === true)?.title;
+      const id = inferId("panes", primary, explicit);
+      return commit(paneLayout(id, panes, rest), where("panes", primary));
+    },
+    window(content, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.title ?? rest.label ?? content.label;
+      const id = inferId("window", primary, explicit);
+      return commit(windowFrame(id, content, rest), where("window", primary));
+    },
+    surface(child, options = {}) {
+      if (!created.has(child))
+        throw fail(`f.surface: unknown node "${child.id}"; create it with a builder helper first`);
+      const { id: explicit, ...rest } = options;
+      const id = inferId("surface", rest.label ?? child.label ?? child.id, explicit);
+      return commit(figureSurface(id, child, rest), where("surface", rest.label ?? child.id));
+    },
     pill(text, options = {}) {
       const { id: explicit, ...rest } = options;
       const id = inferId("pill", text, explicit);
@@ -1291,6 +1945,12 @@ function createBuilder(
       const id = inferId("terminal", primary, explicit);
       return commit(terminal(id, lines, rest), where("terminal", primary));
     },
+    terminalWindow(panes, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const primary = rest.title ?? rest.label;
+      const id = inferId("terminal-window", primary, explicit);
+      return commit(terminalWindow(id, panes, rest), where("terminalWindow", primary));
+    },
     fileTree(entries, options = {}) {
       const { id: explicit, ...rest } = options;
       const primary = rest.root ?? rest.label;
@@ -1326,6 +1986,12 @@ function createBuilder(
     flow,
     graph,
     circuit,
+    logicCircuit,
+    hubMap: hubMapTopology,
+    pipeline: (stages, options) => pipelineTopology(stages, options),
+    fanOut: fanOutTopology,
+    feedbackLoop: (stages, options) => pipelineTopology(stages, options, true),
+    layeredArchitecture: layeredArchitectureTopology,
 
     add(source, options = {}) {
       const fragment = isFragment(source) ? source : source.fragment;
@@ -1455,24 +2121,105 @@ function createBuilder(
       ]);
     },
     typewrite(target, options = {}) {
-      const { duration = DEFAULTS.typewrite, stagger = 140, easing = "linear" } = options;
+      const {
+        duration = DEFAULTS.typewrite,
+        stagger = 0,
+        easing = "linear",
+        mode = "sequential",
+        characterDuration,
+        lineDelay = 70,
+      } = options;
       const resolved = resolveTargets(target, "f.typewrite");
-      const targets: string[] = [];
-      const collect = (node: SceneNode): void => {
-        if (node.type === "text" && node.reveal === "characters") targets.push(node.id);
-        if (node.type === "group") node.children.forEach(collect);
+      const targets: {
+        readonly id: string;
+        readonly text: string;
+        readonly order: number;
+        readonly line?: number;
+      }[] = [];
+      let traversalOrder = 0;
+      const collect = (node: SceneNode, scopeOffset: number): void => {
+        if (node.type === "text" && node.reveal === "characters") {
+          const authoredOrder = node.metadata?.typingOrder;
+          const authoredLine = node.metadata?.typingLine;
+          targets.push({
+            id: node.id,
+            text: node.text,
+            order:
+              scopeOffset + (typeof authoredOrder === "number" ? authoredOrder : traversalOrder),
+            ...(typeof authoredLine === "number" ? { line: authoredLine } : {}),
+          });
+          traversalOrder += 1;
+        }
+        if (node.type === "group") node.children.forEach((child) => collect(child, scopeOffset));
       };
-      for (const id of resolved.ids) {
+      resolved.ids.forEach((id, index) => {
         const node = nodesById.get(id);
-        if (node !== undefined) collect(node);
-      }
+        if (node !== undefined) collect(node, index * 1_000_000_000);
+      });
       if (targets.length === 0)
         throw fail(
           `f.typewrite: no character-reveal text found in ${resolved.ids.map((id) => `"${id}"`).join(", ")}; use f.terminal(...) or set reveal: "characters" on a text node`,
         );
-      return step(`typewrite(${targets.join(",")})`, targets, stagger, (id, start) => [
-        ramp(id, "progress", start, start + duration, 0, 1, easing),
-      ]);
+      const ordered = [...new Map(targets.map((entry) => [entry.id, entry])).values()].sort(
+        (left, right) => left.order - right.order,
+      );
+      const ids = ordered.map((entry) => entry.id);
+      if (mode === "overlap")
+        return step(`typewrite(${ids.join(",")})`, ids, stagger, (id, start) => [
+          ramp(id, "progress", start, start + duration, 0, 1, easing),
+        ]);
+
+      const runGap = validTime(stagger, "f.typewrite stagger");
+      const linePause = validTime(lineDelay, "f.typewrite lineDelay");
+      const authoredDuration = validTime(duration, "f.typewrite duration");
+      const perCharacter =
+        characterDuration === undefined
+          ? undefined
+          : validTime(characterDuration, "f.typewrite characterDuration");
+      const characterCounts = ordered.map((entry) => Math.max(1, [...entry.text].length));
+      const totalCharacters = characterCounts.reduce((sum, count) => sum + count, 0);
+      const runDurations = characterCounts.map((count) =>
+        perCharacter === undefined
+          ? (authoredDuration * count) / totalCharacters
+          : perCharacter * count,
+      );
+      const offsets: number[] = [];
+      let cursor = 0;
+      for (let index = 0; index < ordered.length; index += 1) {
+        const current = ordered[index];
+        const previous = ordered[index - 1];
+        if (index > 0) {
+          cursor += runGap;
+          if (
+            current?.line !== undefined &&
+            previous?.line !== undefined &&
+            current.line !== previous.line
+          )
+            cursor += linePause;
+        }
+        offsets.push(cursor);
+        cursor += runDurations[index] ?? 0;
+      }
+      return {
+        kind: "motion",
+        label: `typewrite(${ids.join(",")})`,
+        duration: cursor,
+        tracks: (start) =>
+          ordered.flatMap((entry, index) => {
+            const runStart = start + (offsets[index] ?? 0);
+            return [
+              ramp(
+                entry.id,
+                "progress",
+                runStart,
+                runStart + (runDurations[index] ?? 0),
+                0,
+                1,
+                easing,
+              ),
+            ];
+          }),
+      };
     },
 
     sequence(steps, options = {}) {

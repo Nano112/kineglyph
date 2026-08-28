@@ -5,11 +5,17 @@ import type {
   LayoutName,
   PipelineDefinition,
   ResolvedScene,
+  ResolvedSceneCrop,
   SceneDefinition,
   TextMeasurer,
   ThemeTokens,
 } from "@kineglyph/core";
-import { resolveMachineState, resolvePipeline, resolveScene } from "@kineglyph/core";
+import {
+  resolvedSceneBounds,
+  resolveMachineState,
+  resolvePipeline,
+  resolveScene,
+} from "@kineglyph/core";
 import { KineglyphExportError } from "./errors.js";
 import { createEmbeddedFontMeasurer, type EmbeddedFontSource } from "./font-shaping.js";
 import { exportFile } from "./file.js";
@@ -37,6 +43,8 @@ Options:
   --hold-last <ms>            Extra hold on the final GIF frame (default: 800)
   --loop / --no-loop          Override GIF looping (default: loop)
   --background <mode>         transparent | theme | <css color> (default: theme)
+  --crop <mode>               scene | surface | content (default: scene)
+  --crop-padding <units>      Padding around surface/content crop
   --layout <mode>             auto | wide | compact | narrow (stacked for pipelines)
   --state <id>                Machine state to resolve (scene definitions with a machine)
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
@@ -61,6 +69,8 @@ interface CliArgs {
   readonly holdLast?: number;
   readonly loop?: boolean;
   readonly background?: string;
+  readonly crop?: ResolvedSceneCrop;
+  readonly cropPadding?: number;
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly state?: string;
   readonly containerWidth?: number;
@@ -91,6 +101,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     "fps",
     "hold-last",
     "background",
+    "crop",
+    "crop-padding",
     "layout",
     "state",
     "width-container",
@@ -164,6 +176,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     ...optional("holdLast", numeric("hold-last", values.get("hold-last"))),
     ...optional("loop", loop),
     ...optional("background", values.get("background")),
+    ...optional("crop", parseCrop(values.get("crop"))),
+    ...optional("cropPadding", numeric("crop-padding", values.get("crop-padding"))),
     ...optional("layout", layout),
     ...optional("state", state),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
@@ -189,6 +203,12 @@ function parseLayout(value: string | undefined): LayoutName | "auto" | "stacked"
   )
     return value;
   throw new UsageError("--layout must be auto, wide, compact, narrow, or stacked");
+}
+
+function parseCrop(value: string | undefined): ResolvedSceneCrop | undefined {
+  if (value === undefined || value === "scene" || value === "surface" || value === "content")
+    return value;
+  throw new UsageError("--crop must be scene, surface, or content");
 }
 
 function parseShapeFont(value: string): { family: string; file: string } {
@@ -377,7 +397,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function run(argv: readonly string[]): Promise<number> {
+export async function runExport(argv: readonly string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if (parsed === "help") {
     process.stdout.write(USAGE);
@@ -413,12 +433,16 @@ async function run(argv: readonly string[]): Promise<number> {
   const height = parsed.height ?? preset.height;
   const scale = parsed.scale ?? preset.scale;
   const background = parsed.background ?? preset.background;
+  const crop = parsed.crop ?? preset.crop;
+  const cropPadding = parsed.cropPadding ?? preset.cropPadding;
   const time = parsed.time ?? preset.time;
   const frameOptions: Omit<SvgExportOptions, "time"> = {
     ...(width === undefined ? {} : { width }),
     ...(height === undefined ? {} : { height }),
     ...(scale === undefined ? {} : { scale }),
     ...(background === undefined ? {} : { background }),
+    ...(crop === undefined ? {} : { crop }),
+    ...(cropPadding === undefined ? {} : { cropPadding }),
   };
   const timeOptions: SvgExportOptions = {
     ...frameOptions,
@@ -436,7 +460,12 @@ async function run(argv: readonly string[]): Promise<number> {
   if (format === "svg") {
     const svg = exportSvg(scene, timeOptions);
     await exportFile(out, svg);
-    const size = resolveOutputSize(sceneDimensions(scene), timeOptions, false);
+    sceneDimensions(scene);
+    const size = resolveOutputSize(
+      resolvedSceneBounds(scene, crop ?? "scene", cropPadding ?? 0),
+      timeOptions,
+      false,
+    );
     summary = `${size.width}x${size.height}, ${svg.length} chars`;
   } else if (format === "png") {
     const pngOptions: PngExportOptions = { ...timeOptions, fonts };
@@ -463,19 +492,21 @@ async function run(argv: readonly string[]): Promise<number> {
   return 0;
 }
 
-run(process.argv.slice(2)).then(
-  (code) => {
-    process.exitCode = code;
-  },
-  (error: unknown) => {
-    if (error instanceof KineglyphExportError) {
-      process.stderr.write(`error: ${error.message}\n`);
-    } else if (error instanceof UsageError) {
-      process.stderr.write(`error: ${error.message}\n${USAGE}`);
-    } else {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`error: ${message}\n`);
-    }
-    process.exitCode = 1;
-  },
-);
+const invokedPath = process.argv[1];
+if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href)
+  runExport(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error: unknown) => {
+      if (error instanceof KineglyphExportError) {
+        process.stderr.write(`error: ${error.message}\n`);
+      } else if (error instanceof UsageError) {
+        process.stderr.write(`error: ${error.message}\n${USAGE}`);
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`error: ${message}\n`);
+      }
+      process.exitCode = 1;
+    },
+  );

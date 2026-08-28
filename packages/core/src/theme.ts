@@ -545,6 +545,9 @@ function defaultShaderFallback(effect: MaterialEffect): readonly PortableMateria
       ];
     case "grain":
       return [{ type: "noise", amount: 0.035, scale: 0.9, seed: 7 }];
+    case "sketch":
+      // The displacement itself is portable (SVG filters carry it); nothing extra to fall back to.
+      return [];
   }
 }
 

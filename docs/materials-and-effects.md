@@ -98,13 +98,16 @@ const frost = shader("frosted-glass", {
 });
 ```
 
-The initial named programs are `frosted-glass`, `iridescence`, `liquid`, and `grain`. In the web
-runtime, supported rectangular surfaces receive a transparent WebGL canvas inserted behind their
-SVG paint. The shader time uniform follows `controller.seek()` and timeline playback. Copy,
+The initial named programs are `frosted-glass`, `iridescence`, `liquid`, `grain`, and `sketch`. In
+the web runtime, supported rectangular surfaces receive a transparent WebGL canvas inserted behind
+their SVG paint. The shader time uniform follows `controller.seek()` and timeline playback. Copy,
 inspection, focus, and interaction remain ordinary accessible SVG above that surface.
 
-Static renderers consume the declared fallback. The `liquid` preset also maps to a deterministic
-SVG displacement filter. A missing WebGL context simply leaves the fallback visible.
+Static renderers consume the declared fallback. The `liquid` and `sketch` presets also map to
+deterministic SVG displacement filters — `liquid` ripples with turbulence, `sketch` (`sketch({
+seed, strength, frequency })`) wanders with seeded fractal noise so a plotted line reads as
+hand-drafted; see [Drafting sheets](./drafting-sheets.md). A missing WebGL context simply leaves
+the fallback visible.
 
 This split is deliberate:
 

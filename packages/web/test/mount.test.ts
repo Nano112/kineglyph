@@ -125,6 +125,7 @@ const liveScene: SceneDefinition = defineScene({
   id: "live-preview",
   title: "Live preview",
   description: "A static export image becomes an interactive renderer in the browser.",
+  signals: { assetVersion: 0 },
   root: {
     id: "live-root",
     type: "group",
@@ -320,6 +321,54 @@ function host(width = 900): HTMLDivElement {
 }
 
 describe("mountKineglyph", () => {
+  it("serializes the current frame with a content crop", () => {
+    const controller = mountKineglyph(host(), { scene, autoplay: false });
+    const full = controller.toSvg();
+    const content = controller.toSvg({ crop: "content", cropPadding: 3 });
+    expect(full).toContain('viewBox="0 0 900');
+    expect(content).not.toBe(full);
+    expect(content).toContain("<svg");
+  });
+
+  it("marks nodes and edges in the inspected interaction group as related", () => {
+    const related = defineScene({
+      schemaVersion: 2,
+      id: "related",
+      title: "Related",
+      root: {
+        id: "root",
+        type: "group",
+        layout: "row",
+        children: [
+          {
+            id: "a",
+            type: "rect",
+            width: 80,
+            height: 48,
+            label: "A",
+            description: "A",
+            interactionGroup: "path",
+          },
+          {
+            id: "b",
+            type: "rect",
+            width: 80,
+            height: 48,
+            label: "B",
+            description: "B",
+            interactionGroup: "path",
+          },
+        ],
+      },
+      edges: [{ id: "a-b", from: "a", to: "b", interactionGroup: "path" }],
+    });
+    const controller = mountKineglyph(host(), { scene: related, autoplay: false });
+    controller.inspect("a");
+    expect(controller.stage.querySelectorAll('[data-related="true"]')).toHaveLength(3);
+    controller.inspect(null);
+    expect(controller.stage.querySelector('[data-related="true"]')).toBeNull();
+  });
+
   it("toggles the doctor overlay without remounting the SVG", () => {
     const controller = mountKineglyph(host(), { scene, autoplay: false });
     const svg = controller.stage.querySelector("svg");
@@ -589,6 +638,7 @@ describe("mountKineglyph", () => {
   it("hands live image nodes to HTML renderers while retaining the export fallback", async () => {
     let mounts = 0;
     let destroys = 0;
+    const versions: unknown[] = [];
     const controller = mountKineglyph(host(), {
       scene: liveScene,
       autoplay: false,
@@ -599,8 +649,13 @@ describe("mountKineglyph", () => {
           const canvas = document.createElement("canvas");
           canvas.dataset.renderer = "custom";
           element.append(canvas);
-          return () => {
-            destroys += 1;
+          return {
+            update: ({ signals }) => {
+              versions.push(signals.assetVersion);
+            },
+            destroy: () => {
+              destroys += 1;
+            },
           };
         },
       },
@@ -614,10 +669,15 @@ describe("mountKineglyph", () => {
     expect(
       controller.element.querySelector<SVGImageElement>("image[data-live=true]")?.style.opacity,
     ).toBe("0");
+    controller.setSignals({ assetVersion: 1 });
     controller.resize(600);
+    await vi.waitFor(() => expect(versions).toContain(1));
+    expect(mounts).toBe(1);
+    expect(destroys).toBe(0);
+    expect(controller.element.querySelectorAll(".kg-live-surface")).toHaveLength(1);
+    controller.setTheme(createTheme({ colors: { accent: "#123456" } }));
     await vi.waitFor(() => expect(mounts).toBe(2));
     expect(destroys).toBe(1);
-    expect(controller.element.querySelectorAll(".kg-live-surface")).toHaveLength(1);
     controller.destroy();
     expect(destroys).toBe(2);
   });

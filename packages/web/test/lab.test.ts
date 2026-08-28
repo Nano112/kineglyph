@@ -229,6 +229,54 @@ describe("mountKineglyphLab", () => {
     expect(cleanups).toBe(2);
   });
 
+  it("mounts and hot-swaps live surfaces exported beside an editable scene", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    const liveScene = (id: string) =>
+      defineScene({
+        schemaVersion: 2,
+        id,
+        title: id,
+        root: stack(
+          "root",
+          [
+            {
+              id: "model",
+              type: "image",
+              src: "/fallback.png",
+              alt: "Interactive model",
+              live: true,
+              width: "fill",
+              height: 180,
+            },
+          ],
+          { width: "fill" },
+        ),
+      });
+    const renderer = vi.fn((context: { element: HTMLElement }) => {
+      const marker = document.createElement("span");
+      marker.dataset.surface = "mounted";
+      context.element.append(marker);
+      return { mounted: true };
+    });
+    const lab = mountKineglyphLab(host, {
+      source: "first",
+      view: "preview",
+      load: (source) =>
+        Promise.resolve({ scene: liveScene(source), liveSurfaces: { model: renderer } }),
+    });
+
+    expect(await lab.ready).toBe(true);
+    await vi.waitFor(() => expect(host.querySelector('[data-surface="mounted"]')).not.toBeNull());
+    expect(renderer).toHaveBeenCalledTimes(1);
+    expect(host.querySelector<HTMLElement>(".kg-lab__export")?.hidden).toBe(false);
+
+    lab.setSource("second", { run: false });
+    expect(await lab.run()).toBe(true);
+    await vi.waitFor(() => expect(renderer).toHaveBeenCalledTimes(2));
+    expect(lab.figure?.scene.id).toBe("second");
+  });
+
   it("restores its authored source and static fallback", async () => {
     const host = document.createElement("figure");
     host.innerHTML =

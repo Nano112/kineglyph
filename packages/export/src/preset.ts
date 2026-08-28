@@ -1,4 +1,4 @@
-import type { LayoutName } from "@kineglyph/core";
+import type { LayoutName, ResolvedSceneCrop } from "@kineglyph/core";
 import type { EmbeddedFontSource } from "./font-shaping.js";
 
 /** Reusable CLI defaults. Relative module/font paths resolve from the preset module. */
@@ -15,6 +15,8 @@ export interface ExportPreset {
   readonly holdLast?: number;
   readonly loop?: boolean;
   readonly background?: string;
+  readonly crop?: ResolvedSceneCrop;
+  readonly cropPadding?: number;
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly state?: string;
   readonly containerWidth?: number;

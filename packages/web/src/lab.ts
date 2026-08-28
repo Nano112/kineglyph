@@ -21,9 +21,11 @@ import {
   type ChromeSetting,
   type AutoplaySetting,
   type KineglyphController,
+  type MountOptions,
   type StartWhenVisibleOptions,
 } from "./index.js";
 import type { LabEditor } from "./lab-editor.js";
+import type { LiveSurfaceRenderer } from "./surfaces.js";
 
 export type KineglyphLabView = "source" | "split" | "preview";
 export type KineglyphLabSetup = (
@@ -33,10 +35,14 @@ export type KineglyphLabSetup = (
 export interface KineglyphLabModuleResult {
   readonly scene: FigureSource;
   readonly theme?: ThemeTokens;
+  /** Live HTML/WebGL renderers keyed by a scene image node id. */
+  readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>>;
   /** Repeat the deterministic timeline while the figure is active. */
   readonly loop?: boolean;
   /** Starts optional live example behaviour after mount. The returned disposer runs before reruns. */
   readonly setup?: KineglyphLabSetup;
+  /** Host-side derived signals recomputed after every machine step (see `MountOptions`). */
+  readonly deriveSignals?: MountOptions["deriveSignals"];
 }
 export type KineglyphLabLoader = (
   source: string,
@@ -141,9 +147,11 @@ function message(error: unknown): string {
   return String(error);
 }
 
-/** A still scene can be exported in-browser without asking which moment or machine state to use. */
+/** Live image nodes export their authored image while HTML/WebGL remains a progressive enhancement. */
 function isPortableExportScene(scene: ResolvedScene): boolean {
-  return !scene.nodes.some((node) => node.image?.live === true);
+  return !scene.nodes.some(
+    (node) => node.image?.live === true && node.image.href.trim().length === 0,
+  );
 }
 
 type LabExportFormat = "svg" | "png" | "gif";
@@ -319,13 +327,22 @@ export async function loadKineglyphLabModule(
       theme?: unknown;
       loop?: unknown;
       setup?: unknown;
+      liveSurfaces?: unknown;
+      deriveSignals?: unknown;
     };
     if (mod.default === null || typeof mod.default !== "object")
       throw new Error("inline scene: no default export");
     if (mod.setup !== undefined && typeof mod.setup !== "function")
       throw new Error("inline scene: setup export must be a function");
+    if (mod.deriveSignals !== undefined && typeof mod.deriveSignals !== "function")
+      throw new Error("inline scene: deriveSignals export must be a function");
     if (mod.loop !== undefined && typeof mod.loop !== "boolean")
       throw new Error("inline scene: loop export must be a boolean");
+    if (
+      mod.liveSurfaces !== undefined &&
+      (mod.liveSurfaces === null || typeof mod.liveSurfaces !== "object")
+    )
+      throw new Error("inline scene: liveSurfaces export must be an object");
     const theme =
       mod.theme !== null && typeof mod.theme === "object" ? (mod.theme as ThemeTokens) : undefined;
     return {
@@ -333,6 +350,14 @@ export async function loadKineglyphLabModule(
       ...(theme === undefined ? {} : { theme }),
       ...(mod.loop === undefined ? {} : { loop: mod.loop }),
       ...(mod.setup === undefined ? {} : { setup: mod.setup as KineglyphLabSetup }),
+      ...(mod.deriveSignals === undefined
+        ? {}
+        : { deriveSignals: mod.deriveSignals as MountOptions["deriveSignals"] }),
+      ...(mod.liveSurfaces === undefined
+        ? {}
+        : {
+            liveSurfaces: mod.liveSurfaces as Readonly<Record<string, LiveSurfaceRenderer>>,
+          }),
     };
   } finally {
     URL.revokeObjectURL(url);
@@ -591,6 +616,8 @@ class LabRuntime implements KineglyphLabController {
           tooltips: this.#options.tooltips ?? true,
           machineControls: this.#options.machineControls ?? "auto",
           doctor: this.#doctorEnabled,
+          ...(loaded.liveSurfaces === undefined ? {} : { liveSurfaces: loaded.liveSurfaces }),
+          ...(loaded.deriveSignals === undefined ? {} : { deriveSignals: loaded.deriveSignals }),
         });
       } else {
         if (nextTheme !== this.#theme) this.#figure.setTheme(nextTheme);
@@ -599,7 +626,10 @@ class LabRuntime implements KineglyphLabController {
         // A successful edit is a new performance. setScene() restarts it when the lab is already
         // in view and otherwise leaves it waiting at frame zero for the normal viewport trigger.
         // Preserving a completed timeline made hot-reloaded animations look permanently static.
-        this.#figure.setScene(scene);
+        this.#figure.setScene(scene, {
+          liveSurfaces: loaded.liveSurfaces,
+          deriveSignals: loaded.deriveSignals,
+        });
       }
       this.#moduleCleanup?.();
       this.#moduleCleanup = loaded.setup?.(this.#figure, this.element) ?? undefined;

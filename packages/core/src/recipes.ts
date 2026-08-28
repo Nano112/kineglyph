@@ -16,6 +16,7 @@ import type {
   Justify,
   Length,
   NodeBindings,
+  NodePort,
   Paint,
   RectMark,
   Responsive,
@@ -23,6 +24,7 @@ import type {
   SceneNode,
   TextMark,
 } from "./scene.js";
+import { LAYOUT_NAMES, pickOr } from "./scene.js";
 import { material } from "./material.js";
 
 export interface TextOptions {
@@ -106,17 +108,142 @@ export function pill(id: string, text: string, options: PillOptions = {}): Badge
 
 export type LogicGateKind =
   "and" | "or" | "xor" | "nand" | "nor" | "xnor" | "not" | "buffer" | "mux";
+export type LogicGateOrientation = "right" | "down" | "left" | "up";
+export type LogicGateVariant = "schematic" | "solid";
 
 export interface LogicGateOptions extends ContainerOptions {
   /** Outline and pin colour. */
   readonly tone?: Paint;
   /** Interior of the gate silhouette. */
   readonly fill?: FillPaint;
+  /** `schematic` continues the wire casing and active ink through the symbol; `solid` is filled. */
+  readonly variant?: LogicGateVariant;
   /** Short symbol drawn inside the gate; defaults to the upper-case kind. */
   readonly text?: string;
   /** Hide the interior text for a strictly symbolic schematic. */
   readonly showText?: boolean;
   readonly textTone?: Paint;
+  /** Direction of signal travel. Omit (or use `auto`) to let `f.circuit()` orient the gate. */
+  readonly orientation?: Responsive<LogicGateOrientation> | "auto";
+}
+
+const collapsedResponsive = <T>(values: {
+  readonly wide: T;
+  readonly compact: T;
+  readonly narrow: T;
+}): Responsive<T> =>
+  values.wide === values.compact && values.compact === values.narrow ? values.wide : values;
+
+const gateRotation = (orientation: LogicGateOrientation): number =>
+  orientation === "right" ? 0 : orientation === "down" ? 90 : orientation === "left" ? 180 : 270;
+
+const verticalGate = (orientation: LogicGateOrientation): boolean =>
+  orientation === "down" || orientation === "up";
+
+const gatePortSide = (
+  orientation: LogicGateOrientation,
+  end: "input" | "output",
+): "left" | "right" | "top" | "bottom" => {
+  if (end === "output")
+    return orientation === "right"
+      ? "right"
+      : orientation === "down"
+        ? "bottom"
+        : orientation === "left"
+          ? "left"
+          : "top";
+  return orientation === "right"
+    ? "left"
+    : orientation === "down"
+      ? "top"
+      : orientation === "left"
+        ? "right"
+        : "bottom";
+};
+
+const gateInputOffset = (orientation: LogicGateOrientation, offset: number): number =>
+  orientation === "down" || orientation === "left" ? 1 - offset : offset;
+
+/** Ports describe the actual endpoints drawn into the 120×80 gate silhouette. */
+function logicGatePorts(
+  kind: LogicGateKind,
+  orientation: Responsive<LogicGateOrientation>,
+): readonly NodePort[] {
+  const inputOffsets = kind === "not" || kind === "buffer" ? [0.5] : [27 / 80, 53 / 80];
+  const responsive = <T>(select: (value: LogicGateOrientation) => T): Responsive<T> =>
+    collapsedResponsive({
+      wide: select(pickOr(orientation, "wide", "right")),
+      compact: select(pickOr(orientation, "compact", "right")),
+      narrow: select(pickOr(orientation, "narrow", "right")),
+    });
+  return [
+    ...inputOffsets.map((offset, index): NodePort => ({
+      id: `in-${index}`,
+      side: responsive((value) => gatePortSide(value, "input")),
+      offset: responsive((value) => gateInputOffset(value, offset)),
+      // Incoming signal ink overlaps the visible pin up to the body instead of stopping at the
+      // outer connection box and leaving a differently coloured stub.
+      gap: -12,
+    })),
+    {
+      id: "out",
+      side: responsive((value) => gatePortSide(value, "output")),
+      offset: 0.5,
+    },
+  ];
+}
+
+/**
+ * Reorients a gate's silhouette while keeping its text upright and its visible pins exactly on the
+ * outer connection box. This is also used by `f.circuit()` for responsive flow direction.
+ */
+export function orientGate(
+  node: GroupNode,
+  orientation: Responsive<LogicGateOrientation>,
+): GroupNode {
+  if (node.metadata?.circuitRole !== "gate") return node;
+  const graphicId = `${node.id}-graphic`;
+  const graphic = node.children.find(
+    (child): child is GroupNode => child.id === graphicId && child.type === "group",
+  );
+  if (graphic === undefined) return node;
+  const baseWidth = graphic.width ?? node.width ?? 120;
+  const baseHeight = graphic.height ?? node.height ?? 80;
+  const rotations = { wide: 0, compact: 0, narrow: 0 };
+  const widths = { wide: 120 as Length, compact: 120 as Length, narrow: 120 as Length };
+  const heights = { wide: 80 as Length, compact: 80 as Length, narrow: 80 as Length };
+  for (const layout of LAYOUT_NAMES) {
+    const direction = pickOr(orientation, layout, "right");
+    const width = pickOr(baseWidth, layout, 120);
+    const height = pickOr(baseHeight, layout, 80);
+    rotations[layout] = gateRotation(direction);
+    widths[layout] = verticalGate(direction) ? height : width;
+    heights[layout] = verticalGate(direction) ? width : height;
+  }
+  const rotation = collapsedResponsive(rotations);
+  const width = collapsedResponsive(widths);
+  const height = collapsedResponsive(heights);
+  return {
+    ...node,
+    width,
+    height,
+    ports: logicGatePorts(node.metadata.gateKind as LogicGateKind, orientation),
+    children: node.children.map((child) =>
+      child.id === graphicId
+        ? {
+            ...child,
+            width: baseWidth,
+            height: baseHeight,
+            position: { x: 0.5, y: 0.5, anchor: "center" },
+            rotation,
+          }
+        : child,
+    ),
+    metadata: {
+      ...node.metadata,
+      gateOrientation: typeof orientation === "string" ? orientation : "responsive",
+    },
+  };
 }
 
 /**
@@ -126,88 +253,162 @@ export interface LogicGateOptions extends ContainerOptions {
 export function gate(id: string, kind: LogicGateKind, options: LogicGateOptions = {}): GroupNode {
   const {
     tone = "accent",
-    fill = "surfaceRaised",
+    fill: authoredFill,
+    variant = "schematic",
     text: symbol = kind.toUpperCase(),
     showText = true,
     textTone = "text",
-    width = 120,
-    height = 80,
+    width = { wide: 108, compact: 96, narrow: 90 },
+    height = { wide: 72, compact: 64, narrow: 60 },
     label = `${kind.toUpperCase()} logic gate`,
     metadata,
+    orientation: authoredOrientation,
     ...containerOptions
   } = options;
+  const fill = authoredFill ?? (variant === "schematic" ? "surface" : "surfaceRaised");
   const shapeBind = containerOptions.bind;
+  const { bind: _shapeBind, ...gateContainerOptions } = containerOptions;
+  void _shapeBind;
   const inverted = kind === "nand" || kind === "nor" || kind === "xnor" || kind === "not";
   const base = kind === "nand" ? "and" : kind === "nor" || kind === "xnor" ? "or" : kind;
   const outputX = inverted ? 98 : 108;
   const body =
     base === "and"
-      ? `M 14 8 L 52 8 C 86 8 ${outputX} 22 ${outputX} 40 C ${outputX} 58 86 72 52 72 L 14 72 Z`
+      ? `M 18 10 L 52 10 C 84 10 ${outputX} 23 ${outputX} 40 C ${outputX} 57 84 70 52 70 L 18 70 Z`
       : base === "or" || base === "xor"
-        ? `M 14 8 C 35 29 35 51 14 72 C 53 72 88 64 ${outputX} 40 C 88 16 53 8 14 8 Z`
+        ? `M 16 10 C 35 29 35 51 16 70 C 55 70 88 61 ${outputX} 40 C 88 19 55 10 16 10 Z`
         : base === "not" || base === "buffer"
-          ? `M 14 8 L ${outputX} 40 L 14 72 Z`
-          : "M 18 8 L 100 18 L 100 62 L 18 72 Z";
+          ? `M 18 10 L ${outputX} 40 L 18 70 Z`
+          : "M 20 10 L 100 19 L 100 61 L 20 70 Z";
   const inputPins =
-    base === "not" || base === "buffer" ? "M 0 40 L 14 40" : "M 0 27 L 17 27 M 0 53 L 17 53";
+    base === "not" || base === "buffer" ? "M 0 40 L 18 40" : "M 0 27 L 18 27 M 0 53 L 18 53";
   const outputPin = inverted ? "M 112 40 L 120 40" : `M ${outputX} 40 L 120 40`;
-  const children: SceneNode[] = [
-    {
-      id: `${id}-shape`,
-      type: "path",
-      d: `${body} ${inputPins} ${outputPin}`,
-      viewBox: { width: 120, height: 80 },
-      fill,
-      stroke: tone,
-      strokeWidth: 2.4,
-      width: "100%",
-      height: "100%",
-      position: { x: 0, y: 0 },
-      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
-    },
-  ];
-  if (base === "xor") {
-    children.push({
-      id: `${id}-xor-arc`,
-      type: "path",
-      d: "M 7 8 C 28 29 28 51 7 72",
-      viewBox: { width: 120, height: 80 },
+  const silhouette = `${body} ${inputPins} ${outputPin}`;
+  const activeSilhouette = `${body} ${outputPin}`;
+  const signalBind =
+    shapeBind?.highlight === undefined
+      ? shapeBind
+      : {
+          ...(shapeBind.hidden === undefined ? {} : { hidden: shapeBind.hidden }),
+          ...(shapeBind.tone === undefined ? {} : { tone: shapeBind.tone }),
+          opacity: shapeBind.highlight,
+        };
+  const commonPath = {
+    type: "path" as const,
+    viewBox: { width: 120, height: 80 },
+    width: "100%" as const,
+    height: "100%" as const,
+    position: { x: 0, y: 0 },
+  };
+  const graphicChildren: SceneNode[] = [];
+  if (variant === "schematic")
+    graphicChildren.push({
+      ...commonPath,
+      id: `${id}-channel`,
+      d: silhouette,
+      fill: "none",
+      stroke: "canvas",
+      strokeWidth: 4.15,
+    });
+  graphicChildren.push({
+    ...commonPath,
+    id: `${id}-shape`,
+    d: silhouette,
+    fill,
+    stroke: variant === "schematic" ? "connector" : tone,
+    strokeWidth: variant === "schematic" ? 1.25 : 1.8,
+    ...(variant === "solid" && shapeBind !== undefined ? { bind: shapeBind } : {}),
+  });
+  if (variant === "schematic")
+    graphicChildren.push({
+      ...commonPath,
+      id: `${id}-signal`,
+      d: activeSilhouette,
       fill: "none",
       stroke: tone,
-      strokeWidth: 2.4,
-      width: "100%",
-      height: "100%",
-      position: { x: 0, y: 0 },
-      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
+      strokeWidth: 2.25,
+      ...(signalBind === undefined ? {} : { bind: signalBind }),
     });
+  if (base === "xor") {
+    graphicChildren.push({
+      ...commonPath,
+      id: `${id}-xor-arc`,
+      d: "M 8 10 C 27 29 27 51 8 70",
+      fill: "none",
+      stroke: variant === "schematic" ? "connector" : tone,
+      strokeWidth: variant === "schematic" ? 1.15 : 1.8,
+      ...(variant === "solid" && shapeBind !== undefined ? { bind: shapeBind } : {}),
+    });
+    if (variant === "schematic")
+      graphicChildren.push({
+        ...commonPath,
+        id: `${id}-xor-signal`,
+        d: "M 8 10 C 27 29 27 51 8 70",
+        fill: "none",
+        stroke: tone,
+        strokeWidth: 2.25,
+        ...(signalBind === undefined ? {} : { bind: signalBind }),
+      });
   }
   if (inverted) {
-    children.push({
+    graphicChildren.push({
       id: `${id}-bubble`,
       type: "circle",
       radius: 7,
       fill,
-      stroke: tone,
-      strokeWidth: 2.4,
+      stroke: variant === "schematic" ? "connector" : tone,
+      strokeWidth: variant === "schematic" ? 1.15 : 1.8,
       width: 14,
       height: 14,
       position: { x: 105 / 120, y: 0.5, anchor: "center" },
-      ...(shapeBind === undefined ? {} : { bind: shapeBind }),
+      ...(variant === "solid" && shapeBind !== undefined ? { bind: shapeBind } : {}),
     });
+    if (variant === "schematic")
+      graphicChildren.push({
+        id: `${id}-bubble-signal`,
+        type: "circle",
+        radius: 7,
+        fill: "none",
+        stroke: tone,
+        strokeWidth: 2.15,
+        width: 14,
+        height: 14,
+        position: { x: 105 / 120, y: 0.5, anchor: "center" },
+        ...(signalBind === undefined ? {} : { bind: signalBind }),
+      });
   }
+  const graphic = container(`${id}-graphic`, "coordinates", graphicChildren, {
+    width,
+    height,
+    position: { x: 0.5, y: 0.5, anchor: "center" },
+  });
+  const children: SceneNode[] = [graphic];
   if (showText) {
     children.push({
       ...code(`${id}-text`, symbol, { tone: textTone, align: "center", width: 52 }),
       position: { x: base === "mux" ? 0.5 : 0.48, y: 0.5, anchor: "center" },
     });
   }
-  return container(id, "coordinates", children, {
-    ...containerOptions,
+  const result = container(id, "coordinates", children, {
+    ...gateContainerOptions,
     width,
     height,
+    allowOverflow: gateContainerOptions.allowOverflow ?? true,
     label,
-    metadata: { ...metadata, circuitRole: "gate", gateKind: kind },
+    metadata: {
+      ...metadata,
+      circuitRole: "gate",
+      gateKind: kind,
+      gateVariant: variant,
+      gateAutoOrient: authoredOrientation === undefined || authoredOrientation === "auto",
+    },
   });
+  return orientGate(
+    result,
+    authoredOrientation === undefined || authoredOrientation === "auto"
+      ? "right"
+      : authoredOrientation,
+  );
 }
 
 export interface JunctionOptions {
@@ -218,8 +419,8 @@ export interface JunctionOptions {
   readonly hidden?: Responsive<boolean>;
 }
 
-/** A filled circuit-net junction suitable for branching orthogonal wires. */
-export function junction(id: string, options: JunctionOptions = {}): CircleMark {
+/** A layered circuit-net junction: neutral while idle, signal-coloured only when active. */
+export function junction(id: string, options: JunctionOptions = {}): GroupNode {
   const size = options.size ?? 10;
   const radius: Responsive<number> =
     typeof size === "number"
@@ -229,20 +430,46 @@ export function junction(id: string, options: JunctionOptions = {}): CircleMark 
           ...(size.compact === undefined ? {} : { compact: size.compact / 2 }),
           ...(size.narrow === undefined ? {} : { narrow: size.narrow / 2 }),
         };
-  return {
+  const activeBind =
+    options.bind?.highlight === undefined ? undefined : { opacity: options.bind.highlight };
+  const rootBind = options.bind?.hidden === undefined ? undefined : { hidden: options.bind.hidden };
+  return container(
     id,
-    type: "circle",
-    radius,
-    width: size,
-    height: size,
-    fill: options.tone ?? "accent",
-    stroke: "canvas",
-    strokeWidth: 2,
-    label: options.label ?? "Circuit junction",
-    metadata: { circuitRole: "junction" },
-    ...(options.bind === undefined ? {} : { bind: options.bind }),
-    ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
-  };
+    "coordinates",
+    [
+      {
+        id: `${id}-base`,
+        type: "circle",
+        radius,
+        width: size,
+        height: size,
+        position: { x: 0.5, y: 0.5, anchor: "center" },
+        fill: "connector",
+        stroke: "canvas",
+        strokeWidth: 2,
+      },
+      {
+        id: `${id}-signal`,
+        type: "circle",
+        radius,
+        width: size,
+        height: size,
+        position: { x: 0.5, y: 0.5, anchor: "center" },
+        fill: options.tone ?? "accent",
+        stroke: "canvas",
+        strokeWidth: 2,
+        ...(activeBind === undefined ? {} : { bind: activeBind }),
+      },
+    ],
+    {
+      width: size,
+      height: size,
+      label: options.label ?? "Circuit junction",
+      metadata: { circuitRole: "junction" },
+      ...(rootBind === undefined ? {} : { bind: rootBind }),
+      ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
+    },
+  );
 }
 
 export interface MotifOptions {
@@ -264,6 +491,9 @@ export function motif(id: string, icon: string, options: MotifOptions = {}): Ico
 }
 
 export interface ContainerOptions {
+  readonly interactionGroup?: string;
+  /** Named connector locations on this node's resolved connection box. */
+  readonly ports?: readonly NodePort[];
   readonly gap?: Responsive<number>;
   readonly padding?: Responsive<Insets>;
   readonly align?: Responsive<Align>;
@@ -273,7 +503,7 @@ export interface ContainerOptions {
   readonly minWidth?: Responsive<number>;
   readonly maxWidth?: Responsive<number>;
   readonly grow?: Responsive<number>;
-  readonly columns?: Responsive<number>;
+  readonly columns?: Responsive<number | "auto">;
   readonly frame?: GroupNode["frame"];
   readonly hidden?: Responsive<boolean>;
   readonly z?: number;
@@ -296,6 +526,10 @@ export interface ContainerOptions {
   readonly revealAnchor?: GroupNode["revealAnchor"];
   /** Silences overflow diagnostics for intentional spill (e.g. decorative marks). */
   readonly allowOverflow?: boolean;
+  /** Tight-fit a `coordinates` group to its positioned children instead of a fallback height. */
+  readonly fit?: GroupNode["fit"];
+  /** Height as a fraction of width for a `coordinates` group without an explicit height. */
+  readonly aspect?: number;
 }
 
 /** A group with any layout; the layout-specific helpers below are the readable spellings. */
@@ -310,6 +544,10 @@ export function container(
     type: "group",
     layout,
     children,
+    ...(options.ports === undefined ? {} : { ports: options.ports }),
+    ...(options.interactionGroup === undefined
+      ? {}
+      : { interactionGroup: options.interactionGroup }),
     ...(options.gap === undefined ? {} : { gap: options.gap }),
     ...(options.padding === undefined ? {} : { padding: options.padding }),
     ...(options.align === undefined ? {} : { align: options.align }),
@@ -340,6 +578,8 @@ export function container(
     ...(options.inspect === undefined ? {} : { inspect: options.inspect }),
     ...(options.revealAnchor === undefined ? {} : { revealAnchor: options.revealAnchor }),
     ...(options.allowOverflow === undefined ? {} : { allowOverflow: options.allowOverflow }),
+    ...(options.fit === undefined ? {} : { fit: options.fit }),
+    ...(options.aspect === undefined ? {} : { aspect: options.aspect }),
   };
 }
 
@@ -473,7 +713,7 @@ export function tileNode(id: string, options: TileNodeOptions): GroupNode {
     variant === "icon"
       ? 0
       : variant === "compact"
-        ? { wide: 132, compact: 120, narrow: 108 }
+        ? { wide: 116, compact: 104, narrow: 92 }
         : { wide: 118, compact: 106, narrow: 94 };
   const defaultMaxWidth: Responsive<number> | undefined =
     variant === "icon"
@@ -693,6 +933,7 @@ export function card(id: string, options: CardOptions): GroupNode {
 }
 
 const CONTAINER_KEYS: readonly (keyof ContainerOptions)[] = [
+  "interactionGroup",
   "gap",
   "padding",
   "align",
@@ -744,6 +985,66 @@ export interface PanelOptions extends ContainerOptions {
   readonly title?: string;
   readonly layout?: Responsive<GroupLayout>;
   readonly tone?: Paint;
+}
+
+/** Semantic figure chrome. Exporters and editors use this instead of guessing from paint. */
+export type FigureSurfaceAppearance = "bare" | "card" | "inset" | "bleed";
+export type FigureSurfaceCrop = "scene" | "surface" | "content";
+export interface FigureSurfaceOptions extends Omit<ContainerOptions, "padding" | "frame" | "clip"> {
+  readonly appearance?: FigureSurfaceAppearance;
+  /** `auto` follows the appearance and remains responsive. */
+  readonly padding?: "auto" | Responsive<Insets>;
+  readonly frame?: GroupNode["frame"];
+  readonly clip?: boolean;
+  /** Preferred default crop for exporters and embedded editors. */
+  readonly exportCrop?: FigureSurfaceCrop;
+}
+
+/**
+ * A first-class boundary around a complete figure.
+ *
+ * Unlike `panel`, a surface carries no editorial heading and does not imply content structure.
+ * Its metadata gives runtimes a stable target for chrome, debugging, and export cropping.
+ */
+export function figureSurface(
+  id: string,
+  child: SceneNode,
+  options: FigureSurfaceOptions = {},
+): GroupNode {
+  const appearance = options.appearance ?? "bare";
+  const automaticPadding: Responsive<Insets> =
+    appearance === "card"
+      ? { wide: 24, compact: 20, narrow: 14 }
+      : appearance === "inset"
+        ? { wide: 18, compact: 16, narrow: 12 }
+        : 0;
+  const automaticFrame: GroupNode["frame"] | undefined =
+    appearance === "card"
+      ? material("raised")
+      : appearance === "inset"
+        ? material("inset")
+        : undefined;
+  const { appearance: _appearance, exportCrop, ...rest } = options;
+  void _appearance;
+  return stack(id, [child], {
+    width: "fill",
+    gap: 0,
+    ...containerOptions(rest as ContainerOptions),
+    padding:
+      options.padding === undefined || options.padding === "auto"
+        ? automaticPadding
+        : options.padding,
+    ...(options.frame === undefined && automaticFrame === undefined
+      ? {}
+      : { frame: options.frame ?? automaticFrame }),
+    clip: options.clip ?? appearance === "bleed",
+    metadata: {
+      ...(options.metadata ?? {}),
+      figureSurface: true,
+      surfaceAppearance: appearance,
+      exportCrop: exportCrop ?? (appearance === "bare" ? "content" : "surface"),
+    },
+  });
 }
 
 /** Muted framed region grouping related cards, with an optional eyebrow and title. */
@@ -835,6 +1136,8 @@ export interface CodeToken {
 export interface CodeBlockLine {
   /** Plain source for this line. Ignored when `tokens` is supplied. */
   readonly text?: string;
+  /** Runtime bindings for a dynamically selected or generated source line. */
+  readonly bind?: NodeBindings;
   /** Caller-supplied tokens, useful when a full parser already exists upstream. */
   readonly tokens?: readonly CodeToken[];
   /** Highlights this line independently of `highlightLines`. */
@@ -852,14 +1155,30 @@ export interface CodeBlockLine {
 export interface CodeAnnotation {
   readonly text: string;
   readonly tone?: Paint;
+  /** Defaults to hiding inline notes when the editor becomes compact; pass `false` to force it. */
+  readonly hidden?: Responsive<boolean>;
 }
 
 export type CodeBlockSource = string | readonly (string | CodeBlockLine)[];
+
+export interface CodeCursorOptions {
+  /** Displayed line number. Defaults to the final authored line. */
+  readonly line?: number;
+  readonly style?: "bar" | "block" | "underline";
+  readonly tone?: Paint;
+}
+
+export type CodeTokenizer = (
+  source: string,
+  context: { readonly language: CodeLanguage; readonly line: number; readonly index: number },
+) => readonly CodeToken[];
 
 export interface CodeBlockOptions extends ContainerOptions {
   readonly language?: CodeLanguage;
   readonly title?: string;
   readonly chrome?: "header" | "plain";
+  /** Controls editor gutters and inset without changing typography. Defaults to `compact`. */
+  readonly density?: "compact" | "comfortable";
   readonly lineNumbers?: boolean;
   readonly startLine?: number;
   readonly highlightLines?: readonly number[];
@@ -869,6 +1188,13 @@ export interface CodeBlockOptions extends ContainerOptions {
   readonly tabSize?: number;
   /** Marks generated token text for `f.typewrite(codeBlock)`. */
   readonly typing?: boolean;
+  /** Override the built-in lightweight tokenizer at authoring time (for example with Shiki). */
+  readonly tokenize?: CodeTokenizer;
+  readonly cursor?: boolean | CodeCursorOptions;
+  /** Number of authored lines kept in the deterministic editor viewport. */
+  readonly visibleLines?: number;
+  /** First visible line (zero-based), or pin the viewport to an end. */
+  readonly scroll?: "start" | "end" | "follow" | number;
   /** Re-theme syntax roles without changing or post-processing the generated scene. */
   readonly tokenTones?: Partial<Readonly<Record<CodeTokenKind, Paint>>>;
 }
@@ -1012,7 +1338,18 @@ export function codeBlock(
   source: CodeBlockSource,
   options: CodeBlockOptions = {},
 ): GroupNode {
+  if (
+    options.visibleLines !== undefined &&
+    (!Number.isInteger(options.visibleLines) || options.visibleLines <= 0)
+  )
+    throw new Error("codeBlock: visibleLines must be a positive integer");
+  if (
+    typeof options.scroll === "number" &&
+    (!Number.isFinite(options.scroll) || options.scroll < 0)
+  )
+    throw new Error("codeBlock: numeric scroll must be a finite, non-negative line index");
   const language = options.language ?? "text";
+  const density = options.density ?? "compact";
   const sourceLines =
     typeof source === "string" ? source.replaceAll("\r\n", "\n").split("\n") : source;
   const startLine = options.startLine ?? 1;
@@ -1020,10 +1357,15 @@ export function codeBlock(
   const inHighlightedRange = (line: number): boolean =>
     (options.highlightRanges ?? []).some(([start, end]) => line >= start && line <= end);
   const tabSize = Math.max(1, options.tabSize ?? 2);
-  const rows = sourceLines.map((entry, index) => {
+  const allRows = sourceLines.map((entry, index) => {
     const line: CodeBlockLine = typeof entry === "string" ? { text: entry } : entry;
     const lineNumber = line.number ?? startLine + index;
-    const tokens = line.tokens ?? highlightCodeLine(line.text ?? "", language);
+    const tokens =
+      line.tokens ??
+      (line.bind?.text === undefined
+        ? (options.tokenize?.(line.text ?? "", { language, line: lineNumber, index }) ??
+          highlightCodeLine(line.text ?? "", language))
+        : [{ text: line.text ?? "", kind: "plain" as const }]);
     const typing = line.typing ?? options.typing ?? false;
     const tokenNodes: SceneNode[] = tokens.map((token, tokenIndex) => ({
       ...code(
@@ -1037,15 +1379,40 @@ export function codeBlock(
         },
       ),
       ...(typing ? { reveal: "characters" as const } : {}),
+      ...(line.bind === undefined ? {} : { bind: line.bind }),
       metadata: {
         codeRole: "token",
         tokenKind: token.kind ?? "plain",
         typing,
         typingOrder: index * 10_000 + tokenIndex,
+        typingLine: index,
       },
     }));
     if (tokenNodes.length === 0)
       tokenNodes.push(code(`${id}-line-${index + 1}-empty`, "\u00a0", { tone: "text" }));
+    const cursor =
+      options.cursor === true
+        ? {}
+        : options.cursor === false || options.cursor === undefined
+          ? undefined
+          : options.cursor;
+    const cursorLine = cursor?.line ?? startLine + sourceLines.length - 1;
+    if (cursor !== undefined && lineNumber === cursorLine) {
+      const style = cursor.style ?? "bar";
+      tokenNodes.push({
+        ...code(
+          `${id}-line-${index + 1}-cursor`,
+          style === "block" ? "█" : style === "underline" ? "_" : "▎",
+          { tone: cursor.tone ?? "accent", reveal: typing ? "characters" : "lines" },
+        ),
+        metadata: {
+          codeRole: "cursor",
+          typing,
+          typingOrder: index * 10_000 + 9_999,
+          typingLine: index,
+        },
+      });
+    }
     const content = row(`${id}-line-${index + 1}-content`, tokenNodes, {
       gap: 0,
       align: "center",
@@ -1075,6 +1442,7 @@ export function codeBlock(
         pill(`${id}-line-${index + 1}-annotation`, annotation.text, {
           tone: annotation.tone ?? "info",
           variant: "outline",
+          hidden: annotation.hidden ?? { wide: false, compact: true, narrow: true },
         }),
       );
     }
@@ -1083,8 +1451,16 @@ export function codeBlock(
     const diffFill: FillPaint | undefined =
       line.diff === "add" ? "surfaceMuted" : line.diff === "remove" ? "surfaceMuted" : undefined;
     return row(`${id}-line-${index + 1}`, children, {
-      gap: options.lineNumbers === false && line.diff === undefined ? 0 : 14,
-      padding: [3, 8],
+      gap:
+        options.lineNumbers === false && line.diff === undefined
+          ? 0
+          : density === "compact"
+            ? 8
+            : 14,
+      padding:
+        density === "compact"
+          ? { wide: [2, 4], compact: [2, 4], narrow: [2, 2] }
+          : { wide: [4, 8], compact: [3, 7], narrow: [3, 5] },
       align: "center",
       width: "fill",
       ...(isHighlighted || diffFill !== undefined
@@ -1109,6 +1485,16 @@ export function codeBlock(
     });
   });
 
+  const visibleLines = Math.max(1, Math.floor(options.visibleLines ?? allRows.length));
+  const maximumStart = Math.max(0, allRows.length - visibleLines);
+  const scrollStart =
+    options.scroll === "end" || options.scroll === "follow"
+      ? maximumStart
+      : options.scroll === "start" || options.scroll === undefined
+        ? 0
+        : Math.max(0, Math.min(maximumStart, Math.floor(options.scroll)));
+  const rows = allRows.slice(scrollStart, scrollStart + visibleLines);
+
   const header: SceneNode[] = [];
   if ((options.chrome ?? "header") === "header") {
     const titleText = options.title ?? "Code";
@@ -1129,6 +1515,7 @@ export function codeBlock(
     language: _language,
     title: _title,
     chrome: _chrome,
+    density: _density,
     lineNumbers: _lineNumbers,
     startLine: _startLine,
     highlightLines: _highlightLines,
@@ -1137,12 +1524,17 @@ export function codeBlock(
     lineGap: _lineGap,
     tabSize: _tabSize,
     typing: _typing,
+    tokenize: _tokenize,
+    cursor: _cursor,
+    visibleLines: _visibleLines,
+    scroll: _scroll,
     tokenTones: _tokenTones,
     ...container
   } = options;
   void _language;
   void _title;
   void _chrome;
+  void _density;
   void _lineNumbers;
   void _startLine;
   void _highlightLines;
@@ -1151,18 +1543,39 @@ export function codeBlock(
   void _lineGap;
   void _tabSize;
   void _typing;
+  void _tokenize;
+  void _cursor;
+  void _visibleLines;
+  void _scroll;
   void _tokenTones;
   return stack(
     id,
-    [...header, stack(`${id}-source`, rows, { gap: options.lineGap ?? 1, width: "fill" })],
+    [
+      ...header,
+      stack(`${id}-source`, rows, {
+        gap: options.lineGap ?? (density === "compact" ? 0 : 2),
+        width: "fill",
+      }),
+    ],
     {
       ...containerOptions(container),
-      gap: options.gap ?? 10,
-      padding: options.padding ?? [12, 14],
+      gap: options.gap ?? (density === "compact" ? 7 : 11),
+      padding:
+        options.padding ??
+        (density === "compact"
+          ? { wide: [8, 9], compact: [8, 8], narrow: [7, 6] }
+          : { wide: [14, 16], compact: [12, 14], narrow: [10, 10] }),
       width: options.width ?? "fill",
       frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
       label: options.label ?? options.title ?? `${language} code`,
-      metadata: { ...options.metadata, codeRole: "block", language },
+      metadata: {
+        ...options.metadata,
+        codeRole: "block",
+        language,
+        totalLines: allRows.length,
+        visibleLines: rows.length,
+        scrollStart,
+      },
     },
   );
 }
@@ -1216,6 +1629,11 @@ export interface TerminalLine {
   readonly background?: FillPaint;
   readonly selected?: boolean;
   readonly status?: TerminalStatus;
+  /** Compact trailing metadata such as elapsed time, a port, or an exit code. */
+  readonly meta?: string;
+  /** Marker rendered in the semantic gutter. `false` suppresses an enabled automatic marker. */
+  readonly marker?: string | false;
+  readonly markerTone?: Paint;
   /** Places a cursor after this line; `false` suppresses a terminal-level cursor here. */
   readonly cursor?: boolean | TerminalCursorOptions;
   /** Marks this line for `f.typewrite(terminal)`. Commands default to true. */
@@ -1231,6 +1649,14 @@ export interface TerminalCursorOptions {
   readonly line?: number;
 }
 
+export interface TerminalChromeItem {
+  /** Compact semantic component placed in the terminal title bar. */
+  readonly kind?: "label" | "badge" | "icon" | "dot";
+  readonly text?: string;
+  readonly icon?: string;
+  readonly tone?: Paint;
+}
+
 export interface TerminalOptions extends ContainerOptions {
   readonly title?: string;
   readonly cwd?: string;
@@ -1239,20 +1665,33 @@ export interface TerminalOptions extends ContainerOptions {
   readonly titleTone?: Paint;
   readonly cwdTone?: Paint;
   readonly rows?: Responsive<number>;
-  readonly chrome?: "window" | "minimal" | "plain";
+  readonly chrome?: "window" | "tab" | "minimal" | "plain";
+  /** Controls screen inset and row rhythm without changing terminal text size. */
+  readonly density?: "compact" | "comfortable";
   /** Window control colours from left to right; pass an empty array to hide the controls. */
   readonly chromeControls?: readonly Paint[];
+  /** Composable title-bar components before and after the terminal title. */
+  readonly chromeStart?: readonly TerminalChromeItem[];
+  readonly chromeEnd?: readonly TerminalChromeItem[];
   readonly cursor?: boolean | TerminalCursorOptions;
   readonly lineGap?: Responsive<number>;
+  /** Add semantic glyphs beside success, warning, error, comment, and command lines. */
+  readonly lineMarkers?: boolean;
+  /** Keep the working directory in the body or fold it into the title bar. */
+  readonly cwdPosition?: "header" | "body";
   /** Horizontal text policy. `clip` is the compact terminal default. */
   readonly wrap?: "wrap" | "clip" | "overflow";
   /** Number of authored rows kept in the static viewport. */
   readonly visibleLines?: number;
   /** First visible row (zero-based), or pin the viewport to either end. */
-  readonly scroll?: "start" | "end" | number;
+  readonly scroll?: "start" | "end" | "follow" | number;
   readonly selectionTone?: FillPaint;
   /** Optional session-level status shown in the chrome. */
   readonly status?: TerminalStatus;
+  /** Marks command rows, every row, or no rows for `f.typewrite()`. Defaults to `commands`. */
+  readonly typing?: "commands" | "all" | false;
+  /** Source-order offset for composing several terminals into one typewrite stream. */
+  readonly typingOrderOffset?: number;
 }
 
 function terminalLineTone(kind: TerminalLineKind): Paint {
@@ -1272,6 +1711,23 @@ function terminalLineTone(kind: TerminalLineKind): Paint {
   }
 }
 
+function terminalLineMarker(kind: TerminalLineKind): string {
+  switch (kind) {
+    case "command":
+      return "›";
+    case "success":
+      return "✓";
+    case "warning":
+      return "!";
+    case "error":
+      return "×";
+    case "comment":
+      return "#";
+    default:
+      return "·";
+  }
+}
+
 function terminalStatus(status: TerminalStatus): { readonly label: string; readonly tone: Paint } {
   if (typeof status !== "string") return { label: status.label, tone: status.tone ?? "info" };
   if (status === "success") return { label: "passed", tone: "success" };
@@ -1282,10 +1738,118 @@ function terminalStatus(status: TerminalStatus): { readonly label: string; reado
   };
 }
 
+function terminalChromeItemNode(
+  id: string,
+  item: TerminalChromeItem,
+  fallbackTone: Paint,
+): SceneNode {
+  const tone = item.tone ?? fallbackTone;
+  if (item.kind === "dot")
+    return {
+      id,
+      type: "circle",
+      radius: 4,
+      width: 8,
+      height: 8,
+      fill: tone,
+      stroke: "none",
+    };
+  if (item.kind === "icon") return motif(id, item.icon ?? "terminal", { tone, size: 16 });
+  if (item.kind === "badge") return pill(id, item.text ?? "", { tone, variant: "outline" });
+  return code(id, item.text ?? "", { tone });
+}
+
+function terminalChrome(
+  id: string,
+  options: Pick<
+    TerminalOptions,
+    | "title"
+    | "titleTone"
+    | "cwd"
+    | "cwdPosition"
+    | "cwdTone"
+    | "chrome"
+    | "chromeControls"
+    | "chromeStart"
+    | "chromeEnd"
+    | "status"
+  >,
+): readonly SceneNode[] {
+  const chromeStyle = options.chrome ?? "window";
+  if (chromeStyle === "plain") return [];
+  const start = (options.chromeStart ?? []).map((item, index) =>
+    terminalChromeItemNode(`${id}-chrome-start-${index + 1}`, item, "textMuted"),
+  );
+  const end = (options.chromeEnd ?? []).map((item, index) =>
+    terminalChromeItemNode(`${id}-chrome-end-${index + 1}`, item, "textMuted"),
+  );
+  const dots = row(
+    `${id}-window-controls`,
+    (options.chromeControls ?? (["danger", "warning", "success"] as const)).map((tone, index) => ({
+      id: `${id}-window-control-${index + 1}`,
+      type: "circle" as const,
+      radius: 4,
+      width: 8,
+      height: 8,
+      fill: tone,
+      stroke: "none" as const,
+    })),
+    { gap: 6, align: "center" },
+  );
+  const titleText = code(`${id}-title`, options.title ?? "Terminal", {
+    tone: options.titleTone ?? (chromeStyle === "tab" ? "text" : "textMuted"),
+    width: "fill",
+  });
+  const headerCwd =
+    options.cwd !== undefined && options.cwdPosition === "header"
+      ? code(`${id}-cwd`, options.cwd, {
+          tone: options.cwdTone ?? "textMuted",
+          hidden: { wide: false, compact: false, narrow: true },
+        })
+      : undefined;
+  const sessionStatus = options.status === undefined ? undefined : terminalStatus(options.status);
+  const header = row(
+    `${id}-chrome`,
+    [
+      ...(chromeStyle === "window" ? [dots] : []),
+      ...(chromeStyle === "tab"
+        ? [motif(`${id}-tab-icon`, "terminal", { tone: "accent", size: 16 })]
+        : []),
+      ...start,
+      titleText,
+      ...(headerCwd === undefined ? [] : [headerCwd]),
+      ...end,
+      ...(sessionStatus === undefined
+        ? []
+        : [
+            pill(`${id}-status`, sessionStatus.label, {
+              tone: sessionStatus.tone,
+              variant: "outline",
+            }),
+          ]),
+    ],
+    {
+      gap: chromeStyle === "tab" ? 8 : 12,
+      align: "center",
+      width: "fill",
+      ...(chromeStyle === "tab"
+        ? { padding: [6, 8], frame: { fill: "surfaceMuted", stroke: "border", radius: 5 } }
+        : {}),
+      metadata: { terminalRole: "chrome", terminalChrome: chromeStyle },
+    },
+  );
+  return chromeStyle === "tab" ? [header] : [header, rule(`${id}-chrome-rule`)];
+}
+
 function terminalSpan(
   id: string,
   span: TerminalSpan,
-  options: { readonly typing: boolean; readonly selectionTone: FillPaint },
+  options: {
+    readonly typing: boolean;
+    readonly selectionTone: FillPaint;
+    readonly typingOrder: number;
+    readonly typingLine: number;
+  },
 ): GroupNode {
   const inverse = span.inverse ?? span.ansi?.inverse ?? false;
   const selected = span.selected ?? false;
@@ -1296,7 +1860,9 @@ function terminalSpan(
     ...code(`${id}-text`, span.text.length === 0 ? "\u00a0" : span.text, {
       tone: span.tone ?? (inverse ? "canvas" : "text"),
       reveal: (span.typing ?? options.typing) ? "characters" : "lines",
+      maxLines: 1,
     }),
+    wrap: false,
     ...((span.dim ?? span.ansi?.dim) === true ? { opacity: 0.58 } : {}),
     metadata: {
       terminalRole: "span",
@@ -1312,6 +1878,8 @@ function terminalSpan(
       ...(span.ansi?.background === undefined
         ? {}
         : { ansiBackground: String(span.ansi.background) }),
+      typingOrder: options.typingOrder,
+      typingLine: options.typingLine,
     },
   };
   return row(id, [text], {
@@ -1343,11 +1911,15 @@ export function terminal(
   )
     throw new Error("terminal: numeric scroll must be a finite, non-negative row index");
   const wrapPolicy = options.wrap ?? "clip";
+  const density = options.density ?? "compact";
+  const typingOrderOffset = options.typingOrderOffset ?? 0;
   const selectionTone = options.selectionTone ?? "surfaceMuted";
   const allRows = lines.map((entry, index): GroupNode => {
     const line: TerminalLine = typeof entry === "string" ? { text: entry } : entry;
     const kind = line.kind ?? "output";
-    const typing = line.typing ?? kind === "command";
+    const typingMode = options.typing ?? "commands";
+    const typing =
+      line.typing ?? (typingMode === "all" || (typingMode === "commands" && kind === "command"));
     const terminalCursor =
       options.cursor === true
         ? {}
@@ -1362,26 +1934,48 @@ export function terminal(
           ? {}
           : (line.cursor ?? (index + 1 === cursorLine ? terminalCursor : undefined));
     const children: SceneNode[] = [];
-    if (kind === "command") {
+    const body: SceneNode[] = [];
+    const marker =
+      line.marker === false
+        ? undefined
+        : (line.marker ?? (options.lineMarkers ? terminalLineMarker(kind) : undefined));
+    if (marker !== undefined) {
       children.push(
-        code(`${id}-line-${index + 1}-prompt`, line.prompt ?? options.prompt ?? "$", {
-          tone: line.promptTone ?? options.promptTone ?? "accent",
+        code(`${id}-line-${index + 1}-marker`, marker, {
+          tone: line.markerTone ?? line.tone ?? terminalLineTone(kind),
+          align: "center",
+          width: 14,
         }),
       );
     }
+    if (kind === "command") {
+      body.push({
+        ...code(`${id}-line-${index + 1}-prompt`, line.prompt ?? options.prompt ?? "$", {
+          tone: line.promptTone ?? options.promptTone ?? "accent",
+          reveal: typing ? "characters" : "lines",
+        }),
+        metadata: {
+          terminalRole: "prompt",
+          typing,
+          typingOrder: typingOrderOffset + index * 10_000,
+          typingLine: index,
+        },
+      });
+    }
     if (line.spans !== undefined) {
-      children.push(
+      body.push(
         row(
           `${id}-line-${index + 1}-content`,
           line.spans.map((span, spanIndex) =>
             terminalSpan(`${id}-line-${index + 1}-span-${spanIndex + 1}`, span, {
               typing,
               selectionTone,
+              typingOrder: typingOrderOffset + index * 10_000 + spanIndex + 1,
+              typingLine: index,
             }),
           ),
           {
             gap: 0,
-            width: "fill",
             align: "start",
             clip: wrapPolicy === "clip",
             allowOverflow: wrapPolicy === "overflow",
@@ -1389,19 +1983,24 @@ export function terminal(
         ),
       );
     } else {
-      children.push({
+      body.push({
         ...code(`${id}-line-${index + 1}-text`, line.text ?? " ", {
           tone: line.tone ?? terminalLineTone(kind),
           reveal: typing ? "characters" : "lines",
-          width: "fill",
           ...(options.rows === undefined ? {} : { maxLines: options.rows }),
         }),
         wrap: wrapPolicy === "wrap",
+        metadata: {
+          terminalRole: "text",
+          typing,
+          typingOrder: typingOrderOffset + index * 10_000 + 1,
+          typingLine: index,
+        },
       });
     }
     if (lineCursor !== undefined) {
       const style = lineCursor.style ?? "block";
-      children.push(
+      body.push(
         code(
           `${id}-line-${index + 1}-cursor`,
           style === "bar" ? "▎" : style === "underline" ? "_" : "█",
@@ -1409,6 +2008,17 @@ export function terminal(
         ),
       );
     }
+    children.push(
+      row(`${id}-line-${index + 1}-body`, body, {
+        gap: kind === "command" ? 8 : 0,
+        grow: 1,
+        minWidth: 0,
+        align: "start",
+        clip: wrapPolicy === "clip",
+        allowOverflow: wrapPolicy === "overflow",
+        metadata: { terminalRole: "lineBody" },
+      }),
+    );
     if (line.status !== undefined) {
       const status = terminalStatus(line.status);
       children.push(
@@ -1418,10 +2028,26 @@ export function terminal(
         }),
       );
     }
+    if (line.meta !== undefined) {
+      children.push(
+        code(`${id}-line-${index + 1}-meta`, line.meta, {
+          tone: "textMuted",
+          align: "end",
+          hidden: { wide: false, compact: false, narrow: true },
+        }),
+      );
+    }
     const selected = line.selected ?? false;
     return row(`${id}-line-${index + 1}`, children, {
-      gap: kind === "command" ? 8 : 0,
-      padding: line.background === undefined && !selected ? 0 : [2, 5],
+      gap: 8,
+      padding:
+        line.background === undefined && !selected
+          ? density === "compact"
+            ? { wide: [1, 2], compact: [1, 2], narrow: [1, 1] }
+            : { wide: [2, 5], compact: [2, 5], narrow: [2, 2] }
+          : density === "compact"
+            ? { wide: [3, 5], compact: [3, 5], narrow: [2, 3] }
+            : { wide: [4, 7], compact: [4, 7], narrow: [3, 3] },
       width: "fill",
       align: "start",
       clip: wrapPolicy === "clip",
@@ -1442,6 +2068,7 @@ export function terminal(
         cursor: lineCursor !== undefined,
         selected,
         status: line.status === undefined ? false : terminalStatus(line.status).label,
+        meta: line.meta ?? false,
       },
     });
   });
@@ -1449,61 +2076,15 @@ export function terminal(
   const visibleLines = Math.max(1, Math.floor(options.visibleLines ?? allRows.length));
   const maximumStart = Math.max(0, allRows.length - visibleLines);
   const scrollStart =
-    options.scroll === "end"
+    options.scroll === "end" || options.scroll === "follow"
       ? maximumStart
       : options.scroll === "start" || options.scroll === undefined
         ? 0
         : Math.max(0, Math.min(maximumStart, Math.floor(options.scroll)));
   const rows = allRows.slice(scrollStart, scrollStart + visibleLines);
 
-  const chrome: SceneNode[] = [];
-  const chromeStyle = options.chrome ?? "window";
-  if (chromeStyle !== "plain") {
-    const dots = row(
-      `${id}-window-controls`,
-      (options.chromeControls ?? (["danger", "warning", "success"] as const)).map(
-        (tone, index) => ({
-          id: `${id}-window-control-${index + 1}`,
-          type: "circle" as const,
-          radius: 4,
-          width: 8,
-          height: 8,
-          fill: tone,
-          stroke: "none" as const,
-        }),
-      ),
-      { gap: 6, align: "center" },
-    );
-    const titleText = code(`${id}-title`, options.title ?? "Terminal", {
-      tone: options.titleTone ?? "textMuted",
-      width: "fill",
-    });
-    const sessionStatus = options.status === undefined ? undefined : terminalStatus(options.status);
-    chrome.push(
-      row(
-        `${id}-chrome`,
-        [
-          ...(chromeStyle === "window" ? [dots] : []),
-          titleText,
-          ...(sessionStatus === undefined
-            ? []
-            : [
-                pill(`${id}-status`, sessionStatus.label, {
-                  tone: sessionStatus.tone,
-                  variant: "outline",
-                }),
-              ]),
-        ],
-        {
-          gap: 12,
-          align: "center",
-          width: "fill",
-        },
-      ),
-      rule(`${id}-chrome-rule`),
-    );
-  }
-  if (options.cwd !== undefined)
+  const chrome: SceneNode[] = [...terminalChrome(id, options)];
+  if (options.cwd !== undefined && (options.cwdPosition ?? "body") === "body")
     chrome.push(eyebrow(`${id}-cwd`, options.cwd, { tone: options.cwdTone ?? "textMuted" }));
 
   const {
@@ -1515,7 +2096,10 @@ export function terminal(
     cwdTone: _cwdTone,
     rows: _rows,
     chrome: _chrome,
+    density: _density,
     chromeControls: _chromeControls,
+    chromeStart: _chromeStart,
+    chromeEnd: _chromeEnd,
     cursor: _cursor,
     lineGap: _lineGap,
     wrap: _wrap,
@@ -1523,6 +2107,8 @@ export function terminal(
     scroll: _scroll,
     selectionTone: _selectionTone,
     status: _status,
+    typing: _typing,
+    typingOrderOffset: _typingOrderOffset,
     ...container
   } = options;
   void _title;
@@ -1533,7 +2119,10 @@ export function terminal(
   void _cwdTone;
   void _rows;
   void _chrome;
+  void _density;
   void _chromeControls;
+  void _chromeStart;
+  void _chromeEnd;
   void _cursor;
   void _lineGap;
   void _wrap;
@@ -1541,13 +2130,25 @@ export function terminal(
   void _scroll;
   void _selectionTone;
   void _status;
+  void _typing;
+  void _typingOrderOffset;
   return stack(
     id,
-    [...chrome, stack(`${id}-screen`, rows, { gap: options.lineGap ?? 5, width: "fill" })],
+    [
+      ...chrome,
+      stack(`${id}-screen`, rows, {
+        gap: options.lineGap ?? (density === "compact" ? 2 : 5),
+        width: "fill",
+      }),
+    ],
     {
       ...containerOptions(container),
-      gap: options.gap ?? 10,
-      padding: options.padding ?? [14, 16],
+      gap: options.gap ?? (density === "compact" ? 7 : 10),
+      padding:
+        options.padding ??
+        (density === "compact"
+          ? { wide: [8, 10], compact: [8, 9], narrow: [7, 6] }
+          : { wide: [14, 16], compact: [12, 14], narrow: [10, 9] }),
       width: options.width ?? "fill",
       frame: options.frame ?? { fill: "surfaceRaised", stroke: "border" },
       label: options.label ?? options.title ?? "Terminal session",
@@ -1563,6 +2164,483 @@ export function terminal(
   );
 }
 
+export interface TerminalPane {
+  readonly id?: string;
+  readonly title?: string;
+  readonly cwd?: string;
+  readonly lines: readonly (string | TerminalLine)[];
+  readonly active?: boolean;
+  readonly grow?: Responsive<number>;
+  readonly options?: Omit<TerminalOptions, "title" | "cwd" | "chrome" | "width" | "grow" | "frame">;
+}
+
+export interface TerminalStatusBar {
+  readonly left?: string;
+  readonly center?: string;
+  readonly right?: string;
+  readonly tone?: Paint;
+  readonly background?: FillPaint;
+}
+
+export interface TerminalWindowOptions extends ContainerOptions {
+  readonly title?: string;
+  readonly chrome?: TerminalOptions["chrome"];
+  readonly chromeControls?: readonly Paint[];
+  readonly chromeStart?: readonly TerminalChromeItem[];
+  readonly chromeEnd?: readonly TerminalChromeItem[];
+  readonly status?: TerminalStatus;
+  readonly layout?: Responsive<"row" | "stack">;
+  readonly paneGap?: Responsive<number>;
+  readonly activeTone?: Paint;
+  /** Defaults shared by every pane; a pane's own `options` take precedence. */
+  readonly paneOptions?: Omit<
+    TerminalOptions,
+    "title" | "cwd" | "chrome" | "width" | "grow" | "frame" | "typingOrderOffset"
+  >;
+  /** A tmux-like footer; `false` leaves the window without a status line. */
+  readonly statusBar?: TerminalStatusBar | false;
+}
+
+/**
+ * A responsive terminal window with one or more independently titled panes. It is ordinary scene
+ * composition, so pane text remains inspectable, typewritable, exportable, and themeable.
+ */
+export function terminalWindow(
+  id: string,
+  panes: readonly TerminalPane[],
+  options: TerminalWindowOptions = {},
+): GroupNode {
+  if (panes.length === 0) throw new Error("terminalWindow: give at least one pane");
+  const activeTone = options.activeTone ?? "accent";
+  const paneNodes = panes.map((pane, index) => {
+    const paneId = pane.id ?? `${id}-pane-${index + 1}`;
+    const paneOptions = { ...options.paneOptions, ...pane.options };
+    return terminal(paneId, pane.lines, {
+      ...paneOptions,
+      title: pane.title ?? `pane ${index + 1}`,
+      ...(pane.cwd === undefined ? {} : { cwd: pane.cwd, cwdPosition: "header" }),
+      chrome: "minimal",
+      density: paneOptions.density ?? "compact",
+      typingOrderOffset: index * 1_000_000 + (pane.options?.typingOrderOffset ?? 0),
+      width: "fill",
+      grow: pane.grow ?? 1,
+      frame: {
+        fill: "surface",
+        stroke: pane.active === true ? activeTone : "border",
+        radius: 5,
+      },
+      metadata: {
+        ...paneOptions.metadata,
+        terminalRole: "pane",
+        paneIndex: index,
+        active: pane.active ?? false,
+      },
+    });
+  });
+  const chrome = terminalChrome(id, {
+    title: options.title ?? "Terminal workspace",
+    chrome: options.chrome ?? "window",
+    ...(options.chromeControls === undefined ? {} : { chromeControls: options.chromeControls }),
+    ...(options.chromeStart === undefined ? {} : { chromeStart: options.chromeStart }),
+    ...(options.chromeEnd === undefined ? {} : { chromeEnd: options.chromeEnd }),
+    ...(options.status === undefined ? {} : { status: options.status }),
+  });
+  const content = container(
+    `${id}-panes`,
+    options.layout ?? { wide: "row", compact: "row", narrow: "stack" },
+    paneNodes,
+    {
+      gap: options.paneGap ?? 1,
+      width: "fill",
+      align: "stretch",
+      metadata: { terminalRole: "panes", paneCount: panes.length },
+    },
+  );
+  const statusBar =
+    options.statusBar === false || options.statusBar === undefined
+      ? undefined
+      : row(
+          `${id}-status-bar`,
+          [
+            code(`${id}-status-left`, options.statusBar.left ?? "", {
+              tone: options.statusBar.tone ?? "canvas",
+              width: "fill",
+            }),
+            ...(options.statusBar.center === undefined
+              ? []
+              : [
+                  code(`${id}-status-center`, options.statusBar.center, {
+                    tone: options.statusBar.tone ?? "canvas",
+                    align: "center",
+                    hidden: { wide: false, compact: false, narrow: true },
+                  }),
+                ]),
+            code(`${id}-status-right`, options.statusBar.right ?? "", {
+              tone: options.statusBar.tone ?? "canvas",
+              align: "end",
+              width: "fill",
+            }),
+          ],
+          {
+            gap: 10,
+            padding: [5, 8],
+            width: "fill",
+            align: "center",
+            frame: {
+              fill: options.statusBar.background ?? activeTone,
+              stroke: "none",
+              radius: 3,
+            },
+            metadata: { terminalRole: "statusBar" },
+          },
+        );
+  const {
+    title: _title,
+    chrome: _chrome,
+    chromeControls: _chromeControls,
+    chromeStart: _chromeStart,
+    chromeEnd: _chromeEnd,
+    status: _status,
+    layout: _layout,
+    paneGap: _paneGap,
+    activeTone: _activeTone,
+    paneOptions: _paneOptions,
+    statusBar: _statusBar,
+    ...containerOptionsInput
+  } = options;
+  void _title;
+  void _chrome;
+  void _chromeControls;
+  void _chromeStart;
+  void _chromeEnd;
+  void _status;
+  void _layout;
+  void _paneGap;
+  void _activeTone;
+  void _paneOptions;
+  void _statusBar;
+  return stack(id, [...chrome, content, ...(statusBar === undefined ? [] : [statusBar])], {
+    ...containerOptions(containerOptionsInput),
+    gap: options.gap ?? 7,
+    padding: options.padding ?? { wide: 9, compact: 8, narrow: 6 },
+    width: options.width ?? "fill",
+    frame: options.frame ?? { fill: "surfaceRaised", stroke: "border", radius: 8 },
+    label: options.label ?? options.title ?? "Terminal workspace",
+    metadata: {
+      ...options.metadata,
+      terminalRole: "window",
+      paneCount: panes.length,
+    },
+  });
+}
+
+export interface WorkspaceTab {
+  readonly id?: string;
+  readonly label: string;
+  readonly icon?: string;
+  readonly tone?: Paint;
+  readonly active?: boolean;
+  readonly interactive?: boolean;
+  readonly onActivate?: string;
+  readonly bind?: NodeBindings;
+}
+
+export interface WorkspacePane {
+  readonly id?: string;
+  readonly title?: string;
+  readonly icon?: string;
+  readonly content: SceneNode;
+  readonly active?: boolean;
+  readonly interactive?: boolean;
+  readonly onActivate?: string;
+  readonly bind?: NodeBindings;
+  readonly grow?: Responsive<number>;
+  readonly minWidth?: Responsive<number>;
+  readonly hidden?: Responsive<boolean>;
+  readonly tone?: Paint;
+}
+
+export interface PaneLayoutOptions extends ContainerOptions {
+  readonly layout?: Responsive<"row" | "stack">;
+  readonly paneGap?: Responsive<number>;
+  readonly activeTone?: Paint;
+  readonly headers?: boolean;
+  readonly panePadding?: Responsive<Insets>;
+  readonly paneFrame?: GroupNode["frame"];
+}
+
+/**
+ * Responsive editor/inspector panes. Pane content remains an ordinary node, while selection and
+ * activation can be wired directly to the scene state machine.
+ */
+export function paneLayout(
+  id: string,
+  panes: readonly WorkspacePane[],
+  options: PaneLayoutOptions = {},
+): GroupNode {
+  if (panes.length === 0) throw new Error("paneLayout: give at least one pane");
+  const activeTone = options.activeTone ?? "accent";
+  const paneNodes = panes.map((pane, index) => {
+    const paneId = pane.id ?? `${id}-pane-${index + 1}`;
+    const header =
+      options.headers === false || pane.title === undefined
+        ? undefined
+        : row(
+            `${paneId}-header`,
+            [
+              ...(pane.icon === undefined
+                ? []
+                : [
+                    motif(`${paneId}-icon`, pane.icon, {
+                      tone: pane.tone ?? "textMuted",
+                      size: 15,
+                    }),
+                  ]),
+              code(`${paneId}-title`, pane.title, {
+                tone: pane.active === true ? "text" : "textMuted",
+                width: "fill",
+              }),
+              ...(pane.active === true
+                ? [pill(`${paneId}-active`, "active", { tone: activeTone, variant: "outline" })]
+                : []),
+            ],
+            {
+              gap: 7,
+              align: "center",
+              width: "fill",
+              padding: [6, 8],
+              frame: { fill: "surfaceMuted", stroke: "none", radius: 4 },
+              metadata: { workspaceRole: "paneHeader" },
+            },
+          );
+    return stack(paneId, [...(header === undefined ? [] : [header]), pane.content], {
+      gap: header === undefined ? 0 : 6,
+      padding: options.panePadding ?? 6,
+      width: "fill",
+      grow: pane.grow ?? 1,
+      ...(pane.minWidth === undefined ? {} : { minWidth: pane.minWidth }),
+      ...(pane.hidden === undefined ? {} : { hidden: pane.hidden }),
+      frame:
+        options.paneFrame ??
+        ({
+          fill: "surface",
+          stroke: pane.active === true ? activeTone : "border",
+          radius: 5,
+        } as const),
+      interactive: pane.interactive ?? pane.onActivate !== undefined,
+      ...(pane.onActivate === undefined ? {} : { onActivate: pane.onActivate }),
+      ...(pane.bind === undefined ? {} : { bind: pane.bind }),
+      clip: true,
+      label: pane.title ?? `Pane ${index + 1}`,
+      metadata: {
+        workspaceRole: "pane",
+        paneIndex: index,
+        active: pane.active ?? false,
+      },
+    });
+  });
+  const {
+    layout: _layout,
+    paneGap: _paneGap,
+    activeTone: _activeTone,
+    headers: _headers,
+    panePadding: _panePadding,
+    paneFrame: _paneFrame,
+    ...containerInput
+  } = options;
+  void _layout;
+  void _paneGap;
+  void _activeTone;
+  void _headers;
+  void _panePadding;
+  void _paneFrame;
+  return container(
+    id,
+    options.layout ?? { wide: "row", compact: "row", narrow: "stack" },
+    paneNodes,
+    {
+      ...containerOptions(containerInput),
+      gap: options.paneGap ?? 1,
+      width: options.width ?? "fill",
+      align: "stretch",
+      metadata: { ...options.metadata, workspaceRole: "panes", paneCount: panes.length },
+    },
+  );
+}
+
+export interface WindowFrameOptions extends ContainerOptions {
+  readonly title?: string;
+  readonly icon?: string;
+  readonly chrome?: "window" | "tab" | "minimal" | "plain";
+  readonly chromeControls?: readonly Paint[];
+  readonly chromeStart?: readonly TerminalChromeItem[];
+  readonly chromeEnd?: readonly TerminalChromeItem[];
+  readonly tabs?: readonly WorkspaceTab[];
+  readonly activeTone?: Paint;
+  readonly statusBar?: readonly TerminalChromeItem[] | false;
+  readonly contentPadding?: Responsive<Insets>;
+}
+
+/** Generic portable application chrome for editors, browsers, inspectors, and terminals. */
+export function windowFrame(
+  id: string,
+  content: SceneNode,
+  options: WindowFrameOptions = {},
+): GroupNode {
+  const chromeStyle = options.chrome ?? "window";
+  const activeTone = options.activeTone ?? "accent";
+  const controls = row(
+    `${id}-window-controls`,
+    (options.chromeControls ?? (["textMuted", "textMuted", "textMuted"] as const)).map(
+      (tone, index) => ({
+        id: `${id}-window-control-${index + 1}`,
+        type: "circle" as const,
+        radius: 4,
+        width: 8,
+        height: 8,
+        fill: tone,
+        stroke: "none" as const,
+      }),
+    ),
+    { gap: 6, align: "center" },
+  );
+  const start = (options.chromeStart ?? []).map((item, index) =>
+    terminalChromeItemNode(`${id}-chrome-start-${index + 1}`, item, "textMuted"),
+  );
+  const end = (options.chromeEnd ?? []).map((item, index) =>
+    terminalChromeItemNode(`${id}-chrome-end-${index + 1}`, item, "textMuted"),
+  );
+  const tabs = (options.tabs ?? []).map((tab, index) => {
+    const tabId = tab.id ?? `${id}-tab-${index + 1}`;
+    return row(
+      tabId,
+      [
+        ...(tab.icon === undefined
+          ? []
+          : [motif(`${tabId}-icon`, tab.icon, { tone: tab.tone ?? "textMuted", size: 14 })]),
+        code(`${tabId}-label`, tab.label, {
+          tone: tab.active === true ? "text" : (tab.tone ?? "textMuted"),
+        }),
+      ],
+      {
+        gap: 6,
+        padding: [5, 8],
+        align: "center",
+        frame: {
+          fill: tab.active === true ? "surface" : "none",
+          stroke: tab.active === true ? activeTone : "none",
+          radius: 4,
+        },
+        interactive: tab.interactive ?? tab.onActivate !== undefined,
+        ...(tab.onActivate === undefined ? {} : { onActivate: tab.onActivate }),
+        ...(tab.bind === undefined ? {} : { bind: tab.bind }),
+        label: tab.label,
+        metadata: { workspaceRole: "tab", tabIndex: index, active: tab.active ?? false },
+      },
+    );
+  });
+  const header =
+    chromeStyle === "plain"
+      ? undefined
+      : row(
+          `${id}-chrome`,
+          [
+            ...(chromeStyle === "window" ? [controls] : []),
+            ...(options.icon === undefined
+              ? []
+              : [motif(`${id}-icon`, options.icon, { tone: activeTone, size: 16 })]),
+            ...start,
+            code(`${id}-title`, options.title ?? "Workspace", {
+              tone: chromeStyle === "minimal" ? "textMuted" : "text",
+              ...(tabs.length === 0
+                ? {}
+                : { hidden: { wide: false, compact: false, narrow: true } }),
+            }),
+            ...(tabs.length === 0
+              ? [
+                  {
+                    id: `${id}-chrome-space`,
+                    type: "rect" as const,
+                    width: 1,
+                    height: 1,
+                    grow: 1,
+                    fill: "none" as const,
+                    stroke: "none" as const,
+                  },
+                ]
+              : [row(`${id}-tabs`, tabs, { gap: 4, align: "center", grow: 1, clip: true })]),
+            ...end,
+          ],
+          {
+            gap: 9,
+            padding: chromeStyle === "minimal" ? [4, 6] : [6, 8],
+            width: "fill",
+            align: "center",
+            clip: true,
+            frame: { fill: "surfaceMuted", stroke: "none", radius: 5 },
+            metadata: { workspaceRole: "chrome", chrome: chromeStyle },
+          },
+        );
+  const status =
+    options.statusBar === false || options.statusBar === undefined
+      ? undefined
+      : row(
+          `${id}-status-bar`,
+          options.statusBar.map((item, index) =>
+            terminalChromeItemNode(`${id}-status-${index + 1}`, item, "textMuted"),
+          ),
+          {
+            gap: 8,
+            padding: [5, 8],
+            width: "fill",
+            frame: { fill: "surfaceMuted", stroke: "none", radius: 4 },
+            metadata: { workspaceRole: "statusBar" },
+          },
+        );
+  const {
+    title: _title,
+    icon: _icon,
+    chrome: _chrome,
+    chromeControls: _chromeControls,
+    chromeStart: _chromeStart,
+    chromeEnd: _chromeEnd,
+    tabs: _tabs,
+    activeTone: _activeTone,
+    statusBar: _statusBar,
+    contentPadding: _contentPadding,
+    ...containerInput
+  } = options;
+  void _title;
+  void _icon;
+  void _chrome;
+  void _chromeControls;
+  void _chromeStart;
+  void _chromeEnd;
+  void _tabs;
+  void _activeTone;
+  void _statusBar;
+  void _contentPadding;
+  const body = stack(`${id}-body`, [content], {
+    padding: options.contentPadding ?? 0,
+    width: "fill",
+    frame: { fill: "surface", stroke: "none", radius: 5 },
+    metadata: { workspaceRole: "content" },
+  });
+  return stack(
+    id,
+    [...(header === undefined ? [] : [header]), body, ...(status === undefined ? [] : [status])],
+    {
+      ...containerOptions(containerInput),
+      gap: options.gap ?? 5,
+      padding: options.padding ?? { wide: 7, compact: 6, narrow: 5 },
+      width: options.width ?? "fill",
+      frame: options.frame ?? { fill: "surfaceRaised", stroke: "border", radius: 8 },
+      label: options.label ?? options.title ?? "Application window",
+      metadata: { ...options.metadata, workspaceRole: "window", chrome: chromeStyle },
+    },
+  );
+}
+
 export interface FileTreeEntry {
   readonly name: string;
   readonly kind?: "file" | "folder";
@@ -1570,6 +2648,15 @@ export interface FileTreeEntry {
   readonly detail?: string;
   readonly status?: string;
   readonly tone?: Paint;
+  readonly statusTone?: Paint;
+  /** Motif override. `false` removes the icon; files otherwise infer a compact type mark. */
+  readonly icon?: string | false;
+  /** Emphasises the current path without changing the underlying tree structure. */
+  readonly selected?: boolean;
+  readonly interactive?: boolean;
+  readonly onActivate?: string;
+  readonly description?: string;
+  readonly inspect?: InspectInfo;
   readonly expanded?: boolean;
 }
 
@@ -1577,6 +2664,64 @@ export interface FileTreeOptions extends ContainerOptions {
   readonly root?: string;
   readonly guides?: boolean;
   readonly density?: "compact" | "comfortable";
+  /** `auto` uses compact extension marks, `generic` uses the file motif, and `none` hides icons. */
+  readonly icons?: "auto" | "generic" | "none";
+  readonly selectionTone?: FillPaint;
+  /** Supplemental status pills hide on narrow panes by default; pass `false` to keep them. */
+  readonly statusHidden?: Responsive<boolean>;
+  /** Show a disclosure mark beside folders. */
+  readonly disclosures?: boolean;
+}
+
+const FILE_TYPE_LABELS: Readonly<Record<string, string>> = {
+  cast: "CAST",
+  css: "CSS",
+  env: "ENV",
+  html: "HTML",
+  js: "JS",
+  jsx: "JSX",
+  json: "JSON",
+  md: "MD",
+  mjs: "JS",
+  png: "IMG",
+  svg: "SVG",
+  ts: "TS",
+  tsx: "TSX",
+  yaml: "YML",
+  yml: "YML",
+};
+
+function fileTypeLabel(name: string): string | undefined {
+  const base = name.toLowerCase();
+  if (base === "dockerfile") return "DOCKER";
+  if (base.startsWith(".")) return base.slice(1, 5).toUpperCase();
+  const extension = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1) : "";
+  return (
+    FILE_TYPE_LABELS[extension] ??
+    (extension.length > 0 && extension.length <= 4 ? extension.toUpperCase() : undefined)
+  );
+}
+
+function fileTreeIcon(
+  path: string,
+  entry: FileTreeEntry,
+  folder: boolean,
+  mode: NonNullable<FileTreeOptions["icons"]>,
+  tone: Paint,
+): SceneNode[] {
+  if (entry.icon === false || mode === "none") return [];
+  if (entry.icon !== undefined || folder || mode === "generic")
+    return [motif(`${path}-icon`, entry.icon ?? (folder ? "folder" : "file"), { tone, size: 16 })];
+  const label = fileTypeLabel(entry.name);
+  if (label === undefined) return [motif(`${path}-icon`, "file", { tone, size: 16 })];
+  return [
+    row(`${path}-type`, [code(`${path}-type-label`, label, { tone, align: "center" })], {
+      padding: [1, 4],
+      frame: { fill: "none", stroke: tone, radius: 2 },
+      align: "center",
+      metadata: { fileTreeRole: "type", fileType: label },
+    }),
+  ];
 }
 
 /** A recursive, responsive directory tree with semantic icons, branch guides, and annotations. */
@@ -1586,29 +2731,89 @@ export function fileTree(
   options: FileTreeOptions = {},
 ): GroupNode {
   const gap = options.density === "compact" ? 4 : 7;
+  const icons = options.icons ?? "auto";
+  const selectionTone = options.selectionTone ?? "surfaceMuted";
   const branch = (entry: FileTreeEntry, path: string, depth: number): GroupNode => {
     const folder = entry.kind === "folder" || entry.children !== undefined;
     const tone = entry.tone ?? (folder ? "accent" : "textMuted");
+    const expanded = entry.expanded !== false;
+    const selected = entry.selected ?? false;
     const label = row(
       `${path}-label`,
       [
-        motif(`${path}-icon`, folder ? "folder" : "file", { tone, size: 16 }),
+        ...(depth > 0 && options.guides !== false
+          ? [
+              {
+                id: `${path}-branch`,
+                type: "rect" as const,
+                width: 9,
+                height: 1,
+                fill: "border" as const,
+                stroke: "none" as const,
+                radius: 0,
+              },
+            ]
+          : []),
+        ...(options.disclosures === false
+          ? []
+          : folder
+            ? [
+                code(`${path}-disclosure`, expanded ? "−" : "+", {
+                  tone: "textMuted",
+                  align: "center",
+                  width: 12,
+                }),
+              ]
+            : [
+                {
+                  id: `${path}-disclosure-space`,
+                  type: "rect" as const,
+                  width: 12,
+                  height: 1,
+                  fill: "none" as const,
+                  stroke: "none" as const,
+                  radius: 0,
+                },
+              ]),
+        ...fileTreeIcon(path, entry, folder, icons, tone),
         code(`${path}-name`, entry.name, { tone: folder ? "text" : tone }),
         ...(entry.detail === undefined
           ? []
           : [caption(`${path}-detail`, entry.detail, { tone: "textMuted", width: "fill" })]),
         ...(entry.status === undefined
           ? []
-          : [pill(`${path}-status`, entry.status, { tone, variant: "outline" })]),
+          : [
+              pill(`${path}-status`, entry.status, {
+                tone: entry.statusTone ?? tone,
+                variant: "outline",
+                hidden: options.statusHidden ?? { wide: false, compact: false, narrow: true },
+              }),
+            ]),
       ],
       {
         gap: 8,
+        padding: selected ? [5, 7] : [3, 7],
         align: "center",
         width: "fill",
-        metadata: { fileTreeRole: folder ? "folder" : "file", depth },
+        ...(selected
+          ? { frame: { fill: selectionTone, stroke: tone, strokeWidth: 1, radius: 3 } }
+          : {}),
+        interactive: entry.interactive ?? entry.onActivate !== undefined,
+        ...(entry.onActivate === undefined ? {} : { onActivate: entry.onActivate }),
+        ...(entry.description === undefined && entry.detail === undefined
+          ? {}
+          : { description: entry.description ?? entry.detail }),
+        ...(entry.inspect === undefined ? {} : { inspect: entry.inspect }),
+        metadata: {
+          fileTreeRole: folder ? "folder" : "file",
+          depth,
+          selected,
+          ...(folder ? { expanded } : {}),
+          fileType: folder ? "folder" : (fileTypeLabel(entry.name) ?? "file"),
+        },
       },
     );
-    const children = entry.expanded === false ? [] : (entry.children ?? []);
+    const children = expanded ? (entry.children ?? []) : [];
     if (children.length === 0) return label;
     const nestedRows = stack(
       `${path}-children-list`,
@@ -1659,10 +2864,23 @@ export function fileTree(
           ),
           rule(`${id}-root-rule`),
         ];
-  const { root: _root, guides: _guides, density: _density, ...container } = options;
+  const {
+    root: _root,
+    guides: _guides,
+    density: _density,
+    icons: _icons,
+    selectionTone: _selectionTone,
+    statusHidden: _statusHidden,
+    disclosures: _disclosures,
+    ...container
+  } = options;
   void _root;
   void _guides;
   void _density;
+  void _icons;
+  void _selectionTone;
+  void _statusHidden;
+  void _disclosures;
   return stack(id, [...rootLabel, ...content], {
     gap,
     padding: options.padding ?? 14,

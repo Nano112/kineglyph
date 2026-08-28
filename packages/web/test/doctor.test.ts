@@ -14,7 +14,15 @@ describe("doctor overlay", () => {
         id: "root",
         type: "group",
         children: [
-          { id: "tiny", type: "rect", width: 20, height: 20, fill: "accent", interactive: true },
+          {
+            id: "tiny",
+            type: "rect",
+            width: 20,
+            height: 20,
+            fill: "accent",
+            interactive: true,
+            ports: [{ id: "out", side: "right" }],
+          },
         ],
       },
     };
@@ -23,6 +31,11 @@ describe("doctor overlay", () => {
     const overlay = mountDoctorOverlay(stage, scene);
     expect(stage.querySelector('[data-node-id="tiny"]')).not.toBeNull();
     expect(overlay.element.textContent).toContain("touch-target");
+    expect(stage.querySelector('[data-port="out"]')).not.toBeNull();
+    expect(overlay.element.textContent).toContain("· 600×");
+    overlay.setLayers({ ports: false, grid: false });
+    expect(stage.querySelector('[data-port="out"]')).toBeNull();
+    expect(overlay.layers.ports).toBe(false);
     overlay.setVisible(false);
     expect(overlay.element.hidden).toBe(true);
     overlay.destroy();

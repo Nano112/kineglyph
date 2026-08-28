@@ -1,17 +1,91 @@
 # Glyph style laboratory
 
-Two visual directions can share one semantic scene. `signalTheme` is flat, compact, and schematic;
-`instrumentTheme` uses graphite materials, bevel highlights, contact shadows, and one local emitter.
-Neither theme changes geometry or content.
+Three visual directions can share one semantic scene. `signalTheme` is flat, compact, and
+schematic; `integrationTheme` adds a restrained cyan-to-blue hierarchy for hosts and adapters;
+`instrumentTheme` uses graphite materials, bevel highlights, contact shadows, and one local
+emitter. None of the themes changes geometry or content.
 
-The examples below deliberately repeat three scene structures under both themes. This is the useful
-test: a theme is a system only when topology, layered cards, controls, motion, responsive layout,
-and export all survive the swap.
+Most examples below deliberately repeat three scene structures under the flat Signal and physical
+Instrument extremes; the host map adds Integration as a third direction. This is the useful test:
+a theme is a system only when topology, layered cards, controls, motion, responsive layout, and
+export all survive the swap.
 
-| Theme             | Character                                      | Best fit                                  |
-| ----------------- | ---------------------------------------------- | ----------------------------------------- |
-| `signalTheme`     | grid, outline, icon tile, explicit signal path | CI, state machines, architecture, routing |
-| `instrumentTheme` | depth, bevel, contact shadow, local emission   | controls, devices, physical systems       |
+| Theme              | Character                                      | Best fit                                  |
+| ------------------ | ---------------------------------------------- | ----------------------------------------- |
+| `signalTheme`      | grid, outline, icon tile, explicit signal path | CI, state machines, architecture, routing |
+| `integrationTheme` | dark field, host gradient, fine link hierarchy | agents, adapters, client topology         |
+| `instrumentTheme`  | depth, bevel, contact shadow, local emission   | controls, devices, physical systems       |
+
+## A host and its integration surfaces
+
+This compact topology takes the hierarchy from the reference—two upstream services, one dominant
+host, and four client surfaces—without baking its composition into an image. Every chip is an
+ordinary group, every line is a routable edge, and the centre gradient is a semantic material.
+
+```kineglyph live id=style-integration-host view=preview height=430
+import { figure, integrationTheme, material } from "kineglyph";
+
+export const theme = integrationTheme;
+
+export default figure("integration-agent-host", {
+  title: "Agent host integration map",
+  description: "Copilot and ACP feed one agent host, which serves IDE, web, CLI, and mobile clients.",
+  background: "transparent",
+}, (f) => {
+  const chip = (id, icon, label, tone, position) => f.place(f.row([
+    f.icon(icon, { id: `${id}-icon`, size: 14, tone }),
+    f.code(label, { id: `${id}-label`, tone }),
+  ], {
+    id,
+    gap: 5,
+    padding: [6, 9],
+    align: "center",
+    justify: "center",
+    width: "hug",
+    minHeight: 30,
+    frame: { fill: "canvas", stroke: tone, strokeWidth: 1, radius: 7 },
+  }), position);
+
+  const copilot = chip("copilot", "spark", "Copilot", "success", { x: 0.34, y: 0.08, anchor: "center" });
+  const acp = chip("acp", "circuit", "ACP", "accent", { x: 0.66, y: 0.08, anchor: "center" });
+  const host = f.place(f.stack([
+    f.heading("Agent Host", { tone: "accentContrast", align: "center", width: "fill" }),
+  ], {
+    id: "agent-host",
+    gap: 7,
+    padding: [18, 24],
+    align: "center",
+    justify: "center",
+    width: { wide: 280, compact: 248, narrow: 220 },
+    height: { wide: 112, compact: 104, narrow: 96 },
+    frame: material("floating"),
+  }), { x: 0.5, y: 0.46, anchor: "center" });
+  const ide = chip("ide", "code", "IDE", "info", { x: 0.13, y: 0.86, anchor: "center" });
+  const web = chip("web", "graph", "Web", "info", { x: 0.38, y: 0.86, anchor: "center" });
+  const cli = chip("cli", "settings", "CLI", "info", { x: 0.62, y: 0.86, anchor: "center" });
+  const mobile = chip("mobile", "detect", "Mobile", "info", { x: 0.87, y: 0.86, anchor: "center" });
+  const nodes = [copilot, acp, host, ide, web, cli, mobile];
+  const field = f.coordinates(nodes, {
+    width: "fill",
+    height: { wide: 350, compact: 330, narrow: 310 },
+  });
+  const edges = [
+    f.connect({ node: copilot, side: "bottom" }, { node: host, side: "top", offset: 0.34 }, { route: "curve", stroke: "dotted", tone: "success", head: "none" }),
+    f.connect({ node: acp, side: "bottom" }, { node: host, side: "top", offset: 0.66 }, { route: "curve", stroke: "dotted", tone: "accent", head: "none" }),
+    ...[ide, web, cli, mobile].map((client, index) => f.connect(
+      { node: host, side: "bottom", offset: [0.16, 0.38, 0.62, 0.84][index] },
+      { node: client, side: "top" },
+      { route: "curve", stroke: "dashed", tone: "info", opacity: 0.82, head: "none" },
+    )),
+  ];
+  f.root(f.panel([field], {
+    id: "host-map-card",
+    padding: { wide: 22, compact: 18, narrow: 14 },
+    frame: material("flat"),
+  }));
+  f.sequence([[f.reveal(nodes, { stagger: 55, scale: 0.97 }), f.draw(edges, { stagger: 45 })]]);
+});
+```
 
 ## A routed verification glyph
 
@@ -199,6 +273,7 @@ import {
   cardFan,
   glyphStyleThemes,
   gridPlane,
+  integrationTheme,
   instrumentTheme,
   port,
   signalTheme,
@@ -206,8 +281,8 @@ import {
 } from "@kineglyph/core";
 ```
 
-- `signalTheme` and `instrumentTheme` are complete public theme tokens.
-- `glyphStyleThemes.signal` and `.instrument` make theme selection data-driven.
+- `signalTheme`, `integrationTheme`, and `instrumentTheme` are complete public theme tokens.
+- `glyphStyleThemes.signal`, `.integration`, and `.instrument` make theme selection data-driven.
 - `f.tile()` / `tileNode()` creates an icon-first semantic node.
 - `f.port()` / `port()` creates a real signal or control connection point.
 - `f.gridPlane()` / `gridPlane()` adds an exportable responsive construction grid.

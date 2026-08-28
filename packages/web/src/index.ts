@@ -14,6 +14,7 @@ import {
   evaluateCondition,
   inheritTheme,
   resolveFigure,
+  resolvedSceneBounds,
   seekTimeline,
   type FigureSource,
   type LayoutName,
@@ -24,14 +25,19 @@ import {
   type ResolvedFrame,
   type ResolvedNode,
   type ResolvedScene,
+  type ResolvedSceneCrop,
   type SceneControl,
   type ThemeTokens,
   type VariableValue,
   type Variables,
 } from "@kineglyph/core";
 import { patchStageSvg } from "./patch.js";
-import { mountDoctorOverlay, type DoctorOverlayHandle } from "./doctor.js";
-import { renderSvg } from "@kineglyph/svg";
+import {
+  mountDoctorOverlay,
+  type DoctorOverlayHandle,
+  type DoctorOverlayOptions,
+} from "./doctor.js";
+import { renderSvg, type SvgRenderOptions } from "@kineglyph/svg";
 import { mountShaderSurfaces, type ShaderSurfaceManager } from "./shaders.js";
 import { ensureStyles } from "./styles.js";
 
@@ -50,9 +56,11 @@ import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
+export * from "./math.js";
 export * from "./micro.js";
 export * from "./stream.js";
 export * from "./export.js";
+export * from "./gif.js";
 
 export type FigureLayoutRequest = "auto" | LayoutName | "stacked";
 
@@ -110,7 +118,7 @@ export interface MountOptions {
   /** Render machine control buttons when the scene declares them. Defaults to true. */
   readonly machineControls?: ChromeSetting;
   /** Development-only bounds and quality overlay powered by `kineglyph doctor`. */
-  readonly doctor?: boolean;
+  readonly doctor?: boolean | DoctorOverlayOptions;
   /** Overrides the `prefers-reduced-motion` media query. */
   readonly reducedMotion?: boolean;
   /** Stable DOM id prefix. Defaults to a unique generated prefix. */
@@ -123,6 +131,13 @@ export interface MountOptions {
   readonly history?: boolean;
   /** HTML/WebGL renderers keyed by a live image node id. The image remains the export fallback. */
   readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>>;
+  /**
+   * Host-side derived signals. Called with the machine's variables after every transition (and
+   * once at mount); the returned values are merged into the live signals before the scene is
+   * re-resolved. This is where geometry the expression language cannot express — trigonometry,
+   * numerical roots, propagated trajectories — is computed while the scene stays plain data.
+   */
+  readonly deriveSignals?: (variables: Variables, signals: Variables) => Variables;
   readonly onSurfaceError?: (nodeId: string, error: unknown) => void;
   readonly onInspect?: (target: InspectTarget | undefined) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
@@ -193,14 +208,30 @@ export interface KineglyphController {
   /** Resets the machine to its initial state and the timeline to the start. */
   reset(): void;
   setTheme(theme: ThemeTokens): void;
-  setScene(scene: FigureSource, options?: { readonly initialState?: MachineState }): void;
+  setScene(
+    scene: FigureSource,
+    options?: {
+      readonly initialState?: MachineState;
+      /** Replaces the live-surface registry while swapping the scene. Omit to keep it. */
+      readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>> | undefined;
+      /** Replaces the derived-signal hook while swapping the scene. Omit to keep it. */
+      readonly deriveSignals?: MountOptions["deriveSignals"] | undefined;
+    },
+  ): void;
   /** Merges live signal values and re-renders; pass `replace` to discard earlier overrides. */
   setSignals(signals: Variables, options?: { readonly replace?: boolean }): void;
   setReducedMotion(reduced: boolean): void;
   /** Enables or disables repetition without remounting the figure. */
   setLoop(loop: boolean): void;
   /** Enables or disables the development quality overlay without remounting the figure. */
-  setDoctor(enabled: boolean): void;
+  setDoctor(enabled: boolean | DoctorOverlayOptions): void;
+  /** Serializes the current timeline and machine state, optionally tightly cropped. */
+  toSvg(
+    options?: SvgRenderOptions & {
+      readonly crop?: ResolvedSceneCrop;
+      readonly cropPadding?: number;
+    },
+  ): string;
   /** Programmatic inspection; pass `null` to clear. Returns the current inspection target. */
   inspect(id?: string | null): InspectTarget | undefined;
   /** Forces a re-measure (fixed-width mounts accept an explicit width). */
@@ -280,6 +311,7 @@ class FigureRuntime implements KineglyphController {
   #liveSurfaces: LiveSurfaceManager | undefined;
   #doctorOverlay: DoctorOverlayHandle | undefined;
   #doctorEnabled: boolean;
+  #doctorOptions: DoctorOverlayOptions;
   #width: number;
   #reducedMotion: boolean;
   #inspected: InspectTarget | undefined;
@@ -307,7 +339,8 @@ class FigureRuntime implements KineglyphController {
   constructor(element: HTMLElement, options: MountOptions) {
     this.element = element;
     this.#options = options;
-    this.#doctorEnabled = options.doctor ?? false;
+    this.#doctorEnabled = options.doctor !== false && options.doctor !== undefined;
+    this.#doctorOptions = typeof options.doctor === "object" ? options.doctor : {};
     this.#source = options.scene;
     this.#signals = { ...(options.signals ?? {}) };
     this.#theme = options.theme ?? defaultTheme;
@@ -339,6 +372,7 @@ class FigureRuntime implements KineglyphController {
       });
     }
 
+    this.#deriveSignals();
     this.#resolved = this.#resolve();
 
     // The chrome is built *after* the first resolve, because `"auto"` cannot be answered before
@@ -464,12 +498,35 @@ class FigureRuntime implements KineglyphController {
     this.#assertLive();
     this.#theme = theme;
     this.#resolved = this.#resolve();
-    this.#render(false);
+    this.#render(false, true);
   }
 
-  setScene(scene: FigureSource, options: { readonly initialState?: MachineState } = {}): void {
+  setScene(
+    scene: FigureSource,
+    options: {
+      readonly initialState?: MachineState;
+      readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>> | undefined;
+      readonly deriveSignals?: MountOptions["deriveSignals"] | undefined;
+    } = {},
+  ): void {
     this.#assertLive();
     this.#source = scene;
+    if ("liveSurfaces" in options) {
+      const { liveSurfaces: _previousLiveSurfaces, ...mountOptions } = this.#options;
+      void _previousLiveSurfaces;
+      this.#options =
+        options.liveSurfaces === undefined
+          ? mountOptions
+          : { ...mountOptions, liveSurfaces: options.liveSurfaces };
+    }
+    if ("deriveSignals" in options) {
+      const { deriveSignals: _previousDerive, ...mountOptions } = this.#options;
+      void _previousDerive;
+      this.#options =
+        options.deriveSignals === undefined
+          ? mountOptions
+          : { ...mountOptions, deriveSignals: options.deriveSignals };
+    }
     // A new scene gets a fresh machine; the mount-time initialState belongs to the original scene.
     this.machine =
       isSceneDefinition(scene) && scene.machine !== undefined
@@ -480,8 +537,9 @@ class FigureRuntime implements KineglyphController {
         : undefined;
     this.#inspected = undefined;
     this.#invalidateMachineControls();
+    this.#deriveSignals();
     this.#resolved = this.#resolve();
-    this.#render(true);
+    this.#render(true, true);
   }
 
   setSignals(signals: Variables, options: { readonly replace?: boolean } = {}): void {
@@ -509,15 +567,38 @@ class FigureRuntime implements KineglyphController {
       this.restart(true);
   }
 
-  setDoctor(enabled: boolean): void {
+  setDoctor(enabled: boolean | DoctorOverlayOptions): void {
     this.#assertLive();
-    if (enabled === this.#doctorEnabled) return;
-    this.#doctorEnabled = enabled;
-    if (enabled) this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved);
-    else {
+    const nextEnabled = enabled !== false;
+    const nextOptions = typeof enabled === "object" ? enabled : this.#doctorOptions;
+    if (nextEnabled === this.#doctorEnabled && nextOptions === this.#doctorOptions) return;
+    this.#doctorEnabled = nextEnabled;
+    this.#doctorOptions = nextOptions;
+    if (nextEnabled) {
+      this.#doctorOverlay?.destroy();
+      this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved, this.#doctorOptions);
+    } else {
       this.#doctorOverlay?.destroy();
       this.#doctorOverlay = undefined;
     }
+  }
+
+  toSvg(
+    options: SvgRenderOptions & {
+      readonly crop?: ResolvedSceneCrop;
+      readonly cropPadding?: number;
+    } = {},
+  ): string {
+    this.#assertLive();
+    const frame = seekTimeline(this.#resolved, this.#reducedMotion ? this.#duration : this.#time);
+    const { crop = "scene", cropPadding = 0, ...renderOptions } = options;
+    const bounds = resolvedSceneBounds(frame, crop, cropPadding);
+    const svg = renderSvg(frame, renderOptions);
+    const viewBox = `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`;
+    return svg
+      .replace(/\bviewBox=(['"])[^'"]*\1/, `viewBox="${viewBox}"`)
+      .replace(/\bwidth=(['"])[^'"]*\1/, `width="${bounds.width}"`)
+      .replace(/\bheight=(['"])[^'"]*\1/, `height="${bounds.height}"`);
   }
 
   inspect(id?: string | null): InspectTarget | undefined {
@@ -577,6 +658,15 @@ class FigureRuntime implements KineglyphController {
     if (this.#destroyed) throw new Error("Kineglyph controller has been destroyed");
   }
 
+  /** Merges host-derived signals for the current machine variables into the live signal set. */
+  #deriveSignals(): void {
+    const derive = this.#options.deriveSignals;
+    if (derive === undefined) return;
+    const variables = this.machine?.state.variables ?? {};
+    const signals = this.machine?.signals ?? {};
+    this.#signals = { ...this.#signals, ...derive(variables, signals) };
+  }
+
   #resolve(): ResolvedScene {
     return resolveFigure(this.#source, {
       width: this.#width,
@@ -593,15 +683,17 @@ class FigureRuntime implements KineglyphController {
   }
 
   /** Renders the SVG for the current resolution and (re)creates the animator. */
-  #render(resetTime: boolean): void {
+  #render(resetTime: boolean, remountLiveSurfaces = false): void {
     const previousTime = this.#animator?.time ?? 0;
     const wasPlaying = this.#animator?.playing ?? false;
     const focusedId = this.#focusedNodeId();
     this.#animator?.dispose();
     this.#shaders?.dispose();
     this.#shaders = undefined;
-    this.#liveSurfaces?.dispose();
-    this.#liveSurfaces = undefined;
+    if (remountLiveSurfaces) {
+      this.#liveSurfaces?.dispose();
+      this.#liveSurfaces = undefined;
+    }
     this.#hideTooltip();
     // Disabled and reduced-motion figures present their terminal frame. In-view figures wait at
     // frame zero, so the reader sees the authored entrance rather than a flash of the ending.
@@ -633,7 +725,7 @@ class FigureRuntime implements KineglyphController {
     );
     if (this.#doctorEnabled) {
       if (this.#doctorOverlay === undefined)
-        this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved);
+        this.#doctorOverlay = mountDoctorOverlay(this.stage, this.#resolved, this.#doctorOptions);
       else this.#doctorOverlay.update(this.#resolved);
     }
     // The stage reserves the drawing's box only while it is *empty* (see `.kg-figure__stage:empty`
@@ -647,26 +739,30 @@ class FigureRuntime implements KineglyphController {
     this.stage.style.setProperty("--kg-stage-width", String(this.#resolved.width));
     this.stage.style.setProperty("--kg-stage-height", String(this.#resolved.height));
     this.#shaders = mountShaderSurfaces(this.stage, initialTime);
-    this.#liveSurfaces = new LiveSurfaceManager(this.stage, this.#resolved, {
-      ...(this.#options.liveSurfaces === undefined
-        ? {}
-        : { renderers: this.#options.liveSurfaces }),
-      theme: this.#theme,
-      machineState: this.machine?.state,
-      signals: { ...(this.machine?.signals ?? {}), ...this.#signals },
-      time: initialTime,
-      playing: initialPlaying,
-      send: (event) => this.send(event),
-      ...(this.#options.onSurfaceError === undefined
-        ? {}
-        : { onError: this.#options.onSurfaceError }),
-    });
+    if (this.#liveSurfaces === undefined)
+      this.#liveSurfaces = new LiveSurfaceManager(this.stage, this.#resolved, {
+        ...(this.#options.liveSurfaces === undefined
+          ? {}
+          : { renderers: this.#options.liveSurfaces }),
+        theme: this.#theme,
+        machineState: this.machine?.state,
+        signals: { ...(this.machine?.signals ?? {}), ...this.#signals },
+        time: initialTime,
+        playing: initialPlaying,
+        send: (event) => this.send(event),
+        ...(this.#options.onSurfaceError === undefined
+          ? {}
+          : { onError: this.#options.onSurfaceError }),
+      });
+    else this.#liveSurfaces.update(frame);
     this.#applyShellTheme();
     this.#animator = new KineglyphSceneAnimator({
       root: this.stage,
       scene: this.#resolved,
+      initialTime,
       reducedMotion: this.#reducedMotion,
       loop: this.#options.loop ?? false,
+      ambientFlow: this.#shouldAutoplay() && !this.#reducedMotion,
       onFrame: (nextFrame) => {
         this.#time = nextFrame.time;
         this.#shaders?.seek(nextFrame.time);
@@ -683,7 +779,6 @@ class FigureRuntime implements KineglyphController {
         this.#options.onPlaybackChange?.(playing);
       },
     });
-    if (!resetTime || (restFrame && !this.#reducedMotion)) this.#animator.seek(initialTime);
     this.#renderMachineControls();
     this.#syncControls();
     this.#syncSelection();
@@ -697,6 +792,7 @@ class FigureRuntime implements KineglyphController {
   }
 
   #applyStep(step: MachineStep): void {
+    this.#deriveSignals();
     this.#resolved = this.#resolve();
     this.#render(false);
     for (const effect of step.effects) {
@@ -1388,12 +1484,22 @@ class FigureRuntime implements KineglyphController {
 
   #syncSelection(): void {
     const selection = this.machine?.state.selection ?? null;
+    const interactionGroup =
+      this.#inspected?.node?.interactionGroup ?? this.#inspected?.edge?.interactionGroup;
     for (const element of this.stage.querySelectorAll("[data-node-id]")) {
       const id = element.getAttribute("data-node-id");
       if (id === this.#inspected?.id) element.setAttribute("data-inspected", "true");
       else element.removeAttribute("data-inspected");
       if (id !== null && id === selection) element.setAttribute("data-selected", "true");
       else element.removeAttribute("data-selected");
+    }
+    for (const element of this.stage.querySelectorAll("[data-node-id],[data-edge-id]")) {
+      if (
+        interactionGroup !== undefined &&
+        element.getAttribute("data-interaction-group") === interactionGroup
+      )
+        element.setAttribute("data-related", "true");
+      else element.removeAttribute("data-related");
     }
   }
 

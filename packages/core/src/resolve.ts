@@ -32,6 +32,7 @@ import type {
 import type { Point, Rect, SemanticTextStyle } from "./schema.js";
 import {
   defineScene,
+  endpointNode,
   pick,
   pickOr,
   type Align,
@@ -118,6 +119,7 @@ interface View {
   readonly rotation: number;
   readonly highlight: number;
   readonly progress: number;
+  readonly ports: NonNullable<EdgeNodeBox["ports"]>;
   readonly tone: Paint | undefined;
   readonly text: string | undefined;
   readonly pathData: string | undefined;
@@ -134,7 +136,7 @@ interface View {
   readonly padding: Insets4;
   readonly align: Align | undefined;
   readonly justify: Justify;
-  readonly columns: number;
+  readonly columns: number | "auto";
   readonly children: readonly View[];
   // marks
   readonly iconSize: number;
@@ -336,6 +338,16 @@ function buildView(
         ? unit(numeric(signal(bind.highlight)) ?? (truthy(signal(bind.highlight)) ? 1 : 0), 0)
         : 0,
     progress: bind.progress !== undefined ? unit(numeric(signal(bind.progress)), 1) : 1,
+    ports: Object.fromEntries(
+      (node.ports ?? []).map((port) => [
+        port.id,
+        {
+          side: pickOr(port.side, layout, "center"),
+          offset: unit(pick(port.offset, layout), 0.5),
+          ...(port.gap === undefined ? {} : { gap: port.gap }),
+        },
+      ]),
+    ),
     tone,
     text,
     pathData: typeof boundPath === "string" ? boundPath : undefined,
@@ -351,7 +363,12 @@ function buildView(
     padding: isGroup ? insets(pick(node.padding, layout), 0) : insets(undefined, 0),
     align: isGroup ? pick(node.align, layout) : undefined,
     justify: isGroup ? pickOr(node.justify, layout, "start") : "start",
-    columns: isGroup ? Math.max(1, Math.floor(pickOr(node.columns, layout, 2))) : 1,
+    columns: isGroup
+      ? (() => {
+          const columns = pickOr<number | "auto">(node.columns, layout, 2);
+          return columns === "auto" ? columns : Math.max(1, Math.floor(columns));
+        })()
+      : 1,
     children: isGroup
       ? node.children.map((child) => buildView(child, layout, theme, signals, z, textMeasurer))
       : [],
@@ -458,11 +475,12 @@ function intrinsicWidth(view: View, layout: LayoutName): number {
             pad
           );
         case "grid": {
+          const columns = view.columns === "auto" ? Math.max(1, children.length) : view.columns;
           const widest = Math.max(
             0,
             ...children.map((child) => Math.max(intrinsicWidth(child, layout), child.minWidth)),
           );
-          return widest * view.columns + view.gap * (view.columns - 1) + pad;
+          return widest * columns + view.gap * (columns - 1) + pad;
         }
         case "absolute":
           return (
@@ -548,21 +566,24 @@ function minContentWidth(view: View, layout: LayoutName): number {
       const pad = view.padding.left + view.padding.right;
       switch (view.layout) {
         case "row":
-          return (
+          return Math.max(
+            view.minWidth,
             children.reduce((sum, child) => sum + minContentWidth(child, layout), 0) +
-            view.gap * Math.max(0, children.length - 1) +
-            pad
+              view.gap * Math.max(0, children.length - 1) +
+              pad,
           );
         case "grid": {
           const widest = Math.max(0, ...children.map((child) => minContentWidth(child, layout)));
-          return widest * view.columns + view.gap * (view.columns - 1) + pad;
+          const columns = view.columns === "auto" ? 1 : view.columns;
+          return Math.max(view.minWidth, widest * columns + view.gap * (columns - 1) + pad);
         }
         case "absolute":
-          return (
+          return Math.max(
+            view.minWidth,
             Math.max(
               0,
               ...children.map((child) => (child.position?.x ?? 0) + minContentWidth(child, layout)),
-            ) + pad
+            ) + pad,
           );
         default:
           return Math.max(
@@ -921,6 +942,21 @@ function layoutNode(
   return placed;
 }
 
+/** Chooses grid density from the width the parent actually allocated, not from viewport labels. */
+function autoFitColumns(
+  children: readonly View[],
+  innerWidth: number,
+  gap: number,
+  layout: LayoutName,
+): number {
+  if (children.length === 0) return 1;
+  const cellMinimum = Math.max(1, ...children.map((child) => minContentWidth(child, layout)));
+  return Math.max(
+    1,
+    Math.min(children.length, Math.floor((innerWidth + gap) / (cellMinimum + gap))),
+  );
+}
+
 function layoutGroup(
   view: View,
   placed: Placed,
@@ -1092,7 +1128,10 @@ function layoutGroup(
       break;
     }
     case "grid": {
-      const columns = view.columns;
+      const columns =
+        view.columns === "auto"
+          ? autoFitColumns(children, innerWidth, gap, context.layout)
+          : view.columns;
       const columnWidth = Math.max(0, (innerWidth - gap * (columns - 1)) / columns);
       const naturals = children.map((child) =>
         layoutNode(
@@ -1183,8 +1222,11 @@ function layoutGroup(
     case "coordinates": {
       // Fractional placement in a normalised box; the box height must be known.
       let extent = innerHeight;
+      const aspect = view.node.type === "group" ? view.node.aspect : undefined;
       if (extent === undefined) {
-        if (
+        if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0) {
+          extent = innerWidth * aspect;
+        } else if (
           view.node.type === "group" &&
           pickOr(view.node.fit, context.layout, "none") === "content"
         ) {
@@ -1371,7 +1413,7 @@ function round(value: number, precision: number): number {
 interface Emitted {
   readonly nodes: ResolvedNode[];
   readonly boxes: Map<string, EdgeNodeBox>;
-  readonly obstacles: Rect[];
+  readonly obstacles: EdgeNodeBox[];
 }
 
 function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance {
@@ -1464,6 +1506,7 @@ function frameAppearance(view: View, theme: ThemeTokens): ResolvedNodeAppearance
           radius: surface.radius ?? 0,
           ...(surface.opacity === undefined ? {} : { opacity: surface.opacity }),
           ...(node.dash === undefined ? {} : { dash: node.dash }),
+          ...(node.lineCap === undefined ? {} : { lineCap: node.lineCap }),
         },
         surface,
       );
@@ -1695,6 +1738,32 @@ function emit(
     ].some((event) => event !== undefined);
   const resolved: ResolvedNode = {
     id: view.id,
+    ...(node.interactionGroup === undefined ? {} : { interactionGroup: node.interactionGroup }),
+    ...(Object.keys(view.ports).length === 0
+      ? {}
+      : {
+          ports: Object.entries(view.ports).map(([id, port]) => {
+            const gap = port.gap ?? 0;
+            const offset = port.offset;
+            const point =
+              port.side === "left"
+                ? { x: rect.x - gap, y: rect.y + rect.height * offset }
+                : port.side === "right"
+                  ? { x: rect.x + rect.width + gap, y: rect.y + rect.height * offset }
+                  : port.side === "top"
+                    ? { x: rect.x + rect.width * offset, y: rect.y - gap }
+                    : port.side === "bottom"
+                      ? { x: rect.x + rect.width * offset, y: rect.y + rect.height + gap }
+                      : { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+            return {
+              id,
+              side: port.side,
+              offset,
+              x: round(point.x, precision),
+              y: round(point.y, precision),
+            };
+          }),
+        }),
     kind,
     ...rect,
     label,
@@ -1781,7 +1850,7 @@ function emit(
       : {}),
   };
   out.nodes.push(resolved);
-  out.boxes.set(view.id, {
+  const edgeBox: EdgeNodeBox = {
     id: view.id,
     ...rect,
     kind:
@@ -1792,13 +1861,15 @@ function emit(
           : kind === "rect"
             ? "rect"
             : "other",
-  });
+    ...(Object.keys(view.ports).length === 0 ? {} : { ports: view.ports }),
+  };
+  out.boxes.set(view.id, edgeBox);
   // A framed group is as solid as a leaf as far as a label is concerned: it has a fill and a
   // border, and a label that lands on it looks stuck to it. Unframed groups stay out — they are
   // arrangement, not surface — and an edge is never pushed around by a box it emerges from, which
   // is what keeps the root group (and any card an endpoint lives in) from blocking everything.
-  const framed = view.type === "group" && resolved.appearance?.fill !== undefined;
-  if (!view.hidden && (view.type !== "group" || framed)) out.obstacles.push(rect);
+  const framed = view.type === "group" && node.type === "group" && node.frame !== undefined;
+  if (!view.hidden && (view.type !== "group" || framed)) out.obstacles.push(edgeBox);
   const sorted = [...placed.children].sort((a, b) => a.view.z - b.view.z);
   for (const child of sorted) emit(child, { x, y }, view.id, theme, precision, out);
 }
@@ -1867,9 +1938,40 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
   const width = round(options.width, precision);
 
   const edgeDefinitions = scene.edges ?? [];
+  const endpointIds = new Set(
+    edgeDefinitions.flatMap((edge) => [endpointNode(edge.from), endpointNode(edge.to)]),
+  );
+  const logicalObstacles = [...endpointIds]
+    .map((id) => emitted.boxes.get(id))
+    .filter((box): box is EdgeNodeBox => box !== undefined);
+  const parentById = new Map(emitted.nodes.map((node) => [node.id, node.parent]));
+  const belongsToEndpoint = (id: string): boolean => {
+    let current: string | undefined = id;
+    while (current !== undefined) {
+      if (endpointIds.has(current)) return true;
+      current = parentById.get(current);
+    }
+    return false;
+  };
+  // A connected card/gate is one obstacle. Its icon, label, and silhouette must not each inflate
+  // the forbidden area; genuinely separate decorative marks still participate in routing.
+  const edgeObstacles = [
+    ...logicalObstacles,
+    ...emitted.obstacles.filter((obstacle) => !belongsToEndpoint(obstacle.id)),
+  ].filter(
+    (obstacle, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          Math.abs(candidate.x - obstacle.x) < 1e-6 &&
+          Math.abs(candidate.y - obstacle.y) < 1e-6 &&
+          Math.abs(candidate.width - obstacle.width) < 1e-6 &&
+          Math.abs(candidate.height - obstacle.height) < 1e-6,
+      ) === index,
+  );
   const ports = assignPorts(edgeDefinitions, layout, emitted.boxes);
   const labelFont = fontFor("caption", theme);
   const edges: ResolvedEdge[] = [];
+  const routedEdges: (readonly Point[])[] = [];
   for (const definition of edgeDefinitions) {
     const port = ports.get(definition.id);
     if (port === undefined) continue;
@@ -1877,6 +1979,11 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
     const boundTone = bind.tone === undefined ? undefined : signals[bind.tone];
     const boundHidden = bind.hidden === undefined ? undefined : truthy(signals[bind.hidden]);
     const boundLabel = bind.label === undefined ? undefined : signals[bind.label];
+    const boundSignal = bind.signal === undefined ? undefined : signals[bind.signal];
+    const signal =
+      boundSignal === undefined
+        ? undefined
+        : (numeric(boundSignal) ?? (truthy(boundSignal) ? 1 : 0));
     const labelHidden = new Set<string>();
     const labelText = new Map<string, string>();
     (definition.labels ?? []).forEach((label, index) => {
@@ -1893,7 +2000,8 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
       layout,
       theme,
       boxes: emitted.boxes,
-      obstacles: emitted.obstacles,
+      obstacles: edgeObstacles,
+      routedEdges,
       bounds: { x: 0, y: 0, width, height },
       labelFont,
       ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
@@ -1903,11 +2011,14 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
         ...(typeof boundTone === "string" ? { tone: boundTone } : {}),
         ...(boundHidden === undefined ? {} : { hidden: boundHidden }),
         ...(typeof boundLabel === "string" ? { label: boundLabel } : {}),
+        ...(signal === undefined ? {} : { signal: unit(signal, 0) }),
         labelHidden,
         labelText,
       },
     });
     if (resolved === undefined) continue;
+    if (resolved.routePoints !== undefined && resolved.edge.hidden !== true)
+      routedEdges.push(resolved.routePoints);
     if (resolved.collidingObstacles)
       diagnostics.push({
         severity: "warning",
@@ -1944,16 +2055,31 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
     edges.push({
       ...resolved.edge,
       state: {
-        opacity: unit(boundOpacity, 1),
+        opacity: unit(boundOpacity, resolved.edge.state.opacity),
         progress: unit(boundProgress, 1),
         highlight: unit(highlight, 0),
         flow: unit(flow, 0),
+        ...(resolved.edge.state.signal === undefined ? {} : { signal: resolved.edge.state.signal }),
       },
       packets,
       metadata: {
         ...(resolved.edge.metadata ?? {}),
         packetCount: resolved.packetCount,
         packetPeriod: resolved.packetPeriod,
+        packetPhase: 0,
+        ...(definition.packets?.trail === true
+          ? {
+              packetTrail: true,
+              packetTrailLength: Math.min(
+                0.45,
+                Math.max(0.02, definition.packets.trailLength ?? 0.085),
+              ),
+              packetTrailWidth:
+                definition.packets.trailWidth ??
+                Math.max(0.8, resolved.edge.appearance.strokeWidth * 0.78),
+              packetTrailOpacity: Math.min(1, Math.max(0, definition.packets.trailOpacity ?? 0.72)),
+            }
+          : {}),
       },
     });
   }

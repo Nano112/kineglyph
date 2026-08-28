@@ -16,6 +16,7 @@ import {
   type FigureLayoutRequest,
   type InspectTarget,
   type KineglyphController,
+  type DoctorOverlayOptions,
   type StartWhenVisibleOptions,
 } from "@kineglyph/web";
 
@@ -44,6 +45,7 @@ export interface KineglyphFigureProps {
   readonly readout?: boolean;
   readonly tooltips?: boolean;
   readonly machineControls?: boolean;
+  readonly doctor?: boolean | DoctorOverlayOptions;
   readonly autoplay?: AutoplaySetting;
   readonly inView?: StartWhenVisibleOptions;
   readonly layout?: FigureLayoutRequest;
@@ -77,6 +79,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       readout = true,
       tooltips = true,
       machineControls = true,
+      doctor = false,
       autoplay = "in-view",
       inView,
       layout,
@@ -110,6 +113,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         readout,
         tooltips,
         machineControls,
+        doctor,
         autoplay,
         ...(inView === undefined ? {} : { inView }),
         ...(layout === undefined ? {} : { layout }),
@@ -139,6 +143,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       readout,
       tooltips,
       machineControls,
+      doctor,
       autoplay,
       inView,
       layout,

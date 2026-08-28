@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from "vitest";
 import { defineScene, stack, heading } from "@kineglyph/core";
-import { detectSource, mountAll, type EmbedSource } from "../src/embed.js";
+import { createEmbedSnippet, detectSource, mountAll, type EmbedSource } from "../src/embed.js";
 
 const scene = defineScene({
   schemaVersion: 2,
@@ -28,6 +28,15 @@ describe("detectSource", () => {
     expect(detectSource(el)).toEqual({ kind: "registered", id: "reg" });
     delete el.dataset.kineglyph;
     expect(detectSource(el)).toBeUndefined();
+  });
+
+  it("creates portable registered and module host snippets", () => {
+    expect(createEmbedSnippet({ source: "./scene.js", controls: "auto" })).toBe(
+      '<figure class="kg" data-scene="./scene.js" data-controls="auto"></figure>',
+    );
+    expect(createEmbedSnippet({ source: "hero", kind: "registered", theme: "paper" })).toContain(
+      'data-kineglyph="hero" data-theme="paper"',
+    );
   });
 });
 

@@ -98,6 +98,27 @@ describe("exportSvg", () => {
     expect(exportSvg(scene, { idPrefix: "demo" })).toContain('id="demo"');
   });
 
+  it("crops to visible content or a semantic figure surface", () => {
+    const base = staticScene();
+    const first = base.nodes.find((node) => node.kind !== "group");
+    expect(first).toBeDefined();
+    if (first === undefined) return;
+    const semantic = {
+      ...base,
+      nodes: base.nodes.map((node) =>
+        node.id === first.id
+          ? { ...node, metadata: { ...node.metadata, figureSurface: true } }
+          : node,
+      ),
+    };
+    const surface = exportSvg(semantic, { crop: "surface", cropPadding: 5 });
+    expect(attribute(surface, "svg", "viewBox")).toBe(
+      `${first.x - 5} ${first.y - 5} ${first.width + 10} ${first.height + 10}`,
+    );
+    const content = attribute(exportSvg(base, { crop: "content" }), "svg", "viewBox");
+    expect(content).not.toBe(`0 0 ${base.width} ${base.height}`);
+  });
+
   it("rejects invalid times and output settings", () => {
     expectCode(() => exportSvg(scene, { time: Number.NaN }), "invalid-time");
     expectCode(() => exportSvg(scene, { time: -1 }), "invalid-time");

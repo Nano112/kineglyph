@@ -52,10 +52,11 @@ describe("bundle export disambiguation", () => {
     expect(bundle.studioTheme.radii.lg).not.toBe(bundle.swissTheme.radii.lg);
   });
 
-  it("exposes the signal and instrument glyph systems from the browser bundle", () => {
+  it("exposes every glyph style system from the browser bundle", () => {
     expect(bundle.signalTheme.name).toBe("signal");
+    expect(bundle.integrationTheme.name).toBe("integration");
     expect(bundle.instrumentTheme.name).toBe("instrument");
-    expect(Object.keys(bundle.glyphStyleThemes)).toEqual(["signal", "instrument"]);
+    expect(Object.keys(bundle.glyphStyleThemes)).toEqual(["signal", "integration", "instrument"]);
     expect(typeof bundle.tileNode).toBe("function");
     expect(typeof bundle.port).toBe("function");
     expect(typeof bundle.gridPlane).toBe("function");

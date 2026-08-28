@@ -11,48 +11,58 @@ export path as any other figure.
 
 ## A file tree is structured data
 
-Folders expand recursively. Files can carry a detail, status, and semantic tone. Guides disappear
-with `guides: false`, and `density: "compact"` is useful inside architecture diagrams.
+Folders expand recursively. Files can carry a detail, status, semantic tone, inferred extension
+mark, and current-row treatment. Guides disappear with `guides: false`; `density: "compact"` is
+useful inside architecture diagrams while `"comfortable"` reads like a real project sidebar.
 
-```kineglyph live id=file-tree-structure view=preview height=500
-import { fieldManualTheme, figure } from "kineglyph";
+```kineglyph live id=file-tree-structure view=preview height=440
+import { figure, studioTheme } from "kineglyph";
 
-export const theme = fieldManualTheme;
+export const theme = studioTheme;
 
 export default figure("file-tree-structure", {
   title: "A small TypeScript package",
   description: "A semantic file tree shows source, test, and package files with status labels.",
+  background: "transparent",
 }, (f) => {
   const tree = f.fileTree([
     {
       name: "src",
       children: [
         { name: "commands", children: [
-          { name: "record.ts", detail: "capture a cast" },
+          { name: "record.ts", detail: "capture a cast", selected: true, tone: "info" },
           { name: "play.ts", detail: "render a cast" },
         ] },
         { name: "index.ts", status: "public", tone: "success" },
         { name: "terminal.ts", status: "new", tone: "warning" },
       ],
     },
-    { name: "fixtures", children: [
-      { name: "install.cast", detail: "asciicast v3", tone: "info" },
-    ] },
+    { name: "fixtures", expanded: false, children: [
+      { name: "install.cast", detail: "asciicast v3" },
+    ]},
     { name: "package.json", detail: "0.2.0" },
     { name: "README.md", status: "edited", tone: "accent" },
-  ], { root: "tiny-recorder", density: "compact" });
+  ], {
+    root: "tiny-recorder",
+    density: "comfortable",
+    icons: "auto",
+    disclosures: true,
+    selectionTone: "surfaceMuted",
+    padding: { wide: 18, compact: 16, narrow: 12 },
+    frame: { fill: "surfaceRaised", stroke: "border", radius: 12 },
+  });
 
-  f.root(f.stack([
-    f.eyebrow("PROJECT MAP"),
-    tree,
-  ], { gap: 10, width: "fill" }));
-  f.sequence([f.reveal(tree, { duration: 520 })]);
+  f.root(tree);
+  f.sequence([f.reveal(tree, { duration: 440, offset: 8 })]);
 });
 ```
 
 Because every row is a normal scene node, the structure remains selectable, inspectable, and
 exportable. Use the returned tree anywhere a group works, including `f.flow()` for a row that
-becomes a readable stack in a narrow container.
+becomes a readable stack in a narrow container. `icons: "auto"` derives short marks such as `TS`,
+`JSON`, `MD`, and `CAST`; use `"generic"`, `"none"`, or an entry-level `icon` override when the file
+type is less important. `selected`, `statusTone`, `expanded`, `interactive`, and `onActivate` keep
+navigation state in authored data rather than post-processing generated SVG.
 
 ## Authored terminal lines can type themselves
 
@@ -60,59 +70,78 @@ Commands type by default. Output is present immediately unless `typing: true` is
 is deterministic and seekable, so the same source drives live playback, GIF export, and a static
 terminal frame.
 
-```kineglyph live id=typed-terminal view=preview height=390
-import { counterTerminalTheme, figure } from "kineglyph";
+```kineglyph live id=typed-terminal view=preview height=360
+import { figure, instrumentTheme, material } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = instrumentTheme;
 
 export default figure("typed-terminal", {
   title: "A typed terminal session",
   description: "An animated shell session types a command and reports generated output.",
   hold: 700,
+  background: "transparent",
 }, (f) => {
   const session = f.terminal([
-    { text: "npm create kineglyph@latest", kind: "command" },
-    { text: "create  src/figure.ts", kind: "success" },
-    { text: "create  src/data.ts", kind: "success" },
-    { text: "npm run dev", kind: "command", prompt: "›" },
+    { text: "npm create kineglyph@latest", kind: "command", meta: "1.2s" },
+    { text: "src/figure.ts", kind: "success", meta: "created" },
+    { text: "src/data.ts", kind: "success", meta: "created" },
+    { text: "npm run dev", kind: "command", prompt: "$", meta: "184ms" },
     {
       spans: [
         { text: "ready", tone: "success", bold: true },
-        { text: "   http://localhost:5173", tone: "info" },
+        { text: " · http://localhost:5173", tone: "info" },
       ],
       kind: "output",
       selected: true,
       status: { label: "serving", tone: "success" },
+      meta: "local",
       typing: true,
     },
   ], {
-    title: "quickstart — zsh",
+    title: "quickstart",
     cwd: "~/work/first-figure",
-    promptTone: "warning",
-    chromeControls: ["textMuted", "textMuted", "success"],
+    cwdPosition: "header",
+    promptTone: "accent",
+    chromeControls: ["textMuted", "textMuted", "textMuted"],
     cursor: { style: "bar", tone: "accent" },
-    lineGap: 7,
+    lineMarkers: true,
+    lineGap: 3,
     wrap: "clip",
     visibleLines: 5,
     scroll: "end",
     status: "success",
+    typing: "all",
+    density: "compact",
+    frame: material("inset"),
   });
 
   f.root(session);
   f.sequence([
     f.reveal(session, { duration: 260 }),
-    f.typewrite(session, { duration: 760, stagger: 170 }),
+    f.typewrite(session, { characterDuration: 18, lineDelay: 90 }),
   ], { gap: 90 });
 });
 ```
 
-`f.typewrite()` targets every descendant text node marked for character reveal. It deliberately
-does not use timers or mutate the scene definition: it writes ordinary `progress` tracks.
+`f.typewrite()` targets every descendant text node marked for character reveal. By default it
+writes one continuous source-ordered stream: the prompt appears first, then the command, then the
+next authored line. Syntax spans keep their colours without typing in colour-grouped batches.
+`characterDuration` sets the cadence directly; otherwise `duration` is divided across all visible
+characters. `lineDelay` adds a natural pause between lines. Use `mode: "overlap"` only when a
+deliberately layered token effect is wanted. The recipe writes ordinary `progress` tracks—there
+are no timers, and the same result can be sought or exported.
 
-Terminal presentation is data too. Use `chrome: "minimal"` for a title without window controls or
-`chrome: "plain"` for no header. `titleTone`, `cwdTone`, `promptTone`, and `chromeControls` tune the
-surroundings. Individual lines accept `tone`, `promptTone`, `background`, and `cursor`; a terminal-
-level cursor defaults to the final line and supports `block`, `bar`, and `underline` styles.
+Terminal presentation is data too. Use `chrome: "window"`, `"tab"`, `"minimal"`, or `"plain"`.
+`chromeStart` and `chromeEnd` accept small labels, badges, icons, and dots, while `titleTone`,
+`cwdTone`, `promptTone`, and `chromeControls` tune the surroundings. `density: "compact"` is the
+default; `"comfortable"` adds application-like breathing room. Individual lines accept `tone`,
+`promptTone`, `background`, and `cursor`; a terminal-level cursor defaults to the final line and
+supports `block`, `bar`, and `underline` styles.
+
+Set `lineMarkers: true` for a stable semantic gutter (`›`, `✓`, `!`, `×`, `#`), then override or
+suppress one with `marker` and `markerTone`. `meta` places compact timing, port, or exit information
+at the far edge of a line. `cwdPosition: "header"` folds the path into the chrome when vertical
+space matters.
 
 Lines can provide `spans` instead of `text`. Each span has its own tone, background, selection,
 typing flag, and portable ANSI-style metadata. A line can be `selected` and carry a semantic
@@ -120,6 +149,110 @@ typing flag, and portable ANSI-style metadata. A line can be `selected` and carr
 horizontal intent explicit. `visibleLines` plus `scroll: "start" | "end" | number` creates a
 deterministic transcript viewport—the numeric form is a zero-based first row, so exports never
 depend on browser scroll position.
+
+Set terminal-level `typing: "all"` when the transcript should arrive line by line, keep the
+default `"commands"` for shell-like input over already-present output, or use `false` for a static
+surface. A line-level `typing` value always wins.
+
+## Window chrome is composable
+
+Chrome is not a renderer skin. It is ordinary scene composition, which means a documentation tab,
+a native-looking shell, and a quiet embedded console can share terminal behavior without sharing
+the same window treatment.
+
+```kineglyph live id=terminal-chrome-styles view=preview height=520
+import { figure, studioTheme } from "kineglyph";
+
+export const theme = studioTheme;
+
+export default figure("terminal-chrome-styles", {
+  title: "Terminal chrome styles",
+  description: "Window and tab terminals use the same transcript with different chrome.",
+  background: "transparent",
+}, (f) => {
+  const native = f.terminal([
+    { text: "bun run build", kind: "command" },
+    { text: "dist/index.js  18.4 kB", kind: "success", meta: "96ms" },
+  ], {
+    title: "release",
+    chrome: "window",
+    chromeControls: ["textMuted", "textMuted", "success"],
+    chromeEnd: [{ kind: "badge", text: "zsh", tone: "info" }],
+    cursor: { style: "bar" },
+  });
+
+  const tab = f.terminal([
+    { text: "git status --short", kind: "command", prompt: "❯" },
+    { text: "M docs/files-and-terminals.md", kind: "warning" },
+  ], {
+    title: "workspace",
+    chrome: "tab",
+    chromeStart: [{ kind: "dot", tone: "success" }],
+    chromeEnd: [
+      { kind: "label", text: "main" },
+      { kind: "badge", text: "1 change", tone: "warning" },
+    ],
+  });
+
+  const examples = f.stack([native, tab], { gap: 12, width: "fill" });
+  f.root(examples);
+  f.sequence([
+    f.reveal([native, tab], { duration: 260, stagger: 80 }),
+    f.typewrite([native, tab], { characterDuration: 16, lineDelay: 70 }),
+  ]);
+});
+```
+
+## Split panes without hand-built window geometry
+
+`f.terminalWindow()` owns the shared frame, responsive pane layout, active-pane border, and optional
+tmux-style status line. On narrow canvases its row becomes a stack, while each pane remains a normal
+terminal surface with its own transcript and options.
+
+```kineglyph live id=tmux-terminal-window view=preview height=540
+import { counterTerminalTheme, figure } from "kineglyph";
+
+export const theme = counterTerminalTheme;
+
+export default figure("tmux-terminal-window", {
+  title: "A responsive terminal workspace",
+  description: "Two terminal panes share composable chrome and one sequential timeline.",
+  background: "transparent",
+  hold: 500,
+}, (f) => {
+  const workspace = f.terminalWindow([
+    {
+      title: "server",
+      cwd: "~/kineglyph",
+      active: true,
+      lines: [
+        { text: "bun run dev", kind: "command" },
+        { text: "local: https://kineglyph.test", kind: "success", meta: "ready" },
+      ],
+    },
+    {
+      title: "tests",
+      lines: [
+        { text: "bun test --watch", kind: "command" },
+        { text: "74 passed", kind: "success", status: "success" },
+      ],
+    },
+  ], {
+    title: "kineglyph · local",
+    chrome: "tab",
+    chromeEnd: [{ kind: "badge", text: "main", tone: "info" }],
+    layout: { wide: "row", compact: "row", narrow: "stack" },
+    paneOptions: { typing: "all" },
+    statusBar: { left: "0:server*  1:tests", center: "dev", right: "16:42" },
+  });
+
+  f.root(workspace);
+  f.sequence([
+    f.reveal(workspace, { duration: 300, offset: 8 }),
+    f.typewrite(workspace, { characterDuration: 14, lineDelay: 65 }),
+  ]);
+});
+```
 
 ## Code blocks are highlighted scene nodes
 
@@ -162,12 +295,13 @@ export default figure("highlighted-code-block", {
     highlightRanges: [[20, 22]],
     tokenTones: { function: "accent", property: "info" },
     typing: true,
+    density: "compact",
   });
 
   f.root(source);
   f.sequence([
     f.reveal(source, { duration: 240 }),
-    f.typewrite(source, { duration: 580, stagger: 24 }),
+    f.typewrite(source, { characterDuration: 8, lineDelay: 38 }),
   ]);
 });
 ```
@@ -182,40 +316,126 @@ short text or `{ text, tone }`; `highlightRanges` complements exact `highlightLi
 `typing: true`, generated tokens become character-reveal targets and work with the same
 deterministic `f.typewrite()` timeline as terminals. A line-level `typing` flag overrides the block.
 
-## The same motion model serves commands and source
+## Compose a complete developer workbench
 
-This comparison is deliberately made from the two public recipes. It is a responsive row, a stack
-in a narrow container, and a single seekable motion sequence.
+`f.window()` owns reusable application chrome and `f.panes()` owns pane headers and the responsive
+split. The content remains ordinary groups: this workbench combines a project sidebar, source
+editor, and terminal in one scene graph and one seekable timeline. Tabs and panes can emit machine
+events, so an embedded editor can synchronize selection without DOM post-processing.
 
-```kineglyph live id=terminal-code-comparison view=preview height=470
-import { counterTerminalTheme, figure } from "kineglyph";
+```kineglyph live id=terminal-code-comparison view=preview height=650
+import { figure, instrumentTheme } from "kineglyph";
 
-export const theme = counterTerminalTheme;
+export const theme = instrumentTheme;
 
-export default figure("terminal-code-comparison", {
-  title: "Terminal and code",
-  description: "A terminal command and the source that performs it reveal on one shared timeline.",
+export default figure("developer-workbench", {
+  title: "Project workbench",
+  description: "A file tree, source editor, and terminal share one responsive exportable surface.",
+  background: "transparent",
 }, (f) => {
-  const command = f.terminal([
-    { text: "npm run render", kind: "command", prompt: "λ" },
-    { spans: [
-      { text: "write ", tone: "textMuted" },
-      { text: "dist/figure.svg", tone: "success", bold: true },
-    ], status: "success", typing: true },
-  ], { title: "render", chrome: "minimal", cursor: { style: "underline" } });
+  const files = f.fileTree([
+    { name: "src", children: [
+      { name: "figure.ts", selected: true, tone: "info", status: "open" },
+      { name: "data.ts" },
+    ]},
+    { name: "dist", expanded: false, children: [{ name: "figure.svg" }] },
+    { name: "package.json" },
+  ], {
+    root: "status-card",
+    density: "compact",
+    frame: { fill: "none", stroke: "none" },
+    clip: true,
+    bind: { opacity: "figureActive" },
+  });
 
   const source = f.codeBlock([
-    "const svg = await render(scene);",
-    { text: "await writeFile(\"dist/figure.svg\", svg);", highlighted: true },
-  ], { title: "render.ts", language: "typescript", lineNumbers: false, typing: true });
+    { text: "import { figure } from \"kineglyph\";", bind: { text: "editorLine1" } },
+    { text: "", bind: { text: "editorLine2" } },
+    { text: "export default figure(\"status\", {}, (f) => {", bind: { text: "editorLine3" } },
+    { text: "  f.root(f.heading(\"Ready\"));", highlighted: true, bind: { text: "editorLine4" } },
+    { text: "});", bind: { text: "editorLine5" } },
+  ], {
+    title: "figure.ts",
+    language: "typescript",
+    lineNumbers: true,
+    typing: true,
+    cursor: { line: 5, style: "bar" },
+    visibleLines: 5,
+    scroll: "follow",
+    chrome: "plain",
+    frame: { fill: "none", stroke: "none" },
+    clip: true,
+  });
 
-  f.root(f.flow([command, source], { gap: 14, width: "fill" }));
+  const command = f.terminal([
+    { text: "kineglyph render src/figure.ts", kind: "command", meta: "212ms" },
+    { text: "dist/figure.svg", kind: "success", status: "success", meta: "14.8 kB", typing: true },
+  ], {
+    title: "render",
+    cwd: "~/status-card",
+    cwdPosition: "header",
+    chrome: "plain",
+    lineMarkers: true,
+    cursor: { style: "underline" },
+    frame: { fill: "none", stroke: "none" },
+    clip: true,
+  });
+
+  const editor = f.stack([source, command], { gap: 8, width: "fill", grow: 1 });
+  const workspace = f.panes([
+    { title: "Explorer", icon: "folder", content: files, minWidth: 190 },
+    { title: "Editor", icon: "code", content: editor, active: true, grow: 3 },
+  ], {
+    layout: { wide: "row", compact: "row", narrow: "stack" },
+    paneGap: 6,
+  });
+  const workbench = f.window(workspace, {
+    title: "status-card",
+    icon: "code",
+    tabs: [
+      { label: "figure.ts", icon: "code", onActivate: "OPEN_FIGURE", bind: { highlight: "figureActive" } },
+      { label: "data.ts", icon: "file", onActivate: "OPEN_DATA", bind: { highlight: "dataActive" } },
+    ],
+    chromeEnd: [{ kind: "badge", text: "main", tone: "success" }],
+    statusBar: [
+      { kind: "label", text: "TypeScript" },
+      { kind: "label", text: "Ln 5, Col 1" },
+    ],
+  });
+
+  f.root(workbench);
+  f.machine({
+    initial: "figure",
+    states: {
+      figure: { on: { OPEN_DATA: "data" } },
+      data: { on: { OPEN_FIGURE: "figure" } },
+    },
+    signals: {
+      figureActive: { when: { state: "figure" }, then: 1, else: 0 },
+      dataActive: { when: { state: "data" }, then: 1, else: 0 },
+      editorLine1: { when: { state: "figure" }, then: "import { figure } from \"kineglyph\";", else: "export const status = {" },
+      editorLine2: { when: { state: "figure" }, then: "", else: "  label: \"Ready\"," },
+      editorLine3: { when: { state: "figure" }, then: "export default figure(\"status\", {}, (f) => {", else: "  tone: \"success\"," },
+      editorLine4: { when: { state: "figure" }, then: "  f.root(f.heading(\"Ready\"));", else: "};" },
+      editorLine5: { when: { state: "figure" }, then: "});", else: "" },
+    },
+  });
   f.sequence([
-    f.reveal([command, source], { duration: 240, stagger: 80 }),
-    f.typewrite([command, source], { duration: 620, stagger: 38 }),
+    f.reveal(workbench, { duration: 300, offset: 10 }),
+    f.typewrite([source, command], { characterDuration: 8, lineDelay: 45 }),
   ]);
 });
 ```
+
+`f.window()` is not terminal-specific: use it for a browser, model inspector, profiler, or data
+workbench. Its tabs and compact chrome items share the same semantic vocabulary as terminal chrome.
+`f.panes()` accepts `onActivate`, `bind`, `hidden`, `grow`, and `minWidth` per pane, so a selected
+file row, active tab, visible editor, and inspector can listen to the same state-machine event.
+
+For long files, `visibleLines` plus `scroll: "start" | "end" | "follow" | number` creates a
+deterministic editor viewport. `cursor` is a normal character-reveal node and follows sequential
+typing. Pass `tokenize(source, { language, line, index })` to adapt Shiki or a language service at
+authoring time; exact `tokens` on an individual line still win.
 
 ## Play an asciinema recording
 

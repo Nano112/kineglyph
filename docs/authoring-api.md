@@ -66,30 +66,32 @@ slug of the primary text (`heading-where-the-time-goes`), de-duplicated with a c
 across builds of the same figure. Ids are validated: duplicates and unknown references throw with
 the builder path in the message.
 
-| Helper                                                                                                                                                                                                                                               | Returns                         | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                                           | `TextMark`                      | Text plus every ordinary node placement/material option; `position` and `width` may be responsive                                                                                                                                                                                                                                                                                                                                                       |
-| `f.textAt(text, position, opts)`, `f.labelAt(text, position, opts)`                                                                                                                                                                                  | `TextMark`                      | Coordinate/absolute text without `f.raw`; `labelAt` defaults to `bodyStrong`, and `position` may provide `wide` / `compact` / `narrow` values                                                                                                                                                                                                                                                                                                           |
-| `f.badge(text, opts)`                                                                                                                                                                                                                                | `BadgeMark`                     | `tone, variant, bind`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `f.icon(name, opts)`                                                                                                                                                                                                                                 | `IconMark`                      | motif name from `@kineglyph/svg`                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `f.rect(opts)`, `f.circle(opts)`, `f.polyline(points, opts)`, `f.spline(nodes, opts)`, `f.path(d, viewBox, opts)`, `f.image(src, alt, opts)`, `f.legend(items, opts)`, `f.callout(text, opts)`                                                       | marks                           | thin typed wrappers over the schema; `spline` derives a smooth path from placed-node positions                                                                                                                                                                                                                                                                                                                                                          |
-| `f.card(opts)`, `f.panel(children, opts)`, `f.pill(text, opts)`, `f.keyValue(k, v, opts)`, `f.rule(opts)`, `f.spacer(size, opts)`                                                                                                                    | groups/marks                    | the recipes formerly in `@kineglyph/scenes/recipes` (moved to core, re-exported by scenes)                                                                                                                                                                                                                                                                                                                                                              |
-| `f.gate(kind, opts)`, `f.junction(opts)`                                                                                                                                                                                                             | group/mark                      | portable circuit symbols: AND, OR, XOR, their inverted forms, NOT, buffer, and mux; junctions make fan-out explicit                                                                                                                                                                                                                                                                                                                                     |
-| `f.terminal(lines, opts)`, `f.fileTree(entries, opts)`                                                                                                                                                                                               | `GroupNode`                     | responsive, semantic terminal and recursive file-tree surfaces; terminal command lines are character-reveal targets, while files and folders may carry detail, status, and tone                                                                                                                                                                                                                                                                         |
-| `f.place(node, position)`                                                                                                                                                                                                                            | the same node                   | assigns responsive placement before an existing node enters `coordinates` / `absolute`; preserves identity and ids                                                                                                                                                                                                                                                                                                                                      |
-| `f.stack`, `f.row`, `f.grid`, `f.overlay`, `f.flow`, `f.coordinates`, `f.absolute`                                                                                                                                                                   | `GroupNode`                     | `flow` = row on wide, stack otherwise                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `f.graph(layers, opts)`                                                                                                                                                                                                                              | `GroupNode`                     | ranked node-link layout; presets are `flow`, `circuit`, and `tree`, with responsive `direction`, shared rank defaults, and per-rank layout/columns/gap overrides                                                                                                                                                                                                                                                                                        |
-| `f.circuit(nodes, connections, opts)`                                                                                                                                                                                                                | `{ root, edges, ranks }`        | infers DAG ranks from the netlist, aligns terminal sinks, orients peers for the responsive direction, and authors semantic wires; feedback links can opt out of rank inference                                                                                                                                                                                                                                                                          |
-| `f.add(fragment, opts)`                                                                                                                                                                                                                              | `SceneNode` (the fragment root) | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
-| `f.raw(node)`                                                                                                                                                                                                                                        | the node                        | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `f.connect(from, to, opts)`                                                                                                                                                                                                                          | `EdgeDefinition`                | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
-| `f.wire(from, to, opts)`                                                                                                                                                                                                                             | `EdgeDefinition`                | semantic presets for `signal`, `bus`, `control`, `data`, `clock`, `feedback`, `optional`, and packet-bearing `flow`; every route, port, marker, stroke, label, and tone remains overridable                                                                                                                                                                                                                                                             |
-| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rotate(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                    | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `rotate` uses clockwise `from` / `to` degrees; edge-capable presets reject node-only transforms; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                                                 |
-| `f.typewrite(target, opts)`                                                                                                                                                                                                                          | `MotionStep`                    | character-level progress for terminal commands or any `TextMark` with `reveal: "characters"`; timing is seekable and uses the ordinary scene timeline                                                                                                                                                                                                                                                                                                   |
-| `f.sequence(steps, opts)`                                                                                                                                                                                                                            | `void`                          | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
-| `f.at(time, ...steps)`                                                                                                                                                                                                                               | `void`                          | absolute scheduling                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `f.machine(definition)`, `f.controls(list)`                                                                                                                                                                                                          | `void`                          | machine `id` defaults to `${figureId}-machine`; control ids default to a slug of the label                                                                                                                                                                                                                                                                                                                                                              |
-| `f.root(node)`                                                                                                                                                                                                                                       | `void`                          | sets the root; when omitted the root is a stack of top-level nodes in creation order                                                                                                                                                                                                                                                                                                                                                                    |
+| Helper                                                                                                                                                                                                                                               | Returns                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `f.text(text, opts)`, `f.eyebrow`, `f.heading`, `f.title`, `f.caption`, `f.body`, `f.code`                                                                                                                                                           | `TextMark`                          | Text plus every ordinary node placement/material option; `position` and `width` may be responsive                                                                                                                                                                                                                                                                                                                                                       |
+| `f.textAt(text, position, opts)`, `f.labelAt(text, position, opts)`                                                                                                                                                                                  | `TextMark`                          | Coordinate/absolute text without `f.raw`; `labelAt` defaults to `bodyStrong`, and `position` may provide `wide` / `compact` / `narrow` values                                                                                                                                                                                                                                                                                                           |
+| `f.badge(text, opts)`                                                                                                                                                                                                                                | `BadgeMark`                         | `tone, variant, bind`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `f.icon(name, opts)`                                                                                                                                                                                                                                 | `IconMark`                          | motif name from `@kineglyph/svg`                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `f.rect(opts)`, `f.circle(opts)`, `f.polyline(points, opts)`, `f.spline(nodes, opts)`, `f.path(d, viewBox, opts)`, `f.image(src, alt, opts)`, `f.legend(items, opts)`, `f.callout(text, opts)`                                                       | marks                               | thin typed wrappers over the schema; `spline` derives a smooth path from placed-node positions                                                                                                                                                                                                                                                                                                                                                          |
+| `f.card(opts)`, `f.panel(children, opts)`, `f.pill(text, opts)`, `f.keyValue(k, v, opts)`, `f.rule(opts)`, `f.spacer(size, opts)`                                                                                                                    | groups/marks                        | the recipes formerly in `@kineglyph/scenes/recipes` (moved to core, re-exported by scenes)                                                                                                                                                                                                                                                                                                                                                              |
+| `f.codeBlock(source, opts)`, `f.window(content, opts)`, `f.panes(panes, opts)`                                                                                                                                                                       | `GroupNode`                         | portable code/editor application surfaces; code supports deterministic viewports, cursors, exact tokens or an author-time tokenizer, while windows provide semantic tabs/chrome/status and panes switch layout responsively with machine activation/bindings                                                                                                                                                                                            |
+| `f.gate(kind, opts)`, `f.junction(opts)`                                                                                                                                                                                                             | group/mark                          | portable circuit symbols: AND, OR, XOR, their inverted forms, NOT, buffer, and mux; schematic gates use the same neutral channel and active signal inks as circuit wires, while `variant: "solid"` restores a compact filled symbol; `orientation` accepts right/down/left/up responsively, while `f.circuit()` defaults to automatic signal direction; junctions make fan-out explicit                                                                 |
+| `f.terminal(lines, opts)`, `f.terminalWindow(panes, opts)`, `f.fileTree(entries, opts)`                                                                                                                                                              | `GroupNode`                         | responsive terminal, split-pane/tmux window, and recursive file-tree surfaces; terminal chrome is composable, `typing` selects commands/all/static rows, and files and folders may carry detail, status, and tone                                                                                                                                                                                                                                       |
+| `f.place(node, position)`                                                                                                                                                                                                                            | the same node                       | assigns responsive placement before an existing node enters `coordinates` / `absolute`; preserves identity and ids                                                                                                                                                                                                                                                                                                                                      |
+| `f.stack`, `f.row`, `f.grid`, `f.overlay`, `f.flow`, `f.coordinates`, `f.absolute`                                                                                                                                                                   | `GroupNode`                         | `flow` = row on wide, stack otherwise                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `f.graph(layers, opts)`                                                                                                                                                                                                                              | `GroupNode`                         | ranked node-link layout; presets are `flow`, `circuit`, and `tree`, with responsive `direction`, shared rank defaults, and per-rank layout/columns/gap overrides                                                                                                                                                                                                                                                                                        |
+| `f.circuit(nodes, connections, opts)`                                                                                                                                                                                                                | `{ root, edges, ranks, entrance }`  | infers DAG ranks from the netlist, aligns terminal sinks, orients peers for the responsive direction, and authors semantic wires; `entrance` reveals each rank while its incoming wires draw, so incomplete topology is never shown; feedback links can opt out of rank inference                                                                                                                                                                       |
+| `f.logicCircuit(spec, opts)`                                                                                                                                                                                                                         | circuit result + `machine`, `nodes` | compiles named Boolean inputs, gates, and outputs into terminals, responsive nets, expressions, input toggles, and the progressive circuit entrance; supports AND, OR, XOR, their inverted forms, NOT, and buffer                                                                                                                                                                                                                                       |
+| `f.add(fragment, opts)`                                                                                                                                                                                                                              | `SceneNode` (the fragment root)     | accepts a `SceneFragment` or a result carrying one (`plot()`); scopes the fragment's ids under `opts.id` (default inferred from the root id) unless they already live in that namespace, appends its edges/controls, and registers its relative tracks as the step `f.reveal(root)` plays (or schedules them at `opts.at`); fragments with several top-level nodes are wrapped in a `stack` named after the scope so the return type is always one node |
+| `f.raw(node)`                                                                                                                                                                                                                                        | the node                            | escape hatch: any `SceneNode`, still id-checked                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `f.connect(from, to, opts)`                                                                                                                                                                                                                          | `EdgeDefinition`                    | `from`/`to` are nodes or ids; `opts` = every `EdgeDefinition` field except `id/from/to`                                                                                                                                                                                                                                                                                                                                                                 |
+| `f.wire(from, to, opts)`                                                                                                                                                                                                                             | `EdgeDefinition`                    | semantic presets for `signal`, `bus`, `control`, `data`, `clock`, `feedback`, `optional`, packet-bearing `flow`, and obstacle-routed `spline`; every route, port, marker, stroke, label, signal state, and tone remains overridable                                                                                                                                                                                                                     |
+| `f.reveal(target, opts)`, `f.draw(edge, opts)`, `f.pulse(target, opts)`, `f.flow(edge, opts)`, `f.highlight(target, opts)`, `f.progress(target, opts)`, `f.rotate(target, opts)`, `f.rise(target, opts)` (revealY), `f.wipe(target, opts)` (revealX) | `MotionStep`                        | targets accept a node, an id, an array, or an added fragment (`f.reveal` then plays the fragment's own preset tracks); `opts.duration`, `opts.stagger`, and `opts.easing`; `rotate` uses clockwise `from` / `to` degrees; edge-capable presets reject node-only transforms; `f.flow` is overloaded — children make the flow _layout_, an edge makes the packet _motion_                                                                                 |
+| `f.typewrite(target, opts)`                                                                                                                                                                                                                          | `MotionStep`                        | sequential source-ordered character progress for prompts, syntax tokens, or any `TextMark` with `reveal: "characters"`; `characterDuration` and `lineDelay` tune cadence, while `mode: "overlap"` opts into the layered legacy effect                                                                                                                                                                                                                   |
+| `f.sequence(steps, opts)`                                                                                                                                                                                                                            | `void`                              | schedules steps one after another (`opts.gap`, `opts.start`); an array inside `steps` runs its members in parallel                                                                                                                                                                                                                                                                                                                                      |
+| `f.at(time, ...steps)`                                                                                                                                                                                                                               | `void`                              | absolute scheduling                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `f.machine(definition)`, `f.controls(list)`                                                                                                                                                                                                          | `void`                              | machine `id` defaults to `${figureId}-machine`; control ids default to a slug of the label                                                                                                                                                                                                                                                                                                                                                              |
+| `f.root(node)`                                                                                                                                                                                                                                       | `void`                              | sets the root; when omitted the root is a stack of top-level nodes in creation order                                                                                                                                                                                                                                                                                                                                                                    |
 
 `figure()` returns a validated `SceneDefinition` (`defineScene` is applied). Diagnostics are
 actionable and thrown eagerly with the figure id and the originating helper:
@@ -152,20 +154,188 @@ const circuit = f.circuit(
 );
 
 f.root(circuit.root);
-f.sequence([f.reveal(circuit.ranks[0]), f.draw(circuit.edges)]);
+f.sequence([circuit.entrance]);
 ```
 
 Ranks are inferred from the directed connections. Nodes at the same depth become peers; horizontal
-circuits stack peers within a column, vertical circuits place them in a row or two-column grid,
-and terminal sinks align in the final rank. Set `contributesToLayout: false` on a decorative link,
+circuits stack peers within a column, while vertical circuit grids use `columns: "auto"` to fit
+the current allocation instead of guessing from a named breakpoint. Terminal sinks align in the
+final rank. Automatic gates face right or down with named `in-0`, `in-1`, and `out` ports placed on
+the endpoints of their visible electrical pins; gate text remains upright. `f.circuit()` assigns
+incoming nets to those pins in netlist order and fixes ordinary terminals to the responsive flow
+side, so reflow never falls back to a visually convenient but electrically wrong edge. Set an
+explicit responsive `orientation` only when the symbol must disagree with the circuit flow.
+The returned `entrance` motion reveals the source rank first, then draws every next rank's incoming
+wires in parallel with its nodes. Tune it with `opts.entrance.nodeDuration`, `edgeDuration`,
+`nodeStagger`, `edgeStagger`, `stageGap`, and `easing`.
+Set `contributesToLayout: false` on a decorative link,
 or use `kind: "feedback"`, when an edge should be routed without changing the DAG. Passing several
-targets creates one shared junction instead of several indistinguishable lines from the source.
-Automatic ports try another side when their nearest exit corridor is blocked, so the same circuit
-can reflow without separate mobile wiring.
+targets shares the source port without adding a component to the graph. Pass `junction: { ... }`
+only when a visible, laid-out fan-out contact is part of the explanation.
+Automatic ports try another side when their nearest exit corridor is blocked. Circuit wires avoid
+nodes by default; choose `avoid: "nodes-and-edges"` when a dense topology should also reserve routed
+centre-lines as soft obstacles. Later nets then prefer a separate lane over an exact overlap and pay
+a stable, configurable penalty for crossings. The same topology can therefore reflow without a
+second set of mobile coordinates. Circuit wires also receive a restrained `casing` by default: a
+wider canvas-coloured stroke below the signal ink. It separates crossings without inventing a
+junction, rounds the channel around corners, and follows draw/reveal motion in every renderer.
+
+For moving packets, prefer `speed` when several wires should share one visual velocity. Use
+`period` only when every packet must finish its route in a fixed amount of time; an explicit
+`period` takes priority over `speed`.
+
+Automatic junctions remain neutral while their signal is off and inherit their authored tone
+only while active. Crossings without electrical contact keep the canvas-coloured wire casing and
+never receive a junction dot.
+Override or remove it per edge when the diagram needs a different material language.
+
+For Boolean logic, `f.logicCircuit()` removes the remaining terminal, net, binding, and machine
+boilerplate while preserving the lower-level result:
+
+```ts
+const adder = f.logicCircuit({
+  inputs: {
+    a: { label: "A", tone: "info" },
+    b: { label: "B", tone: "accent" },
+    cin: { label: "CIN", tone: "success" },
+  },
+  gates: {
+    xor1: { kind: "xor", inputs: ["a", "b"], tone: "info" },
+    and1: { kind: "and", inputs: ["a", "b"], tone: "accent" },
+    xor2: { kind: "xor", inputs: ["xor1", "cin"], tone: "warning" },
+    and2: { kind: "and", inputs: ["xor1", "cin"], tone: "success" },
+    carry: { kind: "or", inputs: ["and1", "and2"], tone: "success" },
+  },
+  outputs: {
+    sum: { from: "xor2", tone: "warning" },
+    cout: { from: "carry", tone: "success" },
+  },
+});
+
+f.root(adder.root);
+f.sequence([adder.entrance]);
+f.machine(adder.machine);
+```
+
+The keys form the netlist. Inputs become directly toggleable terminals, gate expressions and live
+wire state are derived automatically, and outputs display the referenced bit. Use `adder.nodes`
+for selective annotation or additional authored wires; use `f.circuit()` whenever the topology is
+not Boolean logic or needs completely custom nodes.
+
+Signal state is one binding, not a bundle of coordinated appearance expressions:
+
+```ts
+f.wire(input, gate, {
+  kind: "flow",
+  casing: { tone: "canvas", width: 5, opacity: 0.94 },
+  signal: {
+    onTone: "success",
+    offTone: "connector",
+    onWidth: 3,
+    offOpacity: 0.42,
+  },
+  bind: { signal: "inputOn" },
+});
+```
+
+The resolver selects the on/off paint and packet visibility. Static diagrams can set
+`signal: { value: true, onTone: "success" }`. SVG emits `data-signal="on|off"` and stable state
+classes; canvas, PNG, GIF, and live playback receive the same resolved appearance. `flow` and
+`spline` wire presets also enable a short animated trail. Override it without changing the route:
+
+```ts
+f.wire(input, gate, {
+  kind: "spline",
+  packets: {
+    count: 2,
+    period: 1_400,
+    trail: true,
+    trailLength: 0.07,
+    trailWidth: 2,
+    trailOpacity: 0.68,
+  },
+});
+```
+
+The bead and trail share the resolved centre-line, keep moving after a finite entrance sequence,
+pause with the figure, and use the current seek time in deterministic exports. Reduced-motion mode
+holds them at the resolved frame.
+
+Choose routing independently from appearance. `route: "orthogonal"` produces rounded rectilinear
+traces; `route: "spline"` first finds the same obstacle-safe centre-line, then applies either
+`spline: "rounded"` or `spline: "fluid"`. `avoid` accepts `"none"`, `"nodes"`, or
+`"nodes-and-edges"`; `clearance`, `laneGap`, and `crossingCost` expose the routing trade-offs without
+requiring manual bend points.
+
+```ts
+f.wire(source, sink, {
+  kind: "spline",
+  spline: "fluid",
+  avoid: "nodes-and-edges",
+  cornerRadius: 24,
+});
+```
+
+```kineglyph live id=authoring-routed-splines view=preview height=300
+import { figure, ledgerTheme } from "kineglyph";
+
+export const theme = ledgerTheme;
+
+export default figure("routed-splines", {
+  title: "Animated splines keep their lanes",
+  description: "Two packet-bearing paths route through parallel stages without sharing a centre-line.",
+}, (f) => {
+  const source = f.tile({ icon: "code", eyebrow: "INPUT", title: "Events", variant: "compact" });
+  const normalise = f.tile({ icon: "settings", eyebrow: "PATH A", title: "Normalise", variant: "compact" });
+  const enrich = f.tile({ icon: "spark", eyebrow: "PATH B", title: "Enrich", variant: "compact" });
+  const sink = f.tile({ icon: "check", eyebrow: "OUTPUT", title: "Ready", variant: "compact", active: true });
+
+  f.root(f.graph([source, [normalise, enrich], sink], {
+    style: "tree",
+    layerGap: { wide: 76, compact: 48 },
+    padding: 14,
+    width: "fill",
+  }));
+  const edges = [
+    f.wire(source, normalise, { kind: "spline", tone: "info" }),
+    f.wire(source, enrich, { kind: "spline", tone: "accent", spline: "rounded" }),
+    f.wire(normalise, sink, { kind: "spline", tone: "success" }),
+    f.wire(enrich, sink, { kind: "spline", tone: "warning", spline: "rounded" }),
+  ];
+  f.sequence([f.reveal([source, normalise, enrich, sink], { stagger: 70 }), f.draw(edges, { stagger: 60 }), f.flow(edges)]);
+});
+```
 
 Gate shapes and junctions are recipes over normal paths, circles, and groups—not renderer-only
-objects—so the same schematic is available in SVG, PNG, GIF, and the live runtime. Endpoint
-`offset` selects a distinct pin along a gate side (`0.34` and `0.66` are useful two-input defaults).
+objects—so the same schematic is available in SVG, PNG, GIF, and the live runtime. The gate's
+rotatable silhouette is separated from its upright label, and its outer bounds swap with the
+orientation. Its 3:2 connection box exactly matches the path view box, so a routed edge and the
+visible pin share the same coordinate rather than merely looking close at one scale. The default
+`variant: "schematic"` draws a neutral channel below an active signal overlay, matching the casing
+and ink grammar of connected wires. Choose `variant: "solid"` when the gate should read as a compact
+filled icon instead of part of an electrical schematic.
+
+Every node may expose reusable named ports, and any connector may target one directly:
+
+```ts
+const device = f.raw({
+  id: "device",
+  type: "rect",
+  width: 120,
+  height: 72,
+  ports: [
+    { id: "clock", side: "left", offset: 0.75 },
+    { id: "data", side: "right", offset: 0.5 },
+  ],
+});
+
+f.wire(clock, { node: device, port: "clock" }, { kind: "clock" });
+f.wire(device, output, { kind: "data" });
+```
+
+Explicit `side` and `offset` still override a named port for unusual schematics. Ordinary automatic
+ports remain useful for cards and graphs; named ports are the exact contract for circuits and other
+symbols whose attachment point is part of their shape.
 For a schematic plane where topology must remain exact, use `f.place(gate, responsivePosition)`
 before adding the same node to `f.coordinates()`. Unlike an object spread, `f.place()` preserves
 the builder node's identity and makes accidental duplicate ids impossible.
@@ -198,8 +368,28 @@ hand-authoring another container.
 
 `tile`, `port`, `gridPlane`, and `cardFan` compile to ordinary marks and groups. Their standalone
 forms are `tileNode()`, `port()`, `gridPlane()`, and `cardFan()`. The
-[glyph style laboratory](./glyph-style-lab.md) renders all four under both `signalTheme` and
-`instrumentTheme`.
+[glyph style laboratory](./glyph-style-lab.md) renders the same primitives under `signalTheme`,
+`integrationTheme`, and `instrumentTheme`.
+
+A transparent figure canvas and a visible card are independent choices. Keep the embed transparent
+in the figure metadata, then wrap only the diagram that needs a surface:
+
+```ts
+const circuit = f.logicCircuit(netlist);
+f.root(
+  f.panel([circuit.root], {
+    padding: { wide: 18, compact: 15, narrow: 12 },
+    frame: material("raised"),
+  }),
+);
+```
+
+That produces intentional card padding and a theme-aware surface without reintroducing a second
+background around every glyph.
+
+`editorialCircuitTheme` combines the counter automaton's monospace palette with Instrument's
+surface hierarchy: neutral contact shadows, beveled terminal cards, muted inactive rails, and no
+coloured glow. It is the default dogfood theme on the CPU-from-bits page.
 
 ### Fill paint
 

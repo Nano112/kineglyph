@@ -1,4 +1,5 @@
 export * from "./authoring.js";
+export * from "./bounds.js";
 export * from "./asciicast.js";
 export * from "./connector.js";
 export * from "./doctor.js";
@@ -42,6 +43,43 @@ export * from "./seek.js";
 export * from "./spec.js";
 export * from "./text.js";
 export * from "./technical-diagrams.js";
+// Drafting and orbital helpers are namespaced: their short names (`grid`, `text`, `period`, …)
+// would otherwise collide with the general recipes.
+export {
+  drafting,
+  SHEET_BOX,
+  SHEET_HEIGHT,
+  SHEET_WIDTH,
+  sketchMaterial,
+  type AnnotationLine,
+  type AnnotationOptions,
+  type Dimension,
+  type DimensionOptions,
+  type Frame,
+  type FrameOptions,
+  type LayerOptions,
+  type LeaderOptions,
+  type MathGlyphLike,
+  type PlateOptions,
+  type SheetMathOptions,
+  type SheetOptions,
+  type SheetPoint,
+  type SheetTextOptions,
+  type SketchOptions,
+  type TitleBlock,
+  type TitleBlockOptions,
+} from "./drafting.js";
+export {
+  orbital,
+  type AscentOptions,
+  type AscentProfile,
+  type AscentSample,
+  type GroundTrack,
+  type GroundTrackOptions,
+  type HohmannTransfer,
+  type LibrationPoints,
+  type OrbitState,
+} from "./orbital.js";
 export * from "./theme.js";
 export * from "./theme-presets.js";
 export * from "./timeline.js";

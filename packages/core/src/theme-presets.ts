@@ -1,4 +1,10 @@
-import { createTheme, defaultTheme, type ThemeOverride, type ThemeTokens } from "./theme.js";
+import {
+  counterTerminalTheme,
+  createTheme,
+  defaultTheme,
+  type ThemeOverride,
+  type ThemeTokens,
+} from "./theme.js";
 import { innerShadow, shadow } from "./material.js";
 import { linearGradient, radialGradient } from "./scene.js";
 
@@ -251,6 +257,74 @@ export const blueprintTheme: ThemeTokens = professionalTheme({
   ornament: { grid: "lines", surface: "outlined", lineCap: "square", eyebrow: true },
 });
 
+const DRAFTING_FAMILY =
+  '"JetBrainsMono Nerd Font", "JetBrains Mono", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
+
+/**
+ * Sheet typography is smaller than the other presets: annotations sit in a fixed 2880-unit sheet
+ * that is usually drawn a few hundred pixels wide, so every point of type costs sheet space.
+ */
+function draftingType(): NonNullable<ThemeOverride["typography"]> {
+  // typeDirection fills every style, so the partial override type can be narrowed safely.
+  const base = typeDirection({
+    family: DRAFTING_FAMILY,
+    code: DRAFTING_FAMILY,
+    displaySize: 30,
+    displayWeight: 600,
+    titleWeight: 600,
+    bodySize: 12.5,
+    labelSpacing: 1.3,
+  }) as ThemeTokens["typography"];
+  return {
+    ...base,
+    label: { ...base.label, size: 10, lineHeight: 14 },
+    caption: { ...base.caption, size: 10.5, lineHeight: 14 },
+    code: { ...base.code, size: 10.5, lineHeight: 14, weight: 500 },
+    title: { ...base.title, size: 20, lineHeight: 24, letterSpacing: 2 },
+  };
+}
+
+/**
+ * Monochrome drafting sheets: graphite paper, white drafting ink, and colour reserved for what a
+ * sheet annotates — amber (`accent`) for burns and critical callouts, green (`success`) for the
+ * live trajectory, violet (`info`) for swept area and halo orbits. Pair it with the `drafting`
+ * helpers and the `sketch` material; see `docs/drafting-sheets.md`.
+ */
+export const draftingTheme: ThemeTokens = professionalTheme({
+  name: "drafting",
+  colors: {
+    canvas: "#0c0c0e",
+    surface: "#141416",
+    surfaceRaised: "#1b1b1f",
+    surfaceMuted: "#08080a",
+    text: "#dedee2",
+    textMuted: "#82828a",
+    accent: "#f0a45e",
+    accentContrast: "#0c0c0e",
+    info: "#bf9be0",
+    success: "#5fd3a0",
+    warning: "#e8c766",
+    danger: "#ff6b57",
+    connector: "#b4b4ba",
+    border: "#2e2e33",
+    chart1: "#f0a45e",
+    chart2: "#5fd3a0",
+    chart3: "#bf9be0",
+    chart4: "#5fd0e8",
+    chart5: "#79b4e8",
+    chart6: "#82828a",
+    chartPositive: "#5fd3a0",
+    chartNegative: "#ff6b57",
+    chartNeutral: "#82828a",
+  },
+  spacing: { xs: 4, sm: 8, md: 14, lg: 20, xl: 28, "2xl": 40 },
+  radii: { sm: 0, md: 0, lg: 0, pill: 0 },
+  typography: draftingType(),
+  motion: { fast: 120, normal: 320, slow: 900, easing: "easeInOut" },
+  strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.6 },
+  ornament: { grid: "none", surface: "outlined", lineCap: "butt", eyebrow: true },
+});
+
 /** Equipment manuals and field reports: compact typography, olive neutrals, safety orange. */
 export const fieldManualTheme: ThemeTokens = professionalTheme({
   name: "field-manual",
@@ -436,6 +510,72 @@ export const signalTheme: ThemeTokens = createTheme({
 });
 
 /**
+ * Compact integration maps for hosts, adapters, clients, and service boundaries. The restrained
+ * cyan-to-blue host surface creates hierarchy while thin green/blue links keep the topology crisp.
+ */
+export const integrationTheme: ThemeTokens = createTheme({
+  name: "integration",
+  declareColors: "all",
+  colors: {
+    canvas: "#050807",
+    surface: "#09100e",
+    surfaceRaised: "#0c1714",
+    surfaceMuted: "#0d1418",
+    text: "#f2f7f5",
+    textMuted: "#88a098",
+    accent: "#00b995",
+    accentContrast: "#03110e",
+    info: "#176ed7",
+    success: "#10d47f",
+    warning: "#d8b34d",
+    danger: "#ef6b72",
+    connector: "#327d73",
+    border: "#21443b",
+    chart1: "#00b995",
+    chart2: "#176ed7",
+    chart3: "#10d47f",
+    chart4: "#55a5e8",
+    chart5: "#d8b34d",
+    chart6: "#88a098",
+    chartPositive: "#10d47f",
+    chartNegative: "#ef6b72",
+    chartNeutral: "#58736c",
+  },
+  spacing: { xs: 4, sm: 8, md: 14, lg: 22, xl: 30, "2xl": 44 },
+  radii: { sm: 4, md: 7, lg: 11, pill: 9999 },
+  typography: typeDirection({
+    family: "Inter, ui-sans-serif, system-ui, sans-serif",
+    code: '"IBM Plex Mono", "SFMono-Regular", Menlo, monospace',
+    displaySize: 40,
+    displayWeight: 700,
+    titleWeight: 700,
+    bodySize: 14,
+    labelSpacing: 0.45,
+  }),
+  motion: { fast: 100, normal: 230, slow: 500, easing: "easeOut" },
+  strokes: { hairline: 0.9, thin: 1.15, regular: 1.6, bold: 2.35 },
+  ornament: { grid: "none", surface: "outlined", lineCap: "round", eyebrow: false },
+  materials: {
+    flat: { fill: "canvas" },
+    raised: { fill: "surface", stroke: "border", strokeWidth: 1, radius: 7 },
+    floating: {
+      fill: linearGradient(
+        [
+          { at: 0, color: "accent" },
+          { at: 1, color: "info" },
+        ],
+        { angle: 90 },
+      ),
+      stroke: "info",
+      strokeWidth: 1,
+      radius: 11,
+    },
+    inset: { fill: "surfaceMuted", stroke: "border", strokeWidth: 1, radius: 5 },
+    glass: { fill: "surface", stroke: "connector", strokeWidth: 1, radius: 8 },
+  },
+});
+
+/**
  * Physically grounded instrument panels: graphite cards, bevel highlights, contact shadows, and a
  * local red emitter on the `floating` role. Effects stay semantic and export through SVG/PNG/GIF.
  */
@@ -544,11 +684,106 @@ export const instrumentTheme: ThemeTokens = createTheme({
   },
 });
 
-export type GlyphStyleThemeName = "signal" | "instrument";
+/**
+ * Editorial circuit drawings: the counter palette and monospace voice, disciplined by the
+ * Instrument theme's surface hierarchy. Contact shadows are neutral, never coloured, so the
+ * result reads as printed technical hardware rather than emitted light.
+ */
+export const editorialCircuitTheme: ThemeTokens = createTheme(
+  {
+    name: "editorial-circuit",
+    declareColors: "all",
+    colors: {
+      canvas: "#090a0f",
+      surface: "#10121a",
+      surfaceRaised: "#181b26",
+      surfaceMuted: "#202431",
+      text: "#f4f2ed",
+      textMuted: "#9298a8",
+      accent: "#8f6bea",
+      info: "#cc51d9",
+      success: "#ef7188",
+      warning: "#f0cf5a",
+      danger: "#ef7188",
+      connector: "#777187",
+      border: "#363b4c",
+    },
+    spacing: { xs: 4, sm: 9, md: 16, lg: 24, xl: 34, "2xl": 48 },
+    radii: { sm: 5, md: 9, lg: 13, pill: 9999 },
+    strokes: { hairline: 0.85, thin: 1.15, regular: 1.5, bold: 2.4 },
+    ornament: { grid: "none", surface: "outlined", lineCap: "round", eyebrow: true },
+    materials: {
+      flat: {
+        fill: linearGradient(
+          [
+            { at: 0, color: "surfaceRaised" },
+            { at: 1, color: "surface" },
+          ],
+          { angle: 112 },
+        ),
+        stroke: "border",
+        strokeWidth: 0.9,
+        radius: 8,
+        effects: [innerShadow({ color: "text", opacity: 0.055, blur: 0.9, offset: [0, 1] })],
+      },
+      raised: {
+        fill: linearGradient(
+          [
+            { at: 0, color: "surfaceRaised" },
+            { at: 0.58, color: "surface" },
+            { at: 1, color: "canvas" },
+          ],
+          { angle: 116 },
+        ),
+        stroke: "border",
+        strokeWidth: 1,
+        radius: 13,
+        effects: [
+          innerShadow({ color: "text", opacity: 0.065, blur: 1, offset: [0, 1] }),
+          shadow({ color: "canvas", opacity: 0.68, blur: 14, spread: 1, offset: [0, 7] }),
+        ],
+      },
+      floating: {
+        fill: linearGradient(
+          [
+            { at: 0, color: "surfaceRaised" },
+            { at: 1, color: "surface" },
+          ],
+          { angle: 108 },
+        ),
+        stroke: "accent",
+        strokeWidth: 1.2,
+        radius: 10,
+        effects: [
+          innerShadow({ color: "text", opacity: 0.07, blur: 1, offset: [0, 1] }),
+          shadow({ color: "canvas", opacity: 0.72, blur: 13, offset: [0, 7] }),
+        ],
+      },
+      inset: {
+        fill: "surfaceMuted",
+        stroke: "border",
+        strokeWidth: 0.9,
+        radius: 7,
+        effects: [innerShadow({ color: "canvas", opacity: 0.82, blur: 5, offset: [0, 2] })],
+      },
+      glass: {
+        fill: "surface",
+        stroke: "border",
+        strokeWidth: 1,
+        radius: 10,
+        effects: [shadow({ color: "canvas", opacity: 0.55, blur: 10, offset: [0, 5] })],
+      },
+    },
+  },
+  counterTerminalTheme,
+);
 
-/** Two deliberately different render directions for the same semantic scene graph. */
+export type GlyphStyleThemeName = "signal" | "integration" | "instrument";
+
+/** Deliberately different render directions for the same semantic scene graph. */
 export const glyphStyleThemes: Readonly<Record<GlyphStyleThemeName, ThemeTokens>> = {
   signal: signalTheme,
+  integration: integrationTheme,
   instrument: instrumentTheme,
 };
 

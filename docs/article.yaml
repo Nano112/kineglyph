@@ -37,11 +37,14 @@ nav:
   - { title: Visual gallery, page: gallery.md }
   - { title: Professional themes, page: theme-gallery.md }
   - { title: Glyph style laboratory, page: glyph-style-lab.md }
+  - { title: Drafting sheets, page: drafting-sheets.md }
   - { title: Build a CPU from bits, page: cpu-from-bits.md }
+  - { title: Minecraft solar-system builder, page: minecraft-sdf-guide.md }
   - { title: Editorial infographic patterns, page: infographic-patterns.md }
   - section: Authoring
     children:
       - { title: Authoring API, page: authoring-api.md }
+      - { title: Composition system, page: composition-system.md }
       - { title: Files and terminals, page: files-and-terminals.md }
       - { title: Cookbook, page: cookbook.md }
       - { title: Technical diagram grammar, page: technical-diagram-grammar.md }

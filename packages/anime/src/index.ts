@@ -1,5 +1,6 @@
 import { createScope, createTimer, type Scope, type Timer } from "animejs";
 import {
+  packetPositions,
   Timeline,
   seekTimeline,
   type Easing,
@@ -291,9 +292,13 @@ export class KineglyphAnimator {
 export interface KineglyphSceneAnimatorOptions {
   readonly root: HTMLElement | SVGElement;
   readonly scene: ResolvedScene;
+  /** Initial deterministic frame, useful when recreating a live animator after state changes. */
+  readonly initialTime?: number;
   readonly reducedMotion?: boolean;
   /** Repeat the complete deterministic timeline until paused. */
   readonly loop?: boolean;
+  /** Keep packet flow moving after the finite entrance timeline completes. */
+  readonly ambientFlow?: boolean;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
 }
@@ -306,7 +311,10 @@ export class KineglyphSceneAnimator {
   readonly #onFrame: KineglyphSceneAnimatorOptions["onFrame"];
   readonly #onPlaybackChange: KineglyphSceneAnimatorOptions["onPlaybackChange"];
   readonly #loop: boolean;
+  readonly #ambientFlow: boolean;
   #timer: Timer | undefined;
+  #flowTimer: Timer | undefined;
+  #flowTime = 0;
   #reducedMotion: boolean;
   #holdTerminal = false;
   #disposed = false;
@@ -319,7 +327,11 @@ export class KineglyphSceneAnimator {
     this.#onFrame = options.onFrame;
     this.#onPlaybackChange = options.onPlaybackChange;
     this.#loop = options.loop ?? false;
+    this.#ambientFlow = options.ambientFlow ?? false;
     this.#duration = options.scene.timeline?.duration ?? 0;
+    const initialTime = this.#reducedMotion
+      ? this.#duration
+      : clamp(options.initialTime ?? 0, 0, this.#duration);
     this.#scope = createScope({ root: options.root });
     this.#scope.add(() => {
       const timer = createTimer({
@@ -353,8 +365,28 @@ export class KineglyphSceneAnimator {
       this.#timer = timer;
       return () => timer.cancel();
     });
+    if (options.scene.edges.some((edge) => numberValue(edge.metadata?.packetCount) > 0))
+      this.#scope.add(() => {
+        const timer = createTimer({
+          autoplay: false,
+          duration: 60_000,
+          loop: true,
+          onUpdate: (currentTimer) => {
+            if (this.#disposed || this.#reducedMotion) return;
+            this.#flowTime = currentTimer.iterationCurrentTime;
+            this.#applyAmbientFlow(this.#flowTime);
+          },
+        });
+        this.#flowTimer = timer;
+        return () => timer.cancel();
+      });
+    this.#holdTerminal = initialTime >= this.#duration;
+    this.#timer?.seek(initialTime, true);
+    this.#flowTimer?.pause().seek(initialTime, true);
+    this.#flowTime = initialTime;
     this.#setPaused(true);
-    this.#apply(this.#reducedMotion ? this.#duration : 0);
+    this.#apply(initialTime);
+    if (this.#ambientFlow && !this.#reducedMotion) this.#flowTimer?.play();
   }
 
   get duration(): number {
@@ -435,6 +467,7 @@ export class KineglyphSceneAnimator {
       this.#holdTerminal = false;
       this.#timer?.restart();
     } else this.#timer?.play();
+    this.#flowTimer?.play();
     this.#setPaused(false);
     this.#onPlaybackChange?.(true);
   }
@@ -442,6 +475,7 @@ export class KineglyphSceneAnimator {
   pause(): void {
     this.#assertLive();
     this.#timer?.pause();
+    this.#flowTimer?.pause();
     this.#setPaused(true);
     this.#onPlaybackChange?.(false);
   }
@@ -454,6 +488,8 @@ export class KineglyphSceneAnimator {
     }
     this.#holdTerminal = false;
     this.#timer?.pause().seek(0, true);
+    this.#flowTimer?.pause().seek(0, true);
+    this.#flowTime = 0;
     this.#apply(0);
     if (autoplay) this.play();
   }
@@ -463,6 +499,8 @@ export class KineglyphSceneAnimator {
     const next = this.#reducedMotion ? this.#duration : clamp(time, 0, this.#duration);
     this.#holdTerminal = next >= this.#duration;
     if (this.#holdTerminal) this.#timer?.pause();
+    this.#flowTimer?.pause().seek(next, true);
+    this.#flowTime = next;
     this.#timer?.seek(next, true);
     this.#apply(next);
   }
@@ -481,11 +519,13 @@ export class KineglyphSceneAnimator {
     if (reduced) {
       this.#holdTerminal = true;
       this.#timer?.pause();
+      this.#flowTimer?.pause();
       this.#root.setAttribute("data-reduced-motion", "true");
       this.#onPlaybackChange?.(false);
     } else {
       this.#holdTerminal = false;
       this.#root.removeAttribute("data-reduced-motion");
+      if (this.#ambientFlow || this.playing) this.#flowTimer?.play();
     }
     this.#apply(reduced ? this.#duration : this.time);
   }
@@ -501,8 +541,10 @@ export class KineglyphSceneAnimator {
     this.#disposed = true;
     const timer = this.#timer;
     timer?.cancel();
+    this.#flowTimer?.cancel();
     this.#scope.revert();
     this.#timer = undefined;
+    this.#flowTimer = undefined;
   }
 
   #playingNow(): boolean {
@@ -526,6 +568,7 @@ export class KineglyphSceneAnimator {
     const paint = paintTokeniser(this.#scene.theme);
     for (const node of frame.nodes) this.#applyNode(node, accent, paint);
     for (const edge of frame.edges) this.#applyEdge(edge, accent, paint);
+    this.#applyAmbientFlow(this.#flowTime);
     this.#root.style.setProperty("--kg-time", String(frame.time));
     this.#root.style.setProperty("--kg-timeline-progress", String(frame.progress));
     this.#onFrame?.(frame);
@@ -701,6 +744,23 @@ export class KineglyphSceneAnimator {
   }
 
   #applyEdge(edge: ResolvedEdge, accent: string, paint: (literal: string) => string): void {
+    if (edge.casing !== undefined) {
+      for (const element of this.#find(`[data-edge-casing="${cssEscape(edge.id)}"]`)) {
+        if (!isSvgTag(element, "path")) continue;
+        element.style.opacity = String(round(edge.state.opacity * (edge.casing.opacity ?? 1)));
+        element.setAttribute("stroke", paint(edge.casing.stroke));
+        element.setAttribute("stroke-width", String(round(edge.casing.strokeWidth)));
+        const dashKind = (element.getAttribute("data-dash") ??
+          edge.dash ??
+          "solid") as EdgeDashKind;
+        const length = Number(element.getAttribute("data-length")) || edge.length || 0;
+        const dash = edgeDashArray(dashKind, edge.casing.strokeWidth, length, edge.state.progress);
+        if (dash.pathLength === undefined) element.removeAttribute("pathLength");
+        else element.setAttribute("pathLength", dash.pathLength);
+        if (dash.dasharray === undefined) element.removeAttribute("stroke-dasharray");
+        else element.setAttribute("stroke-dasharray", dash.dasharray);
+      }
+    }
     const paths = this.#find(`[data-edge-id="${cssEscape(edge.id)}"]`);
     for (const element of paths) {
       if (!isSvgTag(element, "path")) continue;
@@ -732,6 +792,17 @@ export class KineglyphSceneAnimator {
       else element.removeAttribute("data-highlight");
     }
     const flow = edge.state.flow ?? 0;
+    const trailWidth = numberValue(edge.metadata?.packetTrailWidth);
+    const trailOpacity = numberValue(edge.metadata?.packetTrailOpacity);
+    for (const element of this.#find(`[data-edge-trace="${cssEscape(edge.id)}"]`)) {
+      if (!isSvgTag(element, "path")) continue;
+      element.setAttribute("stroke", paint(edge.packetColor ?? edge.appearance.stroke));
+      if (trailWidth > 0) element.setAttribute("stroke-width", String(round(trailWidth)));
+      element.setAttribute(
+        "opacity",
+        String(round(flow * edge.state.opacity * (trailOpacity > 0 ? trailOpacity : 0.72))),
+      );
+    }
     const packets = edge.packets ?? [];
     for (const element of this.#find(`[data-edge-packet="${cssEscape(edge.id)}"]`)) {
       if (!isSvgTag(element, "circle")) continue;
@@ -745,6 +816,37 @@ export class KineglyphSceneAnimator {
     }
     for (const element of this.#find(`[data-edge-group="${cssEscape(edge.id)}"] .kg-edge-label`)) {
       if (element instanceof SVGElement) element.style.opacity = String(edge.state.opacity);
+    }
+    const signal = edge.state.signal;
+    for (const element of this.#find(`[data-edge-group="${cssEscape(edge.id)}"]`)) {
+      if (!(element instanceof SVGElement)) continue;
+      element.classList.toggle("kg-edge-group--on", signal !== undefined && signal > 0.5);
+      element.classList.toggle("kg-edge-group--off", signal !== undefined && signal <= 0.5);
+      if (signal === undefined) element.removeAttribute("data-signal");
+      else element.setAttribute("data-signal", signal > 0.5 ? "on" : "off");
+    }
+  }
+
+  /** Advances packet beads and their short ink trails without replaying the finite intro. */
+  #applyAmbientFlow(time: number): void {
+    for (const edge of this.#scene.edges) {
+      const count = numberValue(edge.metadata?.packetCount);
+      const period = numberValue(edge.metadata?.packetPeriod);
+      if (edge.samples === undefined || count <= 0 || period <= 0) continue;
+      const packets = packetPositions(edge.samples, count, period, time);
+      for (const element of this.#find(`[data-edge-packet="${cssEscape(edge.id)}"]`)) {
+        if (!isSvgTag(element, "circle")) continue;
+        const index = Number(element.getAttribute("data-packet-index") ?? "0");
+        const packet = packets[index];
+        if (packet === undefined) continue;
+        element.setAttribute("cx", String(round(packet.x)));
+        element.setAttribute("cy", String(round(packet.y)));
+      }
+      const phase = (((time % period) + period) % period) / period;
+      for (const element of this.#find(`[data-edge-trace="${cssEscape(edge.id)}"]`)) {
+        if (isSvgTag(element, "path"))
+          element.setAttribute("stroke-dashoffset", String(round(-phase)));
+      }
     }
   }
 
@@ -781,6 +883,10 @@ export class KineglyphSceneAnimator {
   #assertLive(): void {
     if (this.#disposed) throw new Error("KineglyphSceneAnimator has been disposed");
   }
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

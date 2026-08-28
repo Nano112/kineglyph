@@ -4,7 +4,9 @@ import { material } from "./material.js";
 import { resolveScene } from "./resolve.js";
 import { declaredColorRoles, defaultTheme } from "./theme.js";
 import {
+  editorialCircuitTheme,
   glyphStyleThemes,
+  integrationTheme,
   instrumentTheme,
   kineglyphTheme,
   professionalThemes,
@@ -73,19 +75,22 @@ describe("professional theme presets", () => {
 });
 
 describe("glyph style themes", () => {
-  it("keeps the signal direction flat and the instrument direction physically layered", () => {
+  it("keeps signal and integration flat while instrument remains physically layered", () => {
     expect(signalTheme.name).toBe("signal");
+    expect(integrationTheme.name).toBe("integration");
     expect(instrumentTheme.name).toBe("instrument");
-    expect(Object.keys(glyphStyleThemes)).toEqual(["signal", "instrument"]);
-    for (const material of Object.values(signalTheme.materials))
-      expect(material.effects ?? []).toEqual([]);
+    expect(Object.keys(glyphStyleThemes)).toEqual(["signal", "integration", "instrument"]);
+    for (const theme of [signalTheme, integrationTheme])
+      for (const material of Object.values(theme.materials))
+        expect(material.effects ?? []).toEqual([]);
+    expect(integrationTheme.materials.floating.fill).toMatchObject({ type: "linear-gradient" });
     expect(
       instrumentTheme.materials.raised.effects?.some((effect) => effect.type === "shadow"),
     ).toBe(true);
     expect(instrumentTheme.materials.floating.effects).toHaveLength(3);
   });
 
-  it("resolves the same semantic specimen in both directions", () => {
+  it("resolves the same semantic specimen in every direction", () => {
     for (const [name, theme] of Object.entries(glyphStyleThemes)) {
       for (const width of [960, 390]) {
         const scene = resolveScene(specimen, { width, theme });
@@ -95,5 +100,19 @@ describe("glyph style themes", () => {
         expect(problems, `${name} at ${width}px`).toEqual([]);
       }
     }
+  });
+});
+
+describe("editorial circuit theme", () => {
+  it("combines counter colour with restrained physical hierarchy and no coloured glow", () => {
+    expect(editorialCircuitTheme.name).toBe("editorial-circuit");
+    expect(editorialCircuitTheme.typography.display.family).toContain("ui-monospace");
+    expect(editorialCircuitTheme.ornament.surface).toBe("outlined");
+    expect(
+      editorialCircuitTheme.materials.raised.effects?.some((effect) => effect.type === "shadow"),
+    ).toBe(true);
+    for (const material of Object.values(editorialCircuitTheme.materials))
+      for (const effect of material.effects ?? [])
+        if (effect.type === "shadow") expect(effect.color).not.toBe("accent");
   });
 });

@@ -251,6 +251,90 @@ describe("resolveScene", () => {
     ).toThrow(/duplicate node id: a/);
   });
 
+  it("validates named node ports before routing", () => {
+    const result = validateScene({
+      ...scene,
+      root: {
+        ...scene.root,
+        children: [
+          {
+            ...scene.root.children[0]!,
+            ports: [
+              { id: "data", side: "right", offset: 0.5 },
+              { id: "data", side: "left", offset: 1.2 },
+            ],
+          },
+          ...scene.root.children.slice(1),
+        ],
+      },
+      edges: [{ id: "bad-port", from: { node: "a", port: "clock" }, to: "b" }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining(["duplicate-port", "port-offset", "missing-port"]),
+    );
+  });
+
+  it("validates edge casing dimensions", () => {
+    const result = validateScene({
+      ...scene,
+      edges: [
+        { id: "bad-casing-width", from: "a", to: "b", casing: { width: 0 } },
+        {
+          id: "bad-casing-opacity",
+          from: "b",
+          to: "c",
+          casing: { width: 5, opacity: 1.2 },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining(["edge-casing-width", "edge-casing-opacity"]),
+    );
+  });
+
+  it("validates packet trail dimensions", () => {
+    const result = validateScene({
+      ...scene,
+      edges: [
+        {
+          id: "bad-trail-length",
+          from: "a",
+          to: "b",
+          packets: { count: 1, trail: true, trailLength: 1 },
+        },
+        {
+          id: "bad-trail-width",
+          from: "b",
+          to: "c",
+          packets: { count: 1, trail: true, trailWidth: 0 },
+        },
+        {
+          id: "bad-trail-opacity",
+          from: "c",
+          to: "a",
+          packets: { count: 1, trail: true, trailOpacity: -0.1 },
+        },
+        {
+          id: "bad-speed",
+          from: "a",
+          to: "c",
+          packets: { count: 1, speed: 0 },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining([
+        "edge-packet-trail-length",
+        "edge-packet-trail-width",
+        "edge-packet-trail-opacity",
+        "edge-packet-speed",
+      ]),
+    );
+  });
+
   it("validates typed value-control contracts", () => {
     const result = validateScene({
       ...scene,

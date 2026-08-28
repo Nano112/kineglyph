@@ -29,6 +29,10 @@ export { prerender, rewriteImports } from "./prerender.js";
 export type { PrerenderOptions, PrerenderResult, PrerenderTheme } from "./prerender.js";
 export { defineExportPreset } from "./preset.js";
 export type { ExportPreset } from "./preset.js";
+export { scaffoldFigure } from "./scaffold.js";
+export type { ScaffoldResult } from "./scaffold.js";
+export { startDevServer } from "./dev-server.js";
+export type { DevServerHandle, DevServerOptions } from "./dev-server.js";
 export {
   bytesToDataUri,
   exportImageSequence,

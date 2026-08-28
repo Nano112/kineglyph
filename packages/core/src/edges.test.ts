@@ -89,7 +89,7 @@ describe("edge grammar", () => {
     }
   });
 
-  it("routes straight, orthogonal, curve, and arc paths from typed data", () => {
+  it("routes straight, orthogonal, spline, curve, and arc paths from typed data", () => {
     const straight = resolve({ id: "s", from: "a", to: "b" });
     expect(straight.edge.path).toBe("M 100 30 L 300 30");
     expect(straight.edge.head).toBe("arrow");
@@ -99,6 +99,17 @@ describe("edge grammar", () => {
     expect(elbow.edge.path).toContain("Q ");
     expect(elbow.edge.start).toEqual({ x: 100, y: 30 });
     expect(elbow.edge.end).toEqual({ x: 300, y: 230 });
+    const spline = resolve({
+      id: "spline",
+      from: "a",
+      to: "c",
+      route: "spline",
+      spline: "fluid",
+      cornerRadius: 18,
+    });
+    expect(spline.edge.route).toBe("spline");
+    expect(spline.edge.path).toContain("C ");
+    expect(spline.routePoints).toBeDefined();
     const curve = resolve({ id: "c", from: "a", to: "c", route: "curve", curvature: 0.8 });
     expect(curve.edge.path).toMatch(/^M 100 30 C /);
     const arc = resolve({ id: "r", from: "a", to: "b", route: "arc", bend: 40 });
@@ -108,6 +119,66 @@ describe("edge grammar", () => {
     expect(arc.geometry.length).toBeGreaterThan(200);
     expect(arc.geometry.pointAt(0.5).y).toBeGreaterThan(30);
     expect(arcUp.geometry.pointAt(0.5).y).toBeLessThan(30);
+  });
+
+  it("reserves separate lanes instead of drawing several nets on the same track", () => {
+    const reserved = [
+      [
+        { x: 20, y: 50 },
+        { x: 380, y: 50 },
+      ],
+    ];
+    const route = routeOrthogonalAvoidingObstacles(
+      { x: 20, y: 50 },
+      "right",
+      { x: 380, y: 50 },
+      "left",
+      [],
+      { x: 0, y: 0, width: 400, height: 120 },
+      8,
+      reserved,
+      10,
+      18,
+    );
+    expect(route).toBeDefined();
+    expect(route?.some((point) => point.y !== 50)).toBe(true);
+  });
+
+  it("resolves first-class active and inactive wire appearances", () => {
+    const edge: EdgeDefinition = {
+      id: "signal",
+      from: "a",
+      to: "b",
+      packets: { count: 1 },
+      signal: {
+        onTone: "warning",
+        offTone: "connector",
+        onWidth: 4,
+        offWidth: 1,
+        offOpacity: 0.45,
+      },
+    };
+    const ports = assignPorts([edge], "wide", boxes);
+    const port = ports.get(edge.id);
+    if (port === undefined) throw new Error("missing port");
+    const render = (signal: number) =>
+      resolveEdge(edge, port, {
+        layout: "wide",
+        theme,
+        boxes,
+        obstacles: [...boxes.values()],
+        labelFont: font,
+        labelColor: "#333333",
+        precision: 3,
+        overrides: { signal },
+      });
+    const off = render(0)?.edge;
+    const on = render(1)?.edge;
+    expect(off?.state).toMatchObject({ signal: 0, flow: 0, opacity: 0.45 });
+    expect(off?.appearance.strokeWidth).toBe(1);
+    expect(on?.state).toMatchObject({ signal: 1, flow: 1, opacity: 1 });
+    expect(on?.appearance.strokeWidth).toBe(4);
+    expect(on?.appearance.stroke).not.toBe(off?.appearance.stroke);
   });
 
   it("supports every marker, stroke style, and explicit ports", () => {
@@ -121,6 +192,7 @@ describe("edge grammar", () => {
       width: 3,
       tone: "danger",
       opacity: 0.8,
+      casing: { tone: "canvas", width: 7, opacity: 0.9 },
       description: "a to d",
     });
     expect(edge.edge.start).toEqual({ x: 25, y: 64 });
@@ -133,11 +205,70 @@ describe("edge grammar", () => {
       strokeWidth: 3,
       opacity: 0.8,
     });
+    expect(edge.edge.casing).toEqual({
+      stroke: theme.colors.canvas,
+      strokeWidth: 7,
+      opacity: 0.9,
+    });
     expect(edge.edge.description).toBe("a to d");
     expect(edge.edge.directed).toBe(true);
     const undirected = resolve({ id: "u", from: "a", to: "b", head: "none", stroke: "flow" });
     expect(undirected.edge.directed).toBe(false);
     expect(undirected.edge.dash).toBe("flow");
+  });
+
+  it("lands named endpoints on the node's exact declared ports", () => {
+    const portBoxes = new Map<string, EdgeNodeBox>([
+      [
+        "source",
+        {
+          id: "source",
+          kind: "group",
+          x: 20,
+          y: 20,
+          width: 80,
+          height: 60,
+          ports: { out: { side: "bottom", offset: 0.5 } },
+        },
+      ],
+      [
+        "gate",
+        {
+          id: "gate",
+          kind: "group",
+          x: 10,
+          y: 160,
+          width: 100,
+          height: 70,
+          ports: {
+            "in-0": { side: "top", offset: 27 / 80 },
+            "in-1": { side: "top", offset: 53 / 80 },
+          },
+        },
+      ],
+    ]);
+    const edge: EdgeDefinition = {
+      id: "named",
+      from: { node: "source", port: "out" },
+      to: { node: "gate", port: "in-1" },
+      route: "orthogonal",
+    };
+    const assignments = assignPorts([edge], "wide", portBoxes);
+    expect(assignments.get(edge.id)).toEqual({
+      from: { side: "bottom", offset: 0.5, pinned: true },
+      to: { side: "top", offset: 53 / 80, pinned: true },
+    });
+    const resolved = resolveEdge(edge, assignments.get(edge.id)!, {
+      layout: "wide",
+      theme,
+      boxes: portBoxes,
+      obstacles: [...portBoxes.values()],
+      labelFont: font,
+      labelColor: "#333333",
+      precision: 3,
+    });
+    expect(resolved?.edge.start).toEqual({ x: 60, y: 80 });
+    expect(resolved?.edge.end).toEqual({ x: 76.25, y: 160 });
   });
 
   it("distributes shared ports deterministically for branching and merging", () => {
@@ -292,6 +423,25 @@ describe("edge grammar", () => {
     ]);
     expect(packetPositions(samples, 2, 1000, 250)[0]).toEqual({ x: 150, y: 30 });
     expect(packetPositions(samples, 2, 1000, 1250)[0]).toEqual({ x: 150, y: 30 });
+  });
+
+  it("derives a constant packet speed from resolved path length", () => {
+    const speed = resolve({
+      id: "speed",
+      from: "a",
+      to: "b",
+      packets: { count: 1, speed: 100 },
+    });
+    expect(speed.edge.length).toBeDefined();
+    expect(speed.packetPeriod).toBeCloseTo(((speed.edge.length ?? 0) / 100) * 1000, 3);
+
+    const fixed = resolve({
+      id: "fixed-period",
+      from: "a",
+      to: "b",
+      packets: { count: 1, speed: 100, period: 750 },
+    });
+    expect(fixed.packetPeriod).toBe(750);
   });
 
   it("wraps text deterministically with ellipsis and long-word splitting", () => {

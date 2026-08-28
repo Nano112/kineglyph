@@ -41,6 +41,36 @@ export interface EmbeddedFigure {
   readonly source: EmbedSource;
 }
 
+export interface EmbedSnippetOptions {
+  /** Registered scene id or module URL. Module URLs use `data-scene`. */
+  readonly source: string;
+  readonly kind?: "registered" | "module";
+  readonly theme?: string;
+  readonly autoplay?: "in-view" | boolean;
+  readonly controls?: "auto" | boolean;
+  readonly readout?: "auto" | boolean;
+  readonly className?: string;
+}
+
+/** Small, dependency-free host snippet for docs, CMSs, and server-rendered pages. */
+export function createEmbedSnippet(options: EmbedSnippetOptions): string {
+  const escape = (value: string): string =>
+    value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  const attrs = [
+    `class="${escape(["kg", options.className].filter(Boolean).join(" "))}"`,
+    options.kind === "registered"
+      ? `data-kineglyph="${escape(options.source)}"`
+      : `data-scene="${escape(options.source)}"`,
+    options.theme === undefined ? undefined : `data-theme="${escape(options.theme)}"`,
+    options.autoplay === undefined
+      ? undefined
+      : `data-autoplay="${options.autoplay === true ? "true" : options.autoplay === false ? "false" : "in-view"}"`,
+    options.controls === undefined ? undefined : `data-controls="${String(options.controls)}"`,
+    options.readout === undefined ? undefined : `data-readout="${String(options.readout)}"`,
+  ].filter((value): value is string => value !== undefined);
+  return `<figure ${attrs.join(" ")}></figure>`;
+}
+
 const DEFAULT_SELECTOR = "figure.kg, [data-kineglyph]";
 const INLINE_TYPE = "text/kineglyph";
 

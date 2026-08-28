@@ -8,6 +8,7 @@ import {
   seekTimeline,
   type SceneDefinition,
 } from "@kineglyph/core";
+import { renderSvg } from "@kineglyph/svg";
 import { KineglyphSceneAnimator } from "../src/index.js";
 
 afterEach(() => {
@@ -179,6 +180,162 @@ describe("KineglyphSceneAnimator terminal state", () => {
     animator.play();
     await vi.waitFor(() => expect(node?.style.opacity).toBe("1"), { timeout: 1_000 });
     expect(node?.style.transform).toBe("none");
+    animator.dispose();
+  });
+
+  it("keeps packet trails moving after the finite entrance timeline completes", async () => {
+    const scene = resolveScene(
+      {
+        schemaVersion: 2,
+        id: "ambient-flow",
+        title: "Ambient flow",
+        root: {
+          id: "root",
+          type: "group",
+          layout: "coordinates",
+          width: 320,
+          height: 120,
+          children: [
+            {
+              id: "a",
+              type: "circle",
+              radius: 8,
+              width: 16,
+              height: 16,
+              position: { x: 0.1, y: 0.5, anchor: "center" },
+            },
+            {
+              id: "b",
+              type: "circle",
+              radius: 8,
+              width: 16,
+              height: 16,
+              position: { x: 0.9, y: 0.5, anchor: "center" },
+            },
+          ],
+        },
+        edges: [
+          {
+            id: "live",
+            from: "a",
+            to: "b",
+            head: "none",
+            packets: { count: 1, period: 120, trail: true },
+            signal: { value: true },
+          },
+        ],
+        timeline: {
+          duration: 20,
+          tracks: [
+            {
+              id: "draw",
+              target: "live",
+              property: "progress",
+              keyframes: [
+                { time: 0, value: 0 },
+                { time: 20, value: 1 },
+              ],
+            },
+          ],
+        },
+      },
+      { width: 320, theme: createTheme() },
+    );
+    const root = document.createElement("div");
+    root.innerHTML = renderSvg(seekTimeline(scene, 0), { idPrefix: "ambient" });
+    document.body.append(root);
+    const animator = new KineglyphSceneAnimator({ root, scene });
+    animator.play();
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    const trace = root.querySelector<SVGPathElement>('[data-edge-trace="live"]');
+    expect(trace).not.toBeNull();
+    const first = trace?.getAttribute("stroke-dashoffset");
+    await vi.waitFor(() => expect(trace?.getAttribute("stroke-dashoffset")).not.toBe(first), {
+      timeout: 1_000,
+    });
+    expect(animator.playing).toBe(false);
+    animator.pause();
+    const paused = trace?.getAttribute("stroke-dashoffset");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(trace?.getAttribute("stroke-dashoffset")).toBe(paused);
+    animator.dispose();
+  });
+
+  it("starts ambient flow from a restored terminal frame", async () => {
+    const scene = resolveScene(
+      {
+        schemaVersion: 2,
+        id: "restored-flow",
+        title: "Restored flow",
+        root: {
+          id: "root",
+          type: "group",
+          layout: "coordinates",
+          width: 320,
+          height: 120,
+          children: [
+            {
+              id: "a",
+              type: "circle",
+              radius: 8,
+              width: 16,
+              height: 16,
+              position: { x: 0.1, y: 0.5, anchor: "center" },
+            },
+            {
+              id: "b",
+              type: "circle",
+              radius: 8,
+              width: 16,
+              height: 16,
+              position: { x: 0.9, y: 0.5, anchor: "center" },
+            },
+          ],
+        },
+        edges: [
+          {
+            id: "live",
+            from: "a",
+            to: "b",
+            head: "none",
+            packets: { count: 1, period: 120, trail: true },
+            signal: { value: true },
+          },
+        ],
+        timeline: {
+          duration: 20,
+          tracks: [
+            {
+              id: "draw",
+              target: "live",
+              property: "progress",
+              keyframes: [
+                { time: 0, value: 0 },
+                { time: 20, value: 1 },
+              ],
+            },
+          ],
+        },
+      },
+      { width: 320, theme: createTheme() },
+    );
+    const root = document.createElement("div");
+    root.innerHTML = renderSvg(seekTimeline(scene, scene.timeline?.duration ?? 0), {
+      idPrefix: "restored",
+    });
+    document.body.append(root);
+    const animator = new KineglyphSceneAnimator({
+      root,
+      scene,
+      initialTime: scene.timeline?.duration ?? 0,
+      ambientFlow: true,
+    });
+    const trace = root.querySelector<SVGPathElement>('[data-edge-trace="live"]');
+    const first = trace?.getAttribute("stroke-dashoffset");
+    await vi.waitFor(() => expect(trace?.getAttribute("stroke-dashoffset")).not.toBe(first), {
+      timeout: 1_000,
+    });
+    expect(animator.time).toBe(scene.timeline?.duration);
     animator.dispose();
   });
 

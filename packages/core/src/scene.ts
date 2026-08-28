@@ -148,6 +148,8 @@ export interface EdgeBindings {
   readonly highlight?: string;
   readonly progress?: string;
   readonly flow?: string;
+  /** Boolean or numeric signal that selects the authored on/off wire appearance. */
+  readonly signal?: string;
   readonly label?: string;
 }
 
@@ -162,6 +164,10 @@ export interface FrameStyle extends MaterialStyle {
 
 interface BaseNode {
   readonly id: string;
+  /** Nodes and edges with the same value are highlighted together during inspection. */
+  readonly interactionGroup?: string;
+  /** Named connector locations resolved with the node's responsive layout. */
+  readonly ports?: readonly NodePort[];
   /** Explicit paint order. Children inherit their parent's effective z unless they set one. */
   readonly z?: number;
   readonly hidden?: Responsive<boolean>;
@@ -221,11 +227,18 @@ export interface GroupNode extends BaseNode {
   readonly breakpoints?: Partial<LayoutBreakpoints>;
   /** Tight-fit a coordinate space to positioned child bounds instead of using the fallback height. */
   readonly fit?: Responsive<"content" | "none">;
+  /**
+   * Height as a fraction of the allocated width for a coordinate space without an explicit
+   * height — a fixed-proportion canvas (a drawing sheet, a map) whose positioned children may
+   * spill without stretching it.
+   */
+  readonly aspect?: number;
   readonly gap?: Responsive<number>;
   readonly padding?: Responsive<Insets>;
   readonly align?: Responsive<Align>;
   readonly justify?: Responsive<Justify>;
-  readonly columns?: Responsive<number>;
+  /** Fixed count, or `auto` to fit as many columns as the allocated width safely permits. */
+  readonly columns?: Responsive<number | "auto">;
   readonly frame?: FrameStyle;
   readonly clip?: boolean;
   /**
@@ -285,6 +298,8 @@ export interface PathMark extends BaseNode {
   readonly stroke?: Paint;
   readonly strokeWidth?: number;
   readonly dash?: "solid" | "dashed" | "dotted";
+  /** Stroke cap; dotted strokes default to round so their dots stay visible. */
+  readonly lineCap?: "round" | "square" | "butt";
 }
 
 export interface PolylineMark extends BaseNode {
@@ -366,14 +381,27 @@ export type SceneNodeType = SceneNode["type"];
 // Edges
 // ---------------------------------------------------------------------------------------------
 
-export type EdgeRoute = "straight" | "orthogonal" | "curve" | "arc";
+export type EdgeRoute = "straight" | "orthogonal" | "spline" | "curve" | "arc";
+export type EdgeSpline = "rounded" | "fluid";
+export type EdgeAvoidance = "none" | "nodes" | "nodes-and-edges";
 export type MarkerKind = "none" | "arrow" | "triangle" | "dot" | "diamond" | "bar";
 export type StrokeStyle = "solid" | "dashed" | "dotted" | "flow";
 export type EdgeSide = "auto" | "left" | "right" | "top" | "bottom" | "center";
 export type LabelPlacement = "start" | "middle" | "end";
 
+/** A stable, named attachment point on a node. Offsets run from 0 to 1 along the chosen side. */
+export interface NodePort {
+  readonly id: string;
+  readonly side: Responsive<Exclude<EdgeSide, "auto">>;
+  readonly offset?: Responsive<number>;
+  /** Extra outward distance from the node boundary. Negative values intentionally overlap a pin. */
+  readonly gap?: number;
+}
+
 export interface EdgeEndpoint {
   readonly node: string;
+  /** Named port declared by the target node. Explicit side/offset values take precedence. */
+  readonly port?: string;
   readonly side?: Responsive<EdgeSide>;
   /** Fraction along the chosen side (0..1). Defaults to auto-distribution. */
   readonly offset?: Responsive<number>;
@@ -399,19 +427,63 @@ export interface EdgePackets {
   readonly tone?: Paint;
   /** Milliseconds for one packet to travel the whole edge. */
   readonly period?: number;
+  /** Constant travel speed in pixels per second. Ignored when `period` is supplied. */
+  readonly speed?: number;
+  /** Draw a short moving stroke behind each packet, following the exact routed path. */
+  readonly trail?: boolean;
+  /** Trail length as a fraction of the complete path (default 0.085). */
+  readonly trailLength?: number;
+  /** Trail stroke width in pixels (defaults to a little narrower than the wire). */
+  readonly trailWidth?: number;
+  /** Trail opacity before the edge's own opacity and flow state are applied (default 0.72). */
+  readonly trailOpacity?: number;
+}
+
+/** Appearance of a digital/logical connection in its inactive and active states. */
+export interface EdgeSignalStyle {
+  readonly value?: Responsive<boolean>;
+  readonly onTone?: Paint;
+  readonly offTone?: Paint;
+  readonly onWidth?: number;
+  readonly offWidth?: number;
+  readonly onOpacity?: number;
+  readonly offOpacity?: number;
+  /** Show travelling packets only while the wire is active (default true). */
+  readonly packetsOnlyWhenOn?: boolean;
+}
+
+/** A wider stroke below the wire. It separates crossings and makes a signal read as a channel. */
+export interface EdgeCasingStyle {
+  readonly tone?: Paint;
+  readonly width: number;
+  readonly opacity?: number;
 }
 
 export interface EdgeDefinition {
   readonly id: string;
+  /** Nodes and edges with the same value are highlighted together during inspection. */
+  readonly interactionGroup?: string;
   readonly from: string | EdgeEndpoint;
   readonly to: string | EdgeEndpoint;
   readonly route?: Responsive<EdgeRoute>;
+  /** Corner treatment for obstacle-routed splines. */
+  readonly spline?: EdgeSpline;
+  /** What the router treats as occupied. Orthogonal/spline edges default to node avoidance. */
+  readonly avoid?: Responsive<EdgeAvoidance>;
+  /** Clearance around nodes in pixels. */
+  readonly clearance?: number;
+  /** Preferred spacing between separately routed wires. */
+  readonly laneGap?: number;
+  /** Relative cost of crossing another routed wire. */
+  readonly crossingCost?: number;
   readonly head?: MarkerKind;
   readonly tail?: MarkerKind;
   readonly stroke?: StrokeStyle;
   readonly width?: number;
   readonly tone?: Paint;
   readonly opacity?: number;
+  /** Optional wider stroke rendered beneath the wire, useful for circuits and dense routing. */
+  readonly casing?: EdgeCasingStyle;
   /** 0..1 curvature for curves and arcs. */
   readonly curvature?: number;
   /** Signed bend in pixels for arcs; overrides curvature when set. */
@@ -420,6 +492,8 @@ export interface EdgeDefinition {
   readonly label?: string;
   readonly labels?: readonly EdgeLabel[];
   readonly packets?: EdgePackets;
+  /** First-class on/off appearance, driven by `bind.signal`. */
+  readonly signal?: EdgeSignalStyle;
   /** Accessible description; edges without one are decorative and hidden from assistive tech. */
   readonly description?: string;
   readonly z?: number;
@@ -568,6 +642,7 @@ function id(value: string, label: string, diagnostics: SceneDiagnostic[]): void 
 export function validateScene(scene: SceneDefinition): SceneValidationResult {
   const diagnostics: SceneDiagnostic[] = [];
   const nodeIds = new Set<string>();
+  const portsByNode = new Map<string, ReadonlySet<string>>();
   if (scene.schemaVersion !== 2)
     diagnostics.push({ severity: "error", code: "schema", message: "schemaVersion must be 2" });
   id(scene.id, "scene", diagnostics);
@@ -590,6 +665,31 @@ export function validateScene(scene: SceneDefinition): SceneValidationResult {
         path: node.id,
       });
     nodeIds.add(node.id);
+    if (node.ports !== undefined) {
+      const seen = new Set<string>();
+      for (const port of node.ports) {
+        id(port.id, `port on ${node.id}`, diagnostics);
+        if (seen.has(port.id))
+          diagnostics.push({
+            severity: "error",
+            code: "duplicate-port",
+            message: `node ${node.id} repeats port id ${port.id}`,
+            path: node.id,
+          });
+        seen.add(port.id);
+        for (const layout of LAYOUT_NAMES) {
+          const offset = pickOr(port.offset, layout, 0.5);
+          if (!Number.isFinite(offset) || offset < 0 || offset > 1)
+            diagnostics.push({
+              severity: "error",
+              code: "port-offset",
+              message: `port ${node.id}.${port.id} offset must be between 0 and 1`,
+              path: node.id,
+            });
+        }
+      }
+      portsByNode.set(node.id, seen);
+    }
     if (node.type === "path" && (node.viewBox.width <= 0 || node.viewBox.height <= 0))
       diagnostics.push({
         severity: "error",
@@ -642,6 +742,17 @@ export function validateScene(scene: SceneDefinition): SceneValidationResult {
           message: `edge ${edge.id} refers to missing ${role} node ${target}`,
           path: edge.id,
         });
+      else if (
+        typeof end !== "string" &&
+        end.port !== undefined &&
+        !portsByNode.get(target)?.has(end.port)
+      )
+        diagnostics.push({
+          severity: "error",
+          code: "missing-port",
+          message: `edge ${edge.id} refers to missing ${role} port ${target}.${end.port}`,
+          path: edge.id,
+        });
     }
     if (edge.curvature !== undefined && (edge.curvature < 0 || edge.curvature > 1))
       diagnostics.push({
@@ -655,6 +766,54 @@ export function validateScene(scene: SceneDefinition): SceneValidationResult {
         severity: "error",
         code: "edge-width",
         message: `edge ${edge.id} width must be positive`,
+        path: edge.id,
+      });
+    if (edge.casing !== undefined && !(edge.casing.width > 0))
+      diagnostics.push({
+        severity: "error",
+        code: "edge-casing-width",
+        message: `edge ${edge.id} casing width must be positive`,
+        path: edge.id,
+      });
+    if (edge.casing?.opacity !== undefined && (edge.casing.opacity < 0 || edge.casing.opacity > 1))
+      diagnostics.push({
+        severity: "error",
+        code: "edge-casing-opacity",
+        message: `edge ${edge.id} casing opacity must be between 0 and 1`,
+        path: edge.id,
+      });
+    if (
+      edge.packets?.trailLength !== undefined &&
+      (!(edge.packets.trailLength > 0) || edge.packets.trailLength >= 1)
+    )
+      diagnostics.push({
+        severity: "error",
+        code: "edge-packet-trail-length",
+        message: `edge ${edge.id} packet trail length must be greater than 0 and less than 1`,
+        path: edge.id,
+      });
+    if (edge.packets?.trailWidth !== undefined && !(edge.packets.trailWidth > 0))
+      diagnostics.push({
+        severity: "error",
+        code: "edge-packet-trail-width",
+        message: `edge ${edge.id} packet trail width must be positive`,
+        path: edge.id,
+      });
+    if (edge.packets?.speed !== undefined && !(edge.packets.speed > 0))
+      diagnostics.push({
+        severity: "error",
+        code: "edge-packet-speed",
+        message: `edge ${edge.id} packet speed must be positive`,
+        path: edge.id,
+      });
+    if (
+      edge.packets?.trailOpacity !== undefined &&
+      (edge.packets.trailOpacity < 0 || edge.packets.trailOpacity > 1)
+    )
+      diagnostics.push({
+        severity: "error",
+        code: "edge-packet-trail-opacity",
+        message: `edge ${edge.id} packet trail opacity must be between 0 and 1`,
         path: edge.id,
       });
   }

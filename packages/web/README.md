@@ -98,8 +98,10 @@ Mounted charts keep their SVG root and mark nodes across updates. The runtime pa
 attributes in place, so a rolling line does not repeatedly parse or replace its SVG subtree.
 
 Editable modules mounted through `@kineglyph/web/lab` may also export
-`loop = true` and/or `setup(controller, element)`. `loop` repeats the seekable scene timeline;
-`setup` runs after each successful preview mount and may return a cleanup
+`loop = true`, `liveSurfaces = { [imageNodeId]: renderer }`, and/or
+`setup(controller, element)`. `loop` repeats the seekable scene timeline; `liveSurfaces` is
+hot-swapped with the edited scene and keeps each image node's authored export fallback; `setup`
+runs after each successful preview mount and may return a cleanup
 function. The lab disposes the previous setup before rerunning edited source and on destroy, so a
 demo can safely own a timer, observer, or WebSocket while remaining hot-reloadable.
 
@@ -134,8 +136,9 @@ const controller = mountKineglyph(host, {
 });
 ```
 
-When a scene event changes its state, Kineglyph re-resolves the figure and remounts the surface
-with the new signals. Async work is aborted on state changes, resize, scene changes, and destroy.
+State changes, external signals, timeline frames, and responsive reflows update the existing live
+surface in place. Changing the figure or theme remounts it; destroy aborts and disposes it. This
+keeps expensive WASM, WebGL, and application runtimes alive while the authored scene responds.
 If `<model-viewer>` is unavailable or generation fails, the static image remains visible. A custom
 `LiveSurfaceRenderer` can mount Three.js, a native canvas, an iframe, or an application component
 instead.
@@ -164,6 +167,42 @@ const preview = adaptLiveSurface({
 });
 
 mountKineglyph(host, { scene, liveSurfaces: { "build-preview": preview } });
+```
+
+`bindLiveSurface()` is the shorter adapter for signal-driven tools. It applies the initial signal
+snapshot before the export fallback hands off, reports only changed signal names, and optionally
+forwards timeline-only updates. `watch` prevents a scrubber tick from rebuilding an expensive
+asset.
+
+```ts
+import { bindLiveSurface } from "@kineglyph/web";
+
+const generator = bindLiveSurface({
+  watch: ["radius", "material"],
+  includeTime: true,
+  async mount({ element }) {
+    const canvas = element.appendChild(document.createElement("canvas"));
+    return { canvas, runtime: await loadWasmGenerator() };
+  },
+  apply(target, { initial, changed, signals, time }) {
+    if (initial || changed.length > 0) target.runtime.rebuild(signals);
+    target.runtime.draw(target.canvas, time);
+  },
+  destroy(target) {
+    target.runtime.destroy?.();
+  },
+});
+```
+
+For browser-owned renderers, `encodeRgbaGif()` turns synchronous or asynchronous RGBA frames into
+downloadable GIF bytes. It is deliberately independent of Kineglyph scene nodes, so Nucleation,
+WebGL, canvas simulations, and decoded media can all use the same exporter.
+
+```ts
+import { downloadBytes, encodeRgbaGif } from "@kineglyph/web";
+
+const gif = await encodeRgbaGif(renderedFrames(), { delay: 80, yieldEvery: 2 });
+downloadBytes(gif, { filename: "build.gif", type: "image/gif" });
 ```
 
 For rendered video, `videoSurface({ src, offset?, rate? })` keeps the media element paused and
@@ -226,7 +265,7 @@ dragging and flushes on a committed change, which keeps expensive rendering off 
 - Figures default to their first frame until they enter the viewport, then play after 180ms.
   `autoplay: true` starts immediately; `false` presents the complete terminal frame. Reduced-motion
   figures also present the terminal frame, stop flow strokes, and disable playback controls.
-- `setScene(scene, { initialState? })` re-mounts a different figure in place: a fresh machine
+- `setScene(scene, { initialState?, liveSurfaces? })` re-mounts a different figure in place: a fresh machine
   (optionally started in `initialState`), rebuilt machine controls (never a stale handler even when
   ids and labels repeat), and a reset timeline. `setTheme` and `resize` keep time and state.
 - Stage listeners are attached once per mount; re-renders replace SVG markup only, so no duplicate
@@ -391,8 +430,8 @@ The CodeMirror editor is loaded as a separate chunk only when a source pane is o
 Preview mode also exposes a compact export menu for portable scenes. SVG and PNG capture the
 controller's current time and machine state; GIF samples the complete deterministic timeline in
 the browser. Terminal typing, asciicast playback, and file-tree reveals therefore export without a
-server. Modules that add external DOM in `setup()` or use a live image surface keep export hidden,
-because the scene alone would be an incomplete file.
+server. A live image surface exports its authored image fallback; modules that add arbitrary
+external DOM in `setup()` keep export hidden because the scene alone would be an incomplete file.
 
 ```html
 <figure data-kineglyph-lab data-view="split" data-height="440">
@@ -420,7 +459,8 @@ for (const lab of labs) lab.setTheme(nextTheme);
 ```
 
 The default loader evaluates a browser ESM blob, so bare imports such as `"kineglyph"` are owned
-by the host page's import map. A module may also `export const theme = myTheme`; the lab scopes its
+by the host page's import map. A module may also `export const theme = myTheme` or
+`export const liveSurfaces = { preview: modelViewerSurface(...) }`; the lab scopes its
 colour tokens to that preview, leaving the surrounding page alone. `load` is injectable for a
 restricted compiler or sandboxed runner.
 Auto-run is debounced by 220ms, `Cmd/Ctrl+Enter` runs immediately, and `data-height="…"` accepts a

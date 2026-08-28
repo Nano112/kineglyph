@@ -63,11 +63,13 @@ interface SurfaceRecord {
   readonly fallback: SVGImageElement | undefined;
   readonly abort: AbortController;
   handle: LiveSurfaceHandle | undefined;
+  ready: boolean;
+  pending: LiveSurfaceUpdate | undefined;
 }
 
 /** Manages live HTML renderers aligned to exportable `image({ live: true })` nodes. */
 export class LiveSurfaceManager {
-  readonly #scene: ResolvedScene;
+  #scene: ResolvedScene;
   readonly #options: MountLiveSurfacesOptions;
   readonly #records: SurfaceRecord[] = [];
   #disposed = false;
@@ -92,6 +94,8 @@ export class LiveSurfaceManager {
         fallback,
         abort: new AbortController(),
         handle: undefined,
+        ready: false,
+        pending: undefined,
       };
       this.#records.push(record);
       void this.#mount(record, node, renderer);
@@ -128,9 +132,13 @@ export class LiveSurfaceManager {
       record.handle = handle;
       await handle?.ready;
       if (record.abort.signal.aborted || this.#disposed) return;
+      record.ready = true;
       record.layer.dataset.ready = "true";
       applyMotion(record.layer, node);
       if (record.fallback !== undefined) record.fallback.style.opacity = "0";
+      const pending = record.pending;
+      record.pending = undefined;
+      if (pending !== undefined && handle?.update !== undefined) await handle.update(pending);
     } catch (error) {
       if (!record.abort.signal.aborted) this.#options.onError?.(record.nodeId, error);
       record.layer.remove();
@@ -138,17 +146,25 @@ export class LiveSurfaceManager {
   }
 
   update(frame: ResolvedFrame): void {
+    this.#scene = frame;
     for (const record of this.#records) {
       const node = frame.nodes.find((candidate) => candidate.id === record.nodeId);
       if (node === undefined) continue;
+      placeLayer(record.layer, node, frame);
       if (record.layer.dataset.ready === "true") applyMotion(record.layer, node);
-      const update = record.handle?.update?.({
+      if (record.ready && record.fallback !== undefined) record.fallback.style.opacity = "0";
+      const next = {
         frame,
         node,
         machineState: frame.machineState,
         signals: frame.signals ?? {},
         time: frame.time,
-      });
+      } satisfies LiveSurfaceUpdate;
+      if (!record.ready || record.handle === undefined) {
+        record.pending = next;
+        continue;
+      }
+      const update = record.handle.update?.(next);
       if (update !== undefined)
         void Promise.resolve(update).catch((error: unknown) => {
           if (!record.abort.signal.aborted) this.#options.onError?.(record.nodeId, error);
@@ -171,6 +187,7 @@ export class LiveSurfaceManager {
     this.#disposed = true;
     for (const record of this.#records) {
       record.abort.abort();
+      record.pending = undefined;
       record.handle?.destroy?.();
       record.layer.remove();
       if (record.fallback !== undefined) record.fallback.style.removeProperty("opacity");
@@ -244,6 +261,114 @@ export function adaptLiveSurface<Target>(
       },
     };
   };
+}
+
+export interface BoundSignalSurfaceUpdate {
+  readonly initial: boolean;
+  /** Signal names whose values changed since the last applied update. */
+  readonly changed: readonly string[];
+  readonly node: ResolvedNode;
+  readonly scene: ResolvedScene;
+  readonly machineState: MachineState | undefined;
+  readonly signals: Readonly<Record<string, VariableValue>>;
+  readonly time: number;
+}
+
+export interface BoundSignalSurfaceAdapter<Target> {
+  /** Expensive runtimes belong here: the target survives signal updates and responsive reflows. */
+  readonly mount: (context: LiveSurfaceContext) => Target | Promise<Target>;
+  /** Limit signal-triggered work to these names. Omit to observe every signal. */
+  readonly watch?: readonly string[];
+  /** Also apply timeline-only updates when no watched signal changed. Defaults to false. */
+  readonly includeTime?: boolean;
+  readonly apply: (
+    target: Target,
+    update: BoundSignalSurfaceUpdate,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
+  readonly playback?: (
+    target: Target,
+    playing: boolean,
+    signal: AbortSignal,
+  ) => void | Promise<void>;
+  readonly destroy?: (target: Target) => void;
+}
+
+interface BoundSignalTarget<Target> {
+  readonly target: Target;
+  previous: Readonly<Record<string, VariableValue>>;
+}
+
+function changedSignals(
+  previous: Readonly<Record<string, VariableValue>>,
+  next: Readonly<Record<string, VariableValue>>,
+): readonly string[] {
+  return [...new Set([...Object.keys(previous), ...Object.keys(next)])]
+    .filter((name) => !Object.is(previous[name], next[name]))
+    .sort();
+}
+
+/**
+ * Bind Kineglyph signals to an application-owned live runtime without remounting it. The initial
+ * signal snapshot is applied before the fallback hands off, later async work is coalesced by
+ * {@link adaptLiveSurface}, and `watch` keeps timeline frames from rebuilding expensive assets.
+ */
+export function bindLiveSurface<Target>(
+  adapter: BoundSignalSurfaceAdapter<Target>,
+): LiveSurfaceRenderer {
+  const watch = adapter.watch === undefined ? undefined : new Set(adapter.watch);
+  const relevant = (changed: readonly string[]): boolean =>
+    watch === undefined || changed.some((name) => watch.has(name));
+  return adaptLiveSurface<BoundSignalTarget<Target>>({
+    async mount(context) {
+      return { target: await adapter.mount(context), previous: {} };
+    },
+    async ready(holder, context) {
+      const signals = { ...context.signals };
+      holder.previous = signals;
+      await adapter.apply(
+        holder.target,
+        {
+          initial: true,
+          changed: Object.keys(signals).sort(),
+          node: context.node,
+          scene: context.scene,
+          machineState: context.machineState,
+          signals,
+          time: context.time,
+        },
+        context.signal,
+      );
+    },
+    async frame(holder, next, signal) {
+      const signals = { ...next.signals };
+      const changed = changedSignals(holder.previous, signals);
+      holder.previous = signals;
+      if (!adapter.includeTime && !relevant(changed)) return;
+      if (adapter.includeTime || relevant(changed))
+        await adapter.apply(
+          holder.target,
+          {
+            initial: false,
+            changed,
+            node: next.node,
+            scene: next.frame,
+            machineState: next.machineState,
+            signals,
+            time: next.time,
+          },
+          signal,
+        );
+    },
+    ...(adapter.playback === undefined
+      ? {}
+      : {
+          playback: (holder, playing, signal) => adapter.playback?.(holder.target, playing, signal),
+        }),
+    destroy(holder) {
+      adapter.destroy?.(holder.target);
+    },
+  });
 }
 
 export interface VideoSurfaceOptions {

@@ -20,6 +20,7 @@ import {
   motif,
   overlay,
   panel,
+  paneLayout,
   pill,
   port,
   row,
@@ -27,9 +28,11 @@ import {
   spacer,
   stack,
   terminal,
+  terminalWindow,
   text,
   tileNode,
   title,
+  windowFrame,
 } from "./recipes.js";
 import { resolveScene } from "./resolve.js";
 import { validateScene, walkScene, type GroupNode, type SceneNode } from "./scene.js";
@@ -157,7 +160,7 @@ describe("glyph style recipes", () => {
     expect(compact).toMatchObject({
       layout: "row",
       width: "hug",
-      minWidth: { wide: 132, compact: 120, narrow: 108 },
+      minWidth: { wide: 116, compact: 104, narrow: 92 },
     });
     expect(ids(compact)).toEqual(
       expect.arrayContaining(["compile-copy", "compile-detail", "compile-title"]),
@@ -232,6 +235,7 @@ describe("terminal and file tree recipes", () => {
     );
     expect(node.children.at(-1)).toMatchObject({ type: "group", layout: "stack" });
     expect(JSON.stringify(node)).toContain('"reveal":"characters"');
+    expect(JSON.stringify(node)).toContain('"terminalRole":"prompt","typing":true');
   });
 
   it("customizes terminal chrome, prompts, cursor, and line surfaces without special nodes", () => {
@@ -260,6 +264,100 @@ describe("terminal and file tree recipes", () => {
     expect(JSON.stringify(node)).toContain('"text":"▎"');
     expect(JSON.stringify(node)).toContain('"fill":"surfaceMuted"');
     expect(JSON.stringify(node)).toContain('"color":"warning"');
+  });
+
+  it("composes tab chrome from semantic labels, badges, icons, and dots", () => {
+    const node = terminal("tabbed", [{ kind: "command", text: "bun test" }], {
+      title: "tests",
+      chrome: "tab",
+      chromeStart: [{ kind: "dot", tone: "success" }],
+      chromeEnd: [
+        { kind: "label", text: "zsh" },
+        { kind: "badge", text: "main", tone: "info" },
+      ],
+    });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "tabbed-tab-icon",
+        "tabbed-chrome-start-1",
+        "tabbed-chrome-end-1",
+        "tabbed-chrome-end-2",
+      ]),
+    );
+    expect(ids(node)).not.toContain("tabbed-chrome-rule");
+    expect(JSON.stringify(node)).toContain('"terminalChrome":"tab"');
+  });
+
+  it("builds a responsive tmux-style window from independent terminal panes", () => {
+    const node = terminalWindow(
+      "workspace",
+      [
+        { title: "dev", active: true, lines: [{ kind: "command", text: "bun dev" }] },
+        { title: "tests", lines: [{ kind: "success", text: "42 passed" }] },
+      ],
+      {
+        title: "kineglyph",
+        paneOptions: { typing: "all" },
+        statusBar: { left: "0:dev*", center: "main", right: "16:42" },
+      },
+    );
+    expect(node).toMatchObject({
+      metadata: { terminalRole: "window", paneCount: 2 },
+    });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "workspace-pane-1",
+        "workspace-pane-2",
+        "workspace-panes",
+        "workspace-status-bar",
+      ]),
+    );
+    expect(JSON.stringify(node)).toContain('"typingOrder":1000001');
+    expect(JSON.stringify(node)).toContain('"reveal":"characters"');
+    expect(validateScene({ schemaVersion: 2, id: "tmux", title: "tmux", root: node }).ok).toBe(
+      true,
+    );
+  });
+
+  it("composes reusable application chrome, tabs, and responsive panes", () => {
+    const editor = codeBlock("editor", "const ready = true;", {
+      chrome: "plain",
+      lineNumbers: false,
+    });
+    const sidebar = fileTree("sidebar", [{ name: "index.ts", selected: true }], {
+      frame: { fill: "none", stroke: "none" },
+    });
+    const panes = paneLayout(
+      "workbench-panes",
+      [
+        { title: "Explorer", icon: "folder", content: sidebar, minWidth: 150 },
+        { title: "Editor", icon: "code", content: editor, active: true, grow: 2 },
+      ],
+      { layout: { wide: "row", narrow: "stack" } },
+    );
+    const node = windowFrame("workbench", panes, {
+      title: "tiny IDE",
+      tabs: [
+        { label: "index.ts", active: true, onActivate: "OPEN_INDEX" },
+        { label: "README.md", onActivate: "OPEN_README" },
+      ],
+      chromeEnd: [{ kind: "badge", text: "main", tone: "success" }],
+      statusBar: [
+        { kind: "label", text: "TypeScript" },
+        { kind: "label", text: "Ln 1" },
+      ],
+    });
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "workbench-chrome",
+        "workbench-tab-1",
+        "workbench-panes-pane-2-header",
+        "workbench-status-bar",
+      ]),
+    );
+    expect(JSON.stringify(node)).toContain('"onActivate":"OPEN_INDEX"');
+    expect(node.metadata).toMatchObject({ workspaceRole: "window", chrome: "window" });
+    expect(validateScene({ schemaVersion: 2, id: "ide", title: "IDE", root: node }).ok).toBe(true);
   });
 
   it("preserves styled spans and applies viewport, selection, status, and wrapping policies", () => {
@@ -303,6 +401,29 @@ describe("terminal and file tree recipes", () => {
     });
     expect(JSON.stringify(node)).toContain('"ansiForeground":"32"');
     expect(JSON.stringify(node)).toContain('"selected":true');
+  });
+
+  it("adds a compact semantic gutter, inline cwd, and trailing line metadata", () => {
+    const node = terminal(
+      "polished",
+      [
+        { text: "npm test", kind: "command", meta: "1.4s" },
+        { text: "42 passed", kind: "success", marker: "ok", markerTone: "warning" },
+        { text: "cached", kind: "comment", marker: false },
+      ],
+      { title: "checks", cwd: "~/kineglyph", cwdPosition: "header", lineMarkers: true },
+    );
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "polished-cwd",
+        "polished-line-1-marker",
+        "polished-line-1-meta",
+        "polished-line-2-marker",
+      ]),
+    );
+    expect(ids(node)).not.toContain("polished-line-3-marker");
+    expect(JSON.stringify(node)).toContain('"text":"ok"');
+    expect(JSON.stringify(node)).toContain('"text":"1.4s"');
   });
 
   it("rejects invalid terminal viewport policies at authoring time", () => {
@@ -384,6 +505,44 @@ describe("terminal and file tree recipes", () => {
     expect(JSON.stringify(node)).toContain('"highlighted":true');
   });
 
+  it("supports deterministic code viewports, custom tokenizers, and a typed caret", () => {
+    const node = codeBlock("viewport-code", ["one", "two", "three", "four"], {
+      language: "text",
+      visibleLines: 2,
+      scroll: "follow",
+      cursor: { line: 4, style: "bar" },
+      typing: true,
+      tokenize: (source) => [{ text: source, tone: "info" }],
+    });
+    expect(ids(node)).not.toContain("viewport-code-line-1");
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "viewport-code-line-3-token-1",
+        "viewport-code-line-4-token-1",
+        "viewport-code-line-4-cursor",
+      ]),
+    );
+    expect(node.metadata).toMatchObject({ totalLines: 4, visibleLines: 2, scrollStart: 2 });
+    expect(JSON.stringify(node)).toContain('"color":"info"');
+    expect(JSON.stringify(node)).toContain('"typingOrder":39999');
+  });
+
+  it("binds a dynamic source line without splitting its runtime text across syntax tokens", () => {
+    const node = codeBlock("dynamic-code", [
+      { text: "const selected = true;", bind: { text: "selectedLine" } },
+    ]);
+    let token: SceneNode | undefined;
+    walkScene(node, (entry) => {
+      if (entry.id === "dynamic-code-line-1-token-1") token = entry;
+    });
+    expect(ids(node)).toContain("dynamic-code-line-1-token-1");
+    expect(token).toMatchObject({
+      id: "dynamic-code-line-1-token-1",
+      bind: { text: "selectedLine" },
+    });
+    expect(JSON.stringify(node).match(/dynamic-code-line-1-token-/g)).toHaveLength(1);
+  });
+
   it("renders nested file entries with branch guides, details, and status", () => {
     const node = fileTree(
       "repo",
@@ -411,6 +570,41 @@ describe("terminal and file tree recipes", () => {
     );
     expect(JSON.stringify(node)).toContain('"icon":"folder"');
   });
+
+  it("infers compact file types and supports selected interactive rows", () => {
+    const node = fileTree(
+      "typed-tree",
+      [
+        {
+          name: "src",
+          children: [
+            {
+              name: "app.tsx",
+              selected: true,
+              status: "open",
+              statusTone: "success",
+              onActivate: "OPEN_APP",
+            },
+          ],
+        },
+        { name: "README.md" },
+      ],
+      { disclosures: true, selectionTone: "surfaceRaised" },
+    );
+    expect(ids(node)).toEqual(
+      expect.arrayContaining([
+        "typed-tree-entry-1-disclosure",
+        "typed-tree-entry-1-1-branch",
+        "typed-tree-entry-1-1-type-label",
+        "typed-tree-entry-2-type-label",
+      ]),
+    );
+    const json = JSON.stringify(node);
+    expect(json).toContain('"text":"TSX"');
+    expect(json).toContain('"text":"MD"');
+    expect(json).toContain('"onActivate":"OPEN_APP"');
+    expect(json).toContain('"selected":true');
+  });
 });
 
 describe("circuit recipes", () => {
@@ -419,32 +613,120 @@ describe("circuit recipes", () => {
     expect(xor).toMatchObject({
       type: "group",
       layout: "coordinates",
-      width: 120,
-      height: 80,
+      width: { wide: 108, compact: 96, narrow: 90 },
+      height: { wide: 72, compact: 64, narrow: 60 },
       label: "XOR logic gate",
-      metadata: { circuitRole: "gate", gateKind: "xor" },
+      metadata: { circuitRole: "gate", gateKind: "xor", gateVariant: "schematic" },
     });
-    expect(xor.children.map((child) => child.id)).toEqual(["xor-shape", "xor-xor-arc", "xor-text"]);
-    expect(xor.children[0]).toMatchObject({ type: "path", fill: "surfaceRaised", stroke: "info" });
-    expect(xor.children[1]).toMatchObject({ type: "path", fill: "none" });
+    expect(xor.children.map((child) => child.id)).toEqual(["xor-graphic", "xor-text"]);
+    const xorGraphic = xor.children[0] as GroupNode;
+    expect(xorGraphic.children.map((child) => child.id)).toEqual([
+      "xor-channel",
+      "xor-shape",
+      "xor-signal",
+      "xor-xor-arc",
+      "xor-xor-signal",
+    ]);
+    expect(xorGraphic.children[0]).toMatchObject({
+      type: "path",
+      fill: "none",
+      stroke: "canvas",
+      strokeWidth: 4.15,
+    });
+    expect(xorGraphic.children[1]).toMatchObject({
+      type: "path",
+      fill: "surface",
+      stroke: "connector",
+    });
+    expect(xorGraphic.children[2]).toMatchObject({
+      type: "path",
+      fill: "none",
+      stroke: "info",
+    });
+    expect(xorGraphic.children[3]).toMatchObject({ type: "path", fill: "none" });
+    expect(xor.ports).toEqual([
+      { id: "in-0", side: "left", offset: 27 / 80, gap: -12 },
+      { id: "in-1", side: "left", offset: 53 / 80, gap: -12 },
+      { id: "out", side: "right", offset: 0.5 },
+    ]);
 
     const nand = gate("nand", "nand", { showText: false });
-    expect(nand.children.map((child) => child.id)).toEqual(["nand-shape", "nand-bubble"]);
-    expect(nand.children[1]).toMatchObject({ type: "circle", radius: 7 });
+    expect(nand.children.map((child) => child.id)).toEqual(["nand-graphic"]);
+    expect((nand.children[0] as GroupNode).children.map((child) => child.id)).toEqual([
+      "nand-channel",
+      "nand-shape",
+      "nand-signal",
+      "nand-bubble",
+      "nand-bubble-signal",
+    ]);
+    expect((nand.children[0] as GroupNode).children[3]).toMatchObject({
+      type: "circle",
+      radius: 7,
+    });
 
     const live = gate("live", "xor", { bind: { highlight: "signal" } });
-    expect(live.children[0]).toMatchObject({ bind: { highlight: "signal" } });
-    expect(live.children[1]).toMatchObject({ bind: { highlight: "signal" } });
+    expect((live.children[0] as GroupNode).children[2]).toMatchObject({
+      bind: { opacity: "signal" },
+    });
+    expect((live.children[0] as GroupNode).children[4]).toMatchObject({
+      bind: { opacity: "signal" },
+    });
+    expect(live).not.toHaveProperty("bind");
+
+    const solid = gate("solid", "xor", { variant: "solid", tone: "info" });
+    expect((solid.children[0] as GroupNode).children.map((child) => child.id)).toEqual([
+      "solid-shape",
+      "solid-xor-arc",
+    ]);
+    expect((solid.children[0] as GroupNode).children[0]).toMatchObject({
+      fill: "surfaceRaised",
+      stroke: "info",
+      strokeWidth: 1.8,
+    });
+  });
+
+  it("rotates gate graphics and swaps their real connection bounds without rotating labels", () => {
+    const down = gate("down", "and", { text: "AND", orientation: "down" });
+    expect(down).toMatchObject({
+      width: { wide: 72, compact: 64, narrow: 60 },
+      height: { wide: 108, compact: 96, narrow: 90 },
+      metadata: { gateOrientation: "down", gateAutoOrient: false },
+    });
+    expect(down.children[0]).toMatchObject({
+      id: "down-graphic",
+      width: { wide: 108, compact: 96, narrow: 90 },
+      height: { wide: 72, compact: 64, narrow: 60 },
+      position: { x: 0.5, y: 0.5, anchor: "center" },
+      rotation: 90,
+    });
+    expect(down.children[1]).toMatchObject({ id: "down-text", type: "text" });
+    expect(down.children[1]).not.toHaveProperty("rotation");
+    expect(down.ports).toEqual([
+      { id: "in-0", side: "top", offset: 53 / 80, gap: -12 },
+      { id: "in-1", side: "top", offset: 27 / 80, gap: -12 },
+      { id: "out", side: "bottom", offset: 0.5 },
+    ]);
   });
 
   it("creates a compact, semantic fan-out junction", () => {
     expect(junction("branch", { tone: "success", size: 12 })).toMatchObject({
       id: "branch",
-      type: "circle",
+      type: "group",
       width: 12,
       height: 12,
-      fill: "success",
       metadata: { circuitRole: "junction" },
+      children: [
+        { id: "branch-base", type: "circle", fill: "connector" },
+        { id: "branch-signal", type: "circle", fill: "success" },
+      ],
+    });
+    expect(
+      junction("live-branch", {
+        tone: "info",
+        bind: { highlight: "branchOn" },
+      }),
+    ).toMatchObject({
+      children: [{ id: "live-branch-base" }, { bind: { opacity: "branchOn" } }],
     });
   });
 });

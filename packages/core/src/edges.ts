@@ -14,9 +14,11 @@ import type { ResolvedEdge, ResolvedEdgeLabel } from "./resolved.js";
 import type { Point, Rect } from "./schema.js";
 import type {
   EdgeDefinition,
+  EdgeAvoidance,
   EdgeEndpoint,
   EdgeRoute,
   EdgeSide,
+  EdgeSpline,
   LabelPlacement,
   LayoutName,
   MarkerKind,
@@ -30,11 +32,22 @@ import { paintColor, type ThemeTokens } from "./theme.js";
 export interface EdgeNodeBox extends Rect {
   readonly id: string;
   readonly kind: "rect" | "circle" | "ellipse" | "group" | "other";
+  readonly ports?: Readonly<
+    Record<
+      string,
+      {
+        readonly side: Exclude<EdgeSide, "auto">;
+        readonly offset: number;
+        readonly gap?: number;
+      }
+    >
+  >;
 }
 
 export interface EdgePortAssignment {
   readonly side: Exclude<EdgeSide, "auto">;
   readonly offset: number;
+  readonly gap?: number;
   /**
    * True when this port sits where something asked it to: an authored `offset`, or a place in the
    * fan of several edges sharing one side. A pinned port never moves to meet its partner — see
@@ -49,6 +62,8 @@ export interface EdgeResolveContext {
   readonly boxes: ReadonlyMap<string, EdgeNodeBox>;
   /** Obstacle rectangles used to nudge labels away from nodes. */
   readonly obstacles: readonly Rect[];
+  /** Previously resolved connector centre-lines, used as soft routing obstacles. */
+  readonly routedEdges?: readonly (readonly Point[])[];
   /** Scene bounds that labels must stay inside. */
   readonly bounds?: Rect;
   readonly labelFont: TextFont;
@@ -62,6 +77,7 @@ export interface EdgeResolveContext {
     readonly label?: string;
     readonly labelHidden?: ReadonlySet<string>;
     readonly labelText?: ReadonlyMap<string, string>;
+    readonly signal?: number;
   };
 }
 
@@ -74,6 +90,8 @@ export interface ResolvedEdgeGeometry {
   readonly collidingLabels: readonly string[];
   /** True when no obstacle-free route could be found and the authored fallback crosses a node. */
   readonly collidingObstacles: boolean;
+  /** Unsmooothed centre-line reserved for subsequent edge routing. */
+  readonly routePoints?: readonly Point[];
 }
 
 type Side = Exclude<EdgeSide, "auto">;
@@ -125,8 +143,10 @@ export function assignPorts(
     if (fromBox === undefined || toBox === undefined) continue;
     const route = pickOr(edge.route, layout, "straight");
     const auto = chooseSides(fromBox, toBox, route);
-    const fromSide = pickOr<EdgeSide>(from.side, layout, "auto");
-    const toSide = pickOr<EdgeSide>(to.side, layout, "auto");
+    const fromNamed = from.port === undefined ? undefined : fromBox.ports?.[from.port];
+    const toNamed = to.port === undefined ? undefined : toBox.ports?.[to.port];
+    const fromSide = pick(from.side, layout) ?? fromNamed?.side ?? "auto";
+    const toSide = pick(to.side, layout) ?? toNamed?.side ?? "auto";
     const chosen = {
       from: fromSide === "auto" ? auto.from : fromSide,
       to: toSide === "auto" ? auto.to : toSide,
@@ -137,7 +157,7 @@ export function assignPorts(
       end: "from",
       node: from.node,
       side: chosen.from,
-      explicitOffset: pick(from.offset, layout),
+      explicitOffset: pick(from.offset, layout) ?? fromNamed?.offset,
       otherCenter: rectCenter(toBox),
     });
     pending.push({
@@ -145,7 +165,7 @@ export function assignPorts(
       end: "to",
       node: to.node,
       side: chosen.to,
-      explicitOffset: pick(to.offset, layout),
+      explicitOffset: pick(to.offset, layout) ?? toNamed?.offset,
       otherCenter: rectCenter(fromBox),
     });
   }
@@ -181,18 +201,29 @@ export function assignPorts(
     if (chosen === undefined) continue;
     const from = normalisedEndpoint(edge.from);
     const to = normalisedEndpoint(edge.to);
-    const fromOffset = pick(from.offset, layout);
-    const toOffset = pick(to.offset, layout);
+    const fromNamed =
+      from.port === undefined ? undefined : boxes.get(from.node)?.ports?.[from.port];
+    const toNamed = to.port === undefined ? undefined : boxes.get(to.node)?.ports?.[to.port];
+    const fromOffset = pick(from.offset, layout) ?? fromNamed?.offset;
+    const toOffset = pick(to.offset, layout) ?? toNamed?.offset;
+    const fromGap = from.gap ?? fromNamed?.gap;
+    const toGap = to.gap ?? toNamed?.gap;
     result.set(edge.id, {
       from: {
         side: chosen.from,
         offset: fromOffset ?? offsets.get(`${edge.id}::from`) ?? 0.5,
-        pinned: fromOffset !== undefined || distributed.has(`${edge.id}::from`),
+        ...(fromGap === undefined ? {} : { gap: fromGap }),
+        pinned:
+          from.port !== undefined ||
+          fromOffset !== undefined ||
+          distributed.has(`${edge.id}::from`),
       },
       to: {
         side: chosen.to,
         offset: toOffset ?? offsets.get(`${edge.id}::to`) ?? 0.5,
-        pinned: toOffset !== undefined || distributed.has(`${edge.id}::to`),
+        ...(toGap === undefined ? {} : { gap: toGap }),
+        pinned:
+          to.port !== undefined || toOffset !== undefined || distributed.has(`${edge.id}::to`),
       },
     });
   }
@@ -393,6 +424,9 @@ export function routeOrthogonalAvoidingObstacles(
   obstacles: readonly Rect[],
   bounds?: Rect,
   clearance = ROUTE_CLEARANCE,
+  routedEdges: readonly (readonly Point[])[] = [],
+  laneGap = 10,
+  crossingCost = 18,
 ): readonly Point[] | undefined {
   const stub = 14;
   const na = sideNormal(aSide);
@@ -407,12 +441,18 @@ export function routeOrthogonalAvoidingObstacles(
     start.x,
     finish.x,
     ...inflated.flatMap((rect) => [rect.x, rect.x + rect.width]),
+    ...routedEdges.flatMap((route) =>
+      route.flatMap((point) => [point.x - laneGap, point.x + laneGap]),
+    ),
     ...(bounds === undefined ? [] : [bounds.x + clearance, bounds.x + bounds.width - clearance]),
   ]);
   const ys = uniqueSorted([
     start.y,
     finish.y,
     ...inflated.flatMap((rect) => [rect.y, rect.y + rect.height]),
+    ...routedEdges.flatMap((route) =>
+      route.flatMap((point) => [point.y - laneGap, point.y + laneGap]),
+    ),
     ...(bounds === undefined ? [] : [bounds.y + clearance, bounds.y + bounds.height - clearance]),
   ]);
   const points: Point[] = [];
@@ -427,11 +467,14 @@ export function routeOrthogonalAvoidingObstacles(
   const finishIndex = pointIndex(points, finish);
   if (startIndex < 0 || finishIndex < 0) return undefined;
 
-  const neighbours: { to: number; direction: "h" | "v"; distance: number }[][] = points.map(
-    () => [],
-  );
-  connectVisible(points, neighbours, inflated, "h");
-  connectVisible(points, neighbours, inflated, "v");
+  const neighbours: {
+    to: number;
+    direction: "h" | "v";
+    distance: number;
+    penalty: number;
+  }[][] = points.map(() => []);
+  connectVisible(points, neighbours, inflated, "h", routedEdges, laneGap, crossingCost);
+  connectVisible(points, neighbours, inflated, "v", routedEdges, laneGap, crossingCost);
 
   type Direction = "h" | "v" | "start";
   interface State {
@@ -464,7 +507,7 @@ export function routeOrthogonalAvoidingObstacles(
     for (const edge of neighbours[current.node] ?? []) {
       const bend =
         current.direction === "start" || current.direction === edge.direction ? 0 : ROUTE_BEND_COST;
-      const cost = current.cost + edge.distance + bend;
+      const cost = current.cost + edge.distance + edge.penalty + bend;
       const key = stateKey(edge.to, edge.direction);
       const known = distances.get(key);
       if (known !== undefined && known <= cost + 1e-9) continue;
@@ -532,9 +575,12 @@ function stateKey(node: number, direction: "h" | "v" | "start"): string {
 
 function connectVisible(
   points: readonly Point[],
-  neighbours: { to: number; direction: "h" | "v"; distance: number }[][],
+  neighbours: { to: number; direction: "h" | "v"; distance: number; penalty: number }[][],
   obstacles: readonly Rect[],
   direction: "h" | "v",
+  routedEdges: readonly (readonly Point[])[],
+  laneGap: number,
+  crossingCost: number,
 ): void {
   const groups = new Map<number, number[]>();
   points.forEach((point, index) => {
@@ -558,10 +604,64 @@ function connectVisible(
       const to = points[toIndex];
       if (from === undefined || to === undefined || segmentBlocked(from, to, obstacles)) continue;
       const distance = Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
-      neighbours[fromIndex]?.push({ to: toIndex, direction, distance });
-      neighbours[toIndex]?.push({ to: fromIndex, direction, distance });
+      const penalty = routeInteractionPenalty(from, to, routedEdges, laneGap, crossingCost);
+      neighbours[fromIndex]?.push({ to: toIndex, direction, distance, penalty });
+      neighbours[toIndex]?.push({ to: fromIndex, direction, distance, penalty });
     }
   }
+}
+
+function between(value: number, a: number, b: number, epsilon = 1e-6): boolean {
+  return value >= Math.min(a, b) - epsilon && value <= Math.max(a, b) + epsilon;
+}
+
+/** Soft cost for crossings, shared tracks, and visually merged parallel tracks. */
+function routeInteractionPenalty(
+  a: Point,
+  b: Point,
+  routedEdges: readonly (readonly Point[])[],
+  laneGap: number,
+  crossingCost: number,
+): number {
+  const horizontal = Math.abs(a.y - b.y) <= 1e-6;
+  let cost = 0;
+  for (const route of routedEdges)
+    for (let index = 1; index < route.length; index += 1) {
+      const c = route[index - 1];
+      const d = route[index];
+      if (c === undefined || d === undefined) continue;
+      const otherHorizontal = Math.abs(c.y - d.y) <= 1e-6;
+      if (horizontal !== otherHorizontal) {
+        const x = horizontal ? c.x : a.x;
+        const y = horizontal ? a.y : c.y;
+        if (
+          between(x, a.x, b.x) &&
+          between(y, a.y, b.y) &&
+          between(x, c.x, d.x) &&
+          between(y, c.y, d.y)
+        )
+          cost += crossingCost;
+        continue;
+      }
+      if (horizontal) {
+        const overlap =
+          Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) -
+          Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
+        if (overlap <= 0) continue;
+        const separation = Math.abs(a.y - c.y);
+        if (separation <= 1e-6) cost += Math.max(144, crossingCost * 3) + overlap * 0.25;
+        else if (separation < laneGap) cost += crossingCost * 0.25;
+      } else {
+        const overlap =
+          Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) -
+          Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
+        if (overlap <= 0) continue;
+        const separation = Math.abs(a.x - c.x);
+        if (separation <= 1e-6) cost += Math.max(144, crossingCost * 3) + overlap * 0.25;
+        else if (separation < laneGap) cost += crossingCost * 0.25;
+      }
+    }
+  return cost;
 }
 
 function segmentBlocked(a: Point, b: Point, obstacles: readonly Rect[]): boolean {
@@ -653,6 +753,57 @@ function curveSegments(
   ];
 }
 
+/** Smooths an obstacle-safe orthogonal centre-line without moving it outside its routing lanes. */
+function splineSegments(points: readonly Point[], radius: number, mode: EdgeSpline): PathSegment[] {
+  if (mode === "rounded") return polylineToSegments(points, radius);
+  if (points.length < 3) return polylineToSegments(points, 0);
+  const segments: PathSegment[] = [];
+  let cursor = points[0];
+  if (cursor === undefined) return segments;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const before = points[index - 1];
+    const corner = points[index];
+    const after = points[index + 1];
+    if (before === undefined || corner === undefined || after === undefined) continue;
+    const incoming = Math.hypot(corner.x - before.x, corner.y - before.y);
+    const outgoing = Math.hypot(after.x - corner.x, after.y - corner.y);
+    const run = Math.min(Math.max(0, radius), incoming / 2, outgoing / 2);
+    if (run <= 0.5) {
+      segments.push({ kind: "line", from: cursor, to: corner });
+      cursor = corner;
+      continue;
+    }
+    const entry = {
+      x: corner.x - ((corner.x - before.x) / incoming) * run,
+      y: corner.y - ((corner.y - before.y) / incoming) * run,
+    };
+    const exit = {
+      x: corner.x + ((after.x - corner.x) / outgoing) * run,
+      y: corner.y + ((after.y - corner.y) / outgoing) * run,
+    };
+    if (Math.hypot(entry.x - cursor.x, entry.y - cursor.y) > 1e-6)
+      segments.push({ kind: "line", from: cursor, to: entry });
+    const handle = run * 0.58;
+    segments.push({
+      kind: "cubic",
+      from: entry,
+      control1: {
+        x: entry.x + ((corner.x - before.x) / incoming) * handle,
+        y: entry.y + ((corner.y - before.y) / incoming) * handle,
+      },
+      control2: {
+        x: exit.x - ((after.x - corner.x) / outgoing) * handle,
+        y: exit.y - ((after.y - corner.y) / outgoing) * handle,
+      },
+      to: exit,
+    });
+    cursor = exit;
+  }
+  const end = points.at(-1);
+  if (end !== undefined) segments.push({ kind: "line", from: cursor, to: end });
+  return segments;
+}
+
 function arcSegments(a: Point, b: Point, bend: number): PathSegment[] {
   const chord = Math.hypot(b.x - a.x, b.y - a.y);
   const sagitta = Math.min(Math.abs(bend), chord / 2);
@@ -724,10 +875,16 @@ export function resolveEdge(
     fromBox,
     ports.from.side,
     ports.from.offset,
-    fromEnd.gap ?? 0,
+    fromEnd.gap ?? ports.from.gap ?? 0,
     rectCenter(toBox),
   );
-  let end = portPoint(toBox, ports.to.side, ports.to.offset, toEnd.gap ?? 0, rectCenter(fromBox));
+  let end = portPoint(
+    toBox,
+    ports.to.side,
+    ports.to.offset,
+    toEnd.gap ?? ports.to.gap ?? 0,
+    rectCenter(fromBox),
+  );
   // Endpoint boxes and framed ancestors contain a port by definition; every other surface is an
   // obstacle the connector should travel around.
   const contains = (rect: Rect, point: Point): boolean =>
@@ -739,20 +896,36 @@ export function resolveEdge(
     context.obstacles.filter((obstacle) => !contains(obstacle, from) && !contains(obstacle, to));
   let obstacles = obstaclesFor(start, end);
   const curvature = edge.curvature ?? 0.5;
+  const avoidance: EdgeAvoidance = pickOr(
+    edge.avoid,
+    context.layout,
+    route === "orthogonal" || route === "spline" ? "nodes" : "none",
+  );
+  const clearance = Math.max(0, edge.clearance ?? ROUTE_CLEARANCE);
+  const routedEdges = avoidance === "nodes-and-edges" ? (context.routedEdges ?? []) : [];
+  const laneGap = Math.max(2, edge.laneGap ?? 10);
+  const crossingCost = Math.max(0, edge.crossingCost ?? 18);
   let segments: PathSegment[];
+  let routePoints: readonly Point[] | undefined;
   let collidingObstacles = false;
   switch (route) {
     case "straight":
       segments = [{ kind: "line", from: start, to: end }];
       break;
-    case "orthogonal": {
+    case "orthogonal":
+    case "spline": {
+      const routingObstacles = avoidance === "none" ? [] : obstacles;
       let routed = routeOrthogonalAvoidingObstacles(
         start,
         ports.from.side,
         end,
         ports.to.side,
-        obstacles,
+        routingObstacles,
         context.bounds,
+        clearance,
+        routedEdges,
+        laneGap,
+        crossingCost,
       );
       const fromAuthored = pickOr<EdgeSide>(fromEnd.side, context.layout, "auto") !== "auto";
       const toAuthored = pickOr<EdgeSide>(toEnd.side, context.layout, "auto") !== "auto";
@@ -786,24 +959,29 @@ export function resolveEdge(
               fromBox,
               fromSide,
               candidatePorts.from.offset,
-              fromEnd.gap ?? 0,
+              fromEnd.gap ?? candidatePorts.from.gap ?? 0,
               rectCenter(toBox),
             );
             const candidateEnd = portPoint(
               toBox,
               toSide,
               candidatePorts.to.offset,
-              toEnd.gap ?? 0,
+              toEnd.gap ?? candidatePorts.to.gap ?? 0,
               rectCenter(fromBox),
             );
             const candidateObstacles = obstaclesFor(candidateStart, candidateEnd);
+            const candidateRoutingObstacles = avoidance === "none" ? [] : candidateObstacles;
             const points = routeOrthogonalAvoidingObstacles(
               candidateStart,
               fromSide,
               candidateEnd,
               toSide,
-              candidateObstacles,
+              candidateRoutingObstacles,
               context.bounds,
+              clearance,
+              routedEdges,
+              laneGap,
+              crossingCost,
             );
             if (points === undefined) continue;
             const distance = points.slice(1).reduce((total, point, index) => {
@@ -837,10 +1015,14 @@ export function resolveEdge(
       }
       const fallback = orthogonalPoints(start, ports.from.side, end, ports.to.side);
       const points = routed ?? fallback;
+      routePoints = points;
       collidingObstacles = points.some(
         (point, index) => index > 0 && segmentBlocked(points[index - 1] ?? point, point, obstacles),
       );
-      segments = polylineToSegments(points, edge.cornerRadius ?? 8);
+      segments =
+        route === "spline"
+          ? splineSegments(points, edge.cornerRadius ?? 18, edge.spline ?? "fluid")
+          : polylineToSegments(points, edge.cornerRadius ?? 8);
       break;
     }
     case "curve":
@@ -855,7 +1037,22 @@ export function resolveEdge(
   }
   const geometry = new PathGeometry(segments);
   const theme = context.theme;
-  const tone = context.overrides?.tone ?? edge.tone ?? "neutral";
+  const signalStyle = edge.signal;
+  const hasSignal = signalStyle !== undefined || context.overrides?.signal !== undefined;
+  const signal = hasSignal
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          context.overrides?.signal ?? (pickOr(signalStyle?.value, context.layout, false) ? 1 : 0),
+        ),
+      )
+    : undefined;
+  const active = (signal ?? 0) > 0.5;
+  const signalTone = active
+    ? (signalStyle?.onTone ?? edge.tone ?? "accent")
+    : (signalStyle?.offTone ?? "connector");
+  const tone = context.overrides?.tone ?? (hasSignal ? signalTone : edge.tone) ?? "neutral";
   const stroke = paintColor(
     tone as EdgeDefinition["tone"],
     theme,
@@ -863,7 +1060,10 @@ export function resolveEdge(
     theme.colors.connector,
   );
   const strokeColor = tone === "neutral" ? theme.colors.connector : stroke;
-  const width = edge.width ?? theme.strokes.regular;
+  const width =
+    (active ? signalStyle?.onWidth : signalStyle?.offWidth) ?? edge.width ?? theme.strokes.regular;
+  const signalOpacity =
+    (active ? signalStyle?.onOpacity : signalStyle?.offOpacity) ?? edge.opacity ?? 1;
   const head: MarkerKind = edge.head ?? "arrow";
   const tail: MarkerKind = edge.tail ?? "none";
   const dash: StrokeStyle = edge.stroke ?? "solid";
@@ -970,7 +1170,11 @@ export function resolveEdge(
             Math.floor(geometry.length / packetSpacing) || 1,
           ),
         );
-  const packetPeriod = packets?.period ?? 2400;
+  // A speed is stable across differently sized routes. A fixed period is still available for
+  // deliberately synchronised loops and takes precedence for backwards compatibility.
+  const packetPeriod =
+    packets?.period ??
+    (packets?.speed === undefined ? 2400 : Math.max(1, (geometry.length / packets.speed) * 1000));
   // A packet is the line's own ink in motion, so an untoned packet takes the line's colour. It
   // used to resolve "neutral" through the tone table, which answers `border` — leaving flow edges
   // carrying beads two steps paler than the line they ride on.
@@ -979,6 +1183,7 @@ export function resolveEdge(
   const legacyLabel = definedLabels[0]?.text;
   const resolved: ResolvedEdge = {
     id: edge.id,
+    ...(edge.interactionGroup === undefined ? {} : { interactionGroup: edge.interactionGroup }),
     from: fromEnd.node,
     to: toEnd.node,
     start: roundPoint(start, context.precision),
@@ -989,9 +1194,31 @@ export function resolveEdge(
     appearance: {
       stroke: strokeColor,
       strokeWidth: width,
-      ...(edge.opacity === undefined ? {} : { opacity: edge.opacity }),
+      ...(signalOpacity === 1 ? {} : { opacity: signalOpacity }),
     },
-    state: { opacity: 1, progress: 1, highlight: 0, flow: packets === undefined ? 0 : 1 },
+    ...(edge.casing === undefined
+      ? {}
+      : {
+          casing: {
+            stroke: paintColor(edge.casing.tone, theme, "stroke", theme.colors.canvas),
+            strokeWidth: edge.casing.width,
+            ...(edge.casing.opacity === undefined || edge.casing.opacity === 1
+              ? {}
+              : { opacity: edge.casing.opacity }),
+          },
+        }),
+    state: {
+      opacity: signalOpacity,
+      progress: 1,
+      highlight: 0,
+      flow:
+        packets === undefined
+          ? 0
+          : hasSignal && signalStyle?.packetsOnlyWhenOn !== false
+            ? (signal ?? 0)
+            : 1,
+      ...(signal === undefined ? {} : { signal }),
+    },
     route,
     head,
     tail,
@@ -1017,6 +1244,7 @@ export function resolveEdge(
     packetPeriod,
     collidingLabels,
     collidingObstacles,
+    ...(routePoints === undefined ? {} : { routePoints }),
   };
 }
 
