@@ -31,6 +31,11 @@ export interface LeaderOverlayOptions {
    * Default 0.35.
    */
   readonly lift?: number;
+  /**
+   * How much heavier the in-view half is than the sheet's hairline — a line drawn among the
+   * blocks reads better with some weight. Default 1.75.
+   */
+  readonly weight?: number;
 }
 
 interface LeaderObjects {
@@ -145,7 +150,10 @@ export class LeaderOverlay {
     const threshold = this.#options.threshold ?? 0.5;
     const pxPerUnit = viewport.width / rect.width;
     const linePx = Math.max(1, (this.#options.width ?? 0.8) * pxPerUnit);
-    const dotPx = Math.max(1, (this.#options.dot ?? 3.6) * pxPerUnit);
+    const dotPx = Math.max(
+      1,
+      (this.#options.dot ?? 3.6) * pxPerUnit * (this.#options.weight ?? 1.75),
+    );
     const lift = this.#options.lift ?? 0.35;
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
@@ -192,7 +200,7 @@ export class LeaderOverlay {
       const sheet = this.#sheetStyle(note.anchor);
       // A hairline thinner than a pixel is drawn one pixel wide at proportionally less opacity,
       // which is how the browser rasterises the sheet's half.
-      const width = sheet?.widthPx ?? linePx;
+      const width = (sheet?.widthPx ?? linePx) * (this.#options.weight ?? 1.75);
       const opacity = (sheet?.opacity ?? this.#options.opacity ?? 0.75) * Math.min(1, width);
       objects.material.linewidth = Math.max(1, width);
       objects.material.opacity = opacity;
