@@ -20,9 +20,9 @@ The look is a theme plus two tools:
   indexed frame, header, and a title-block cartouche that lies on the drawing as a raised second
   sheet with a drop shadow; `drafting.plate` gives any data table the same treatment. `drafting.layer`
   and `drafting.at` put paths and text into that space at any container width.
-- `sketch()` — a material effect that displaces strokes with seeded fractal noise, so a plotted
-  line reads as a hand that never quite followed the ruler. It is portable: SVG, PNG, and GIF export
-  carry it.
+- `sketch()` — an optional material effect that displaces strokes with seeded fractal noise for a
+  hand-drafted feel. The sheets below leave it off: the displacement rasterises as jagged edges in
+  PNG export, and the blueprint reads better with clean ink.
 
 Formulas are typeset: `loadMath()` (from `@kineglyph/web`) imports the TeX renderer on demand and
 `drafting.math(f, math.tex("…"), x, y)` places the result as an ordinary path mark — font-free
@@ -127,18 +127,17 @@ export default figure("drafting-hohmann", {
 }, (f) => {
   const s = model(defaults);
   const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
-  const ink = { sketch: { seed: 11 } };
   const spokes = L("spokes", { stroke: "textMuted", strokeWidth: 0.7, opacity: 0.16 });
   const cross = D.layer(f, D.crosshair(CX, CY), { id: "centre", strokeWidth: 0.8, opacity: 0.45 });
-  const target = D.layer(f, D.circle(CX, CY, R2PX), { id: "target", strokeWidth: 1.3, opacity: 0.44, dash: "dashed", ...ink });
-  const parking = L("parking", { strokeWidth: 1.3, opacity: 0.52, dash: "dashed", ...ink });
+  const target = D.layer(f, D.circle(CX, CY, R2PX), { id: "target", strokeWidth: 1.3, opacity: 0.44, dash: "dashed" });
+  const parking = L("parking", { strokeWidth: 1.3, opacity: 0.52, dash: "dashed" });
   const earthFill = L("earth", { fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.1 });
-  const earth = L("earth", { id: "earth-ring", strokeWidth: 1.5, opacity: 0.72, ...ink });
+  const earth = L("earth", { id: "earth-ring", strokeWidth: 1.5, opacity: 0.72 });
   const atmosphere = L("atmosphere", { strokeWidth: 0.7, opacity: 0.22, dash: "dotted" });
   const axis = L("axis", { stroke: "textMuted", strokeWidth: 0.7, opacity: 0.34, dash: "dashed" });
   const vacant = L("vacant", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.45 });
   const ghost = L("ghost", { stroke: "accent", strokeWidth: 1, opacity: 0.22, dash: "dashed" });
-  const coast = L("coast", { stroke: "accent", strokeWidth: 2.1, opacity: 0.92, ...ink });
+  const coast = L("coast", { stroke: "accent", strokeWidth: 2.1, opacity: 0.92 });
   const burnRings = L("burnRings", { stroke: "accent", strokeWidth: 1, opacity: 0.5 });
   const burnDots = L("burnDots", { fill: "accent", stroke: "none", strokeWidth: 0, opacity: 0.95 });
   const burnVectors = L("burnVectors", { fill: "accent", stroke: "accent", strokeWidth: 1.7, opacity: 0.9 });
@@ -306,14 +305,13 @@ export default figure("drafting-elements", {
 }, (f) => {
   const s = model(defaults);
   const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
-  const ink = { sketch: { seed: 23 } };
   const sectors = L("sectors", { fill: "info", stroke: "info", strokeWidth: 0.8, opacity: 0.16 });
   const aux = D.layer(f, D.circle(CX, CY, A), { id: "aux-circle", stroke: "textMuted", strokeWidth: 0.8, opacity: 0.26, dash: "dashed" });
-  const ellipse = L("ellipse", { strokeWidth: 2, opacity: 0.88, ...ink });
+  const ellipse = L("ellipse", { strokeWidth: 2, opacity: 0.88 });
   const axes = L("axes", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.36, dash: "dashed" });
   const foci = L("foci", { strokeWidth: 1, opacity: 0.55 });
   const bodyFill = L("body", { fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.13 });
-  const body = L("body", { id: "body-ring", strokeWidth: 1.4, opacity: 0.72, ...ink });
+  const body = L("body", { id: "body-ring", strokeWidth: 1.4, opacity: 0.72 });
   const construction = L("construction", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.48, dash: "dashed" });
   const auxDot = L("auxDot", { stroke: "textMuted", strokeWidth: 1, opacity: 0.75 });
   const radius = L("radius", { fill: "success", stroke: "success", strokeWidth: 1.4, opacity: 0.85 });
@@ -453,18 +451,17 @@ export default figure("drafting-ground-track", {
 }, (f) => {
   const s = model(defaults);
   const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
-  const ink = { sketch: { seed: 41, strength: 3.4, frequency: 0.008 } };
   const fine = [], bold = [];
   for (let lon = -165; lon < 180; lon += 15) fine.push(D.line(xy(lon, 0).x, MY, xy(lon, 0).x, MY + MH));
   for (let lat = -75; lat < 90; lat += 15) fine.push(D.line(MX, xy(0, lat).y, MX + MW, xy(0, lat).y));
   for (const lon of [-120, -60, 0, 60, 120]) bold.push(D.line(xy(lon, 0).x, MY, xy(lon, 0).x, MY + MH));
   for (const lat of [-60, -30, 30, 60]) bold.push(D.line(MX, xy(0, lat).y, MX + MW, xy(0, lat).y));
-  const [mapPaper, map] = D.plate(f, MX, MY, MW, MH, { id: "map", seed: 41, strokeOpacity: 0.42, sketch: ink.sketch });
+  const [mapPaper, map] = D.plate(f, MX, MY, MW, MH, { id: "map", seed: 41, strokeOpacity: 0.42 });
   const graticule = D.layer(f, fine.join(" "), { id: "graticule", strokeWidth: 0.6, opacity: 0.16 });
   const meridians = D.layer(f, bold.join(" "), { id: "meridians", strokeWidth: 0.8, opacity: 0.34 });
   const equator = D.layer(f, D.line(MX, xy(0, 0).y, MX + MW, xy(0, 0).y), { id: "equator", strokeWidth: 1.3, opacity: 0.62 });
   const envelope = L("envelope", { stroke: "accent", strokeWidth: 0.9, opacity: 0.3, dash: "dashed" });
-  const track = L("track", { stroke: "success", strokeWidth: 1.7, opacity: 0.92, ...ink });
+  const track = L("track", { stroke: "success", strokeWidth: 1.7, opacity: 0.92 });
   const nodes = L("nodes", { stroke: "accent", strokeWidth: 1.2, opacity: 0.9 });
   const st = xy(STATION.lon, STATION.lat);
   const footprint = D.layer(f, D.circle(st.x, st.y, (21 / 180) * MH), { id: "footprint", fill: "accent", stroke: "accent", strokeWidth: 1, opacity: 0.12, dash: "dashed" });
@@ -605,16 +602,15 @@ export default figure("drafting-libration", {
 }, (f) => {
   const s = model(defaults);
   const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
-  const ink = { sketch: { seed: 59 } };
-  const orbit = L("orbit", { strokeWidth: 1, opacity: 0.3, dash: "dashed", ...ink });
+  const orbit = L("orbit", { strokeWidth: 1, opacity: 0.3, dash: "dashed" });
   const triangles = L("triangles", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.34, dash: "dashed" });
   const axis = L("axis", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.38, dash: "dashed" });
   const primaryFill = L("primary", { fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.13 });
-  const primary = L("primary", { id: "primary-ring", strokeWidth: 1.7, opacity: 0.78, ...ink });
+  const primary = L("primary", { id: "primary-ring", strokeWidth: 1.7, opacity: 0.78 });
   const secondaryFill = L("secondary", { fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.15 });
-  const secondary = L("secondary", { id: "secondary-ring", strokeWidth: 1.4, opacity: 0.78, ...ink });
+  const secondary = L("secondary", { id: "secondary-ring", strokeWidth: 1.4, opacity: 0.78 });
   const barycentre = L("barycentre", { strokeWidth: 0.9, opacity: 0.5 });
-  const halo = L("halo", { stroke: "info", strokeWidth: 1.5, opacity: 0.85, ...ink });
+  const halo = L("halo", { stroke: "info", strokeWidth: 1.5, opacity: 0.85 });
   const lissajous = L("lissajous", { stroke: "info", strokeWidth: 1, opacity: 0.4, dash: "dashed" });
   const collinearDots = L("collinearDots", { fill: "accent", stroke: "none", strokeWidth: 0, opacity: 0.95 });
   const collinearRings = L("collinearRings", { stroke: "accent", strokeWidth: 1, opacity: 0.5, dash: "dashed" });
@@ -774,16 +770,15 @@ export default figure("drafting-ascent", {
 }, (f) => {
   const s = model(defaults);
   const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
-  const ink = { sketch: { seed: 77, strength: 3.6, frequency: 0.008 } };
   const body = D.layer(f, D.polyline([...arcAt(0), { x: 2670, y: 1682 }, { x: 210, y: 1682 }], true), { id: "body", fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.05 });
-  const surface = D.layer(f, D.polyline(arcAt(0)), { id: "surface", strokeWidth: 1.7, opacity: 0.8, ...ink });
+  const surface = D.layer(f, D.polyline(arcAt(0)), { id: "surface", strokeWidth: 1.7, opacity: 0.8 });
   const layers = [[12, 0.26], [50, 0.22], [85, 0.2], [100, 0.48]].map(([h, op]) =>
     D.layer(f, D.polyline(arcAt(h)), { id: `layer-${h}`, stroke: h === 100 ? "accent" : "text", strokeWidth: h === 100 ? 1.6 : 1.2, opacity: op, dash: "dashed" }));
   const insertionArc = L("insertionArc", { strokeWidth: 0.9, opacity: 0.3, dash: "dotted" });
   const spokes = [];
   for (let k = -5; k <= 5; k += 1) { const a = at(-40, k * 0.05), b = at(235, k * 0.05); spokes.push(D.line(a.x, a.y, b.x, b.y)); }
   const spokesLayer = D.layer(f, spokes.join(" "), { id: "spokes", stroke: "textMuted", strokeWidth: 0.6, opacity: 0.13 });
-  const trajectory = L("trajectory", { stroke: "success", strokeWidth: 2.1, opacity: 0.92, ...ink });
+  const trajectory = L("trajectory", { stroke: "success", strokeWidth: 2.1, opacity: 0.92 });
   const heading = L("heading", { fill: "success", stroke: "success", strokeWidth: 1.4, opacity: 0.8 });
   const events = L("events", { fill: "accent", stroke: "none", strokeWidth: 0, opacity: 0.95 });
   const eventRings = L("eventRings", { stroke: "accent", strokeWidth: 1, opacity: 0.5 });

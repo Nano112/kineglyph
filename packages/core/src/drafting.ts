@@ -8,8 +8,8 @@
  * through `at()`, which converts sheet coordinates to the fractions a `coordinates` group expects.
  *
  * The look comes from the `draftingTheme` preset (graphite paper, white ink, amber/green/violet
- * reserved for annotation) and from the `sketch` material, which displaces strokes with seeded
- * fractal noise so the drawing reads as hand-drafted rather than plotted.
+ * reserved for annotation). Strokes are crisp by default; the optional `sketch` material displaces
+ * them with seeded fractal noise for a hand-drafted feel, at the cost of jagged edges in rasters.
  */
 
 import type { FigureBuilder, FigureTextPosition } from "./figure.js";
@@ -581,7 +581,7 @@ export interface PlateOptions {
 
 /**
  * A raised second sheet — a cartouche, a data plate — lying physically on the drawing: paper fill
- * with a drop shadow and its own grain, then a sketched outline. Returns the two layers in paint
+ * with a drop shadow and its own grain, then an outline. Returns the two layers in paint
  * order; spread them into a sheet's layers before the text that sits on the plate.
  */
 export function plate(
@@ -623,7 +623,9 @@ export function plate(
       stroke: options.stroke ?? "text",
       strokeWidth: 0.9,
       opacity: options.strokeOpacity ?? 0.36,
-      sketch: options.sketch ?? { seed },
+      ...(options.sketch === undefined || options.sketch === false
+        ? {}
+        : { sketch: options.sketch }),
     }),
   ];
 }
@@ -641,7 +643,7 @@ export interface SheetOptions {
     /** Draw the block as a raised plate (default) or as plain lines on the sheet. */
     readonly plate?: boolean | PlateOptions;
   };
-  /** Noise seed shared by the sheet's own sketched chrome. */
+  /** Noise seed for the paper grain (and for `sketch`, where a caller opts in). */
   readonly seed?: number;
   readonly paper?: boolean;
   /** Paper grain on the sheet background; `false` for a flat vignette. */
@@ -711,7 +713,6 @@ export function sheet(f: FigureBuilder, options: SheetOptions): GroupNode {
         label: "frame",
         strokeWidth: 0.9,
         opacity: 0.28,
-        sketch: { seed },
       }),
       layer(f, border.inner, { label: "frame inner", strokeWidth: 0.7, opacity: 0.16 }),
       layer(f, border.ticks, { label: "frame ticks", strokeWidth: 0.8, opacity: 0.24 }),
@@ -751,7 +752,6 @@ export function sheet(f: FigureBuilder, options: SheetOptions): GroupNode {
               label: "title block",
               strokeWidth: 0.9,
               opacity: 0.32,
-              sketch: { seed },
             }),
           ]
         : plate(f, block.x, block.y, block.width, block.height, {
