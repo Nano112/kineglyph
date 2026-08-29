@@ -17,6 +17,10 @@ convention and turns it into Kineglyph vocabulary:
   frame source on Kineglyph's clock.
 - `anchorFrameSignals(...)` — projected anchors as [frame signals](../../docs/authoring-api.md),
   so `drafting.callout` leaders land with the blocks they point at.
+- `fromBuildAnimation(engine, glb)` — a frame source over a live `BuildAnimation` (duck-typed),
+  for editing the build script in a page while the sheet plays.
+- `headlessView({ source, camera, viewport })` — the surface's camera without a renderer, so
+  anchors project in Node for the export CLI over natively rendered frames.
 
 The package never imports `nucleation` itself: hand it GLB bytes, from the WASM engine in a page
 or from a file.

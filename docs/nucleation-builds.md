@@ -445,6 +445,25 @@ export default figure("nucleation-glb-anywhere", {
 });
 ```
 
+## Native export
+
+The browser exports above capture the WebGL surface. Nucleation's native renderer produces the
+same frames without a browser, and the export CLI composes the sheet around them:
+`examples/nucleation-native/build.py` records the beacon build in Python, writes
+`out/frames/beacon-0000.png …` with `render_frames` (transparent background, the sheet's camera)
+and the animated GLB; `examples/nucleation-native/sheet.mjs` is the same drafting layout with
+`headlessView` projecting the GLB's anchors through that camera; then
+
+```sh
+kineglyph-export gif --scene sheet.mjs#default --theme sheet.mjs#theme \
+  --frame-signals sheet.mjs#frameSignals --surface build-view=out/frames/beacon-{frame}.png \
+  --fps 30 --out out/beacon-sheet.gif
+```
+
+drops each native frame into the `build-view` node and applies the anchor signals per frame.
+`npm run render:build-sheet` runs both steps (`NUCLEATION_PACK` and `NUCLEATION_PYTHON` pick the
+resource pack and the Python with `nucleation` installed).
+
 ## How it fits together
 
 - **Nucleation** — `BuildAnimation` records groups, effects, and anchors; `toAnimatedGlbB64(pack, fps)`
@@ -452,7 +471,8 @@ export default figure("nucleation-glb-anywhere", {
   convention and `extras.nucleation`).
 - **`@kineglyph/nucleation`** — `fromAnimatedGlb` samples the GLB into a frame source;
   `buildSurface` renders it with three.js on Kineglyph's clock; `anchorFrameSignals` projects the
-  anchors into sheet space as frame signals. It never imports the engine.
+  anchors into sheet space as frame signals, through a surface's view or a `headlessView` of the
+  same camera. It never imports the engine.
 - **Kineglyph** — `frameSignals` (a `mountKineglyph` option, a live-block export, or the React
   prop) applies those values to bound paths and text at seek time, so playback and exports agree.
 

@@ -1,4 +1,4 @@
-import type { ResolvedScene, ResolvedSceneCrop } from "@kineglyph/core";
+import type { ResolvedScene, ResolvedSceneCrop, Variables } from "@kineglyph/core";
 import { resolvedSceneBounds, seekTimeline } from "@kineglyph/core";
 import type { SvgRenderOptions } from "@kineglyph/svg";
 import { renderSvg } from "@kineglyph/svg";
@@ -49,6 +49,16 @@ export interface SvgExportOptions {
   readonly crop?: ResolvedSceneCrop;
   /** Extra scene units around a `surface` or `content` crop. */
   readonly cropPadding?: number;
+  /**
+   * Frame signals: values that override bound paths, text, opacity, and visibility at seek time
+   * (see `seekTimeline`), evaluated per exported frame — the same hook a live host runs.
+   */
+  readonly frameSignals?: (time: number) => Variables;
+  /**
+   * Rendered frames of live surfaces, by image node id, for the frame at `time` — data URIs or
+   * paths the rasteriser can read. They take the place of the node's static fallback image.
+   */
+  readonly surfaces?: (time: number) => Readonly<Record<string, string>> | undefined;
 }
 
 export const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>';
@@ -94,7 +104,8 @@ export function buildSvgDocument(
 ): SvgDocument {
   sceneDimensions(scene);
   const time = build.time ?? resolveTime(scene, options.time);
-  const frame = seekTimeline(scene, time);
+  const signals = options.frameSignals?.(time);
+  const frame = seekTimeline(scene, time, signals === undefined ? {} : { signals });
   const viewBox = resolvedSceneBounds(frame, options.crop ?? "scene", options.cropPadding ?? 0);
   const size = resolveOutputSize(viewBox, options, build.raster);
   const renderOptions: SvgRenderOptions = {
@@ -102,7 +113,11 @@ export function buildSvgDocument(
     ...(options.title === undefined ? {} : { title: options.title }),
     ...(options.description === undefined ? {} : { description: options.description }),
   };
-  const rendered = renderSvg(frame, renderOptions);
+  const images = options.surfaces?.(time);
+  const rendered = renderSvg(
+    frame,
+    images === undefined ? renderOptions : { ...renderOptions, images },
+  );
   const root = parseRootTag(rendered);
   if (root === undefined) {
     throw new KineglyphExportError("encoder", "the SVG renderer did not produce an <svg> root");

@@ -40,7 +40,8 @@
     "release:check": "node scripts/release.mjs check",
     "release:pack": "node scripts/release.mjs pack",
     "release:publish": "node scripts/release.mjs publish",
-    "render:drafting-sheets": "npm run bootstrap && node scripts/render-drafting-sheets.mjs"
+    "render:drafting-sheets": "npm run bootstrap && node scripts/render-drafting-sheets.mjs",
+    "render:build-sheet": "npm run bootstrap && node scripts/render-build-sheet.mjs"
   },
   "engines": {
     "node": ">=22.12"

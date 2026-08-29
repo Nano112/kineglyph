@@ -32,8 +32,11 @@ export interface SheetRect {
 }
 
 export interface AnchorSignalsOptions {
-  /** The surface's last view; undefined until it has rendered. */
-  readonly view: () => BuildView | undefined;
+  /**
+   * The view to project through: a surface's `view` (its last render, the argument ignored) or a
+   * `headlessView` that computes the camera for the requested time.
+   */
+  readonly view: (time: number) => BuildView | undefined;
   /** Fallback frame source before the surface has rendered (or without a surface). */
   readonly source?: () => FrameSource | undefined;
   /** The surface node's rectangle in sheet units. */
@@ -66,7 +69,7 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
     return out;
   };
   return (time) => {
-    const view = options.view();
+    const view = options.view(time);
     const source = view?.source ?? options.source?.();
     if (source === undefined) return hidden();
     const frame = source.frame(time);

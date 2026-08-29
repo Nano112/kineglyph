@@ -52,3 +52,18 @@ describe("anchorFrameSignals", () => {
     );
   });
 });
+
+describe("headlessView", () => {
+  it("projects like the surface would, per time", async () => {
+    const { headlessView } = await import("../src/headless.js");
+    const at = anchorFrameSignals({
+      view: headlessView({ source, camera: { yaw: 28, pitch: 24, zoom: 0.8 }, viewport }),
+      frame,
+      notes,
+    });
+    const end = at(2400);
+    expect(end["anchor.beacon.visible"]).toBe(1);
+    expect(String(end["leader.beacon"]).startsWith("M")).toBe(true);
+    expect(at(0)["anchor.beacon.visible"]).toBe(0);
+  });
+});

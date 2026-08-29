@@ -70,3 +70,5 @@ export type {
   RegressionSnapshotSet,
   RegressionViewport,
 } from "./regression.js";
+export { parseSurfaceSpec, surfaceSubstitutes } from "./surfaces.js";
+export type { SurfaceSpec } from "./surfaces.js";

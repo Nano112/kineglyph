@@ -19,6 +19,7 @@ import {
   resolveScene,
 } from "@kineglyph/core";
 import { KineglyphExportError } from "./errors.js";
+import { parseSurfaceSpec, surfaceSubstitutes } from "./surfaces.js";
 import { createEmbeddedFontMeasurer, type EmbeddedFontSource } from "./font-shaping.js";
 import { exportFile } from "./file.js";
 import { gifInfo, pngInfo } from "./formats.js";
@@ -51,6 +52,9 @@ Options:
   --state <id>                Machine state to resolve (scene definitions with a machine)
   --var <key=value>           Override a machine variable before resolving (repeatable)
   --derive <module>#<export>  deriveSignals(variables, signals) hook, as a live host would run
+  --frame-signals <module>#<export>  frameSignals(time) hook applied to every exported frame
+  --surface <nodeId>=<file|pattern>  Pre-rendered frames for a live image node ({frame} or %04d
+                              in the pattern picks the frame by time; repeatable)
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
   --font <path>               Font file for png/gif (repeatable)
   --shape-font <family=path>  HarfBuzz font for layout and png/gif (repeatable)
@@ -79,6 +83,8 @@ interface CliArgs {
   readonly state?: string;
   readonly variables?: Readonly<Record<string, number | string | boolean>>;
   readonly derive?: string;
+  readonly frameSignals?: string;
+  readonly surfaces?: readonly string[];
   readonly containerWidth?: number;
   readonly fonts: readonly string[];
   readonly shapeFonts: readonly string[];
@@ -93,6 +99,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
   const values = new Map<string, string>();
   const fonts: string[] = [];
   const variableFlags: string[] = [];
+  const surfaceFlags: string[] = [];
   const shapeFonts: string[] = [];
   let loop: boolean | undefined;
   let loadSystemFonts: boolean | undefined;
@@ -114,6 +121,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     "state",
     "var",
     "derive",
+    "frame-signals",
+    "surface",
     "width-container",
     "font",
     "shape-font",
@@ -152,6 +161,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
       if (name === "font") fonts.push(value);
       else if (name === "shape-font") shapeFonts.push(value);
       else if (name === "var") variableFlags.push(value);
+      else if (name === "surface") surfaceFlags.push(value);
       else values.set(name, value);
       continue;
     }
@@ -192,6 +202,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     ...optional("state", state),
     ...(variableFlags.length === 0 ? {} : { variables: parseVariables(variableFlags) }),
     ...optional("derive", values.get("derive")),
+    ...optional("frameSignals", values.get("frame-signals")),
+    ...(surfaceFlags.length === 0 ? {} : { surfaces: surfaceFlags }),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
     fonts,
     shapeFonts,
@@ -375,6 +387,16 @@ async function loadDerive(spec: string | undefined): Promise<ResolveSceneOptions
   return value as NonNullable<ResolveSceneOptions["deriveSignals"]>;
 }
 
+async function loadFrameSignals(
+  spec: string | undefined,
+): Promise<SvgExportOptions["frameSignals"]> {
+  if (spec === undefined) return undefined;
+  const value = await loadExport(spec);
+  if (typeof value !== "function")
+    throw new UsageError(`--frame-signals ${spec} is not a function`);
+  return value as NonNullable<SvgExportOptions["frameSignals"]>;
+}
+
 async function loadScene(spec: string, context: ResolveContext): Promise<ResolvedScene> {
   let value = await loadExport(spec);
   if (typeof value === "function") {
@@ -488,7 +510,20 @@ export async function runExport(argv: readonly string[]): Promise<number> {
   const crop = parsed.crop ?? preset.crop;
   const cropPadding = parsed.cropPadding ?? preset.cropPadding;
   const time = parsed.time ?? preset.time;
+  const frameSignals = await loadFrameSignals(parsed.frameSignals ?? preset.frameSignals);
+  const surfaceSpecs = [...(preset.surfaces ?? []), ...(parsed.surfaces ?? [])].map((flag) => {
+    try {
+      return parseSurfaceSpec(flag);
+    } catch (error) {
+      throw new UsageError(error instanceof Error ? error.message : String(error));
+    }
+  });
+  const surfaceFps = parsed.fps ?? preset.fps ?? 12;
+  const surfaces =
+    surfaceSpecs.length === 0 ? undefined : surfaceSubstitutes(surfaceSpecs, surfaceFps);
   const frameOptions: Omit<SvgExportOptions, "time"> = {
+    ...(frameSignals === undefined ? {} : { frameSignals }),
+    ...(surfaces === undefined ? {} : { surfaces }),
     ...(width === undefined ? {} : { width }),
     ...(height === undefined ? {} : { height }),
     ...(scale === undefined ? {} : { scale }),

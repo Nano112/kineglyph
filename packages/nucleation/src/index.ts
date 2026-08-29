@@ -27,6 +27,8 @@ export type {
   Quat,
   Vec3,
 } from "./glb.js";
+export { headlessView } from "./headless.js";
+export type { HeadlessViewOptions } from "./headless.js";
 export { fromBuildAnimation } from "./live-source.js";
 export type { BuildEngine } from "./live-source.js";
 export { buildSurface } from "./surface.js";

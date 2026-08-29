@@ -23,6 +23,10 @@ export interface ExportPreset {
   readonly variables?: Readonly<Record<string, number | string | boolean>>;
   /** `module#export` naming a `deriveSignals(variables, signals)` function (`--derive`). */
   readonly derive?: string;
+  /** `module#export` naming a `frameSignals(time)` function (`--frame-signals`). */
+  readonly frameSignals?: string;
+  /** `nodeId=file|pattern` entries (`--surface`). */
+  readonly surfaces?: readonly string[];
   readonly containerWidth?: number;
   readonly fonts?: readonly string[];
   readonly shapeFonts?: readonly EmbeddedFontSource[];

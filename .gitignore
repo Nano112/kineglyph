@@ -13,3 +13,6 @@ docs/assets/drafting/
 
 # Local copy of the Nucleation WASM engine (node scripts/sync-nucleation-engine.mjs)
 docs/assets/nucleation/engine/
+
+# Native Nucleation render output (npm run render:build-sheet)
+examples/nucleation-native/out/

@@ -746,6 +746,12 @@ mountKineglyph(element, {
 });
 ```
 
+The export CLI runs the same hook (`--frame-signals module#export`) and can stand pre-rendered
+frames in for a live surface (`--surface <nodeId>=<file|pattern>`, where `{frame}` or `%04d`
+in the pattern picks the file by time at the GIF's `--fps`, holding the last one). That is how a
+sheet whose surface is rendered elsewhere — a native renderer, a video tool — exports as one
+image with its leaders in place; see [Nucleation builds](./nucleation-builds.md#native-export).
+
 ## Drafting sheets and formulas
 
 `drafting` is the vocabulary of an engineering drawing as deterministic path data in a fixed

@@ -41,6 +41,11 @@ export interface SvgRenderOptions {
   animateFlow?: boolean;
   /** Enable live-browser enhancements such as backdrop filtering. Portable filters stay enabled. */
   effects?: "portable" | "enhanced";
+  /**
+   * Replacement `href`s for image nodes by id — how an export drops a rendered frame of a live
+   * surface into the place of its static fallback.
+   */
+  images?: Readonly<Record<string, string>>;
 }
 
 export type EdgeMarkerKind = "none" | "arrow" | "triangle" | "dot" | "diamond" | "bar";
@@ -100,6 +105,7 @@ export function renderSvg(scene: ResolvedScene, options: SvgRenderOptions = {}):
     structured,
     nodesById: new Map(nodes.map((node, index) => [nodeId(node, index), node])),
     enhancedEffects: options.effects === "enhanced",
+    images: options.images ?? {},
   };
 
   // Connectors draw *over* the node layer by default.
@@ -174,6 +180,7 @@ interface RenderContext {
   readonly structured: boolean;
   readonly nodesById: Map<string, UnknownRecord>;
   readonly enhancedEffects: boolean;
+  readonly images: Readonly<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1730,7 +1737,7 @@ function renderStructuredShape(
         "image",
         [
           ["class", "kg-image"],
-          ["href", string(image.href)],
+          ["href", string(context.images[nodeId(node, 0)] ?? image.href)],
           ["x", number(x, precision)],
           ["y", number(y, precision)],
           ["width", number(width, precision)],
