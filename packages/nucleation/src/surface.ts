@@ -90,7 +90,18 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
   let target: Target | undefined;
   const base: CameraConfig = { ...ISOMETRIC, ...options.camera };
 
+  let rendering = false;
   const applyPoses = (t: Target, time: number): void => {
+    if (t.source === undefined || rendering) return;
+    rendering = true;
+    try {
+      renderFrame(t, time);
+    } finally {
+      rendering = false;
+    }
+  };
+
+  const renderFrame = (t: Target, time: number): void => {
     if (t.source === undefined) return;
     const frame = t.source.frame(time);
     for (const [group, object] of t.groups) {
@@ -112,7 +123,8 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
     const aspect = viewport.width / viewport.height;
     let viewProjection: Float64Array;
     if (t.controls !== undefined && t.grabbed) {
-      t.controls.update();
+      // OrbitControls has already moved the camera; reading it back here (never calling
+      // `controls.update()`, which would dispatch `change` and re-enter) keeps the overlay in step.
       t.camera.updateMatrixWorld();
       t.camera.matrixWorldInverse.copy(t.camera.matrixWorld).invert();
       viewProjection = multiply(
