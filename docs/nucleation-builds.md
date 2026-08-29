@@ -488,5 +488,6 @@ resource pack and the Python with `nucleation` installed).
 
 The engine loaded above comes from `docs/assets/nucleation/engine/` when
 `node scripts/sync-nucleation-engine.mjs` has copied a Nucleation build there, and from jsDelivr
-otherwise; `python3 scripts/nucleation-pack.py` trims a vanilla resource pack down to the blocks
-these builds use.
+otherwise; `python3 scripts/nucleation-pack.py` cuts a vanilla resource pack down to what the
+mesher reads — every block's state, model, and texture, so any block id works when you edit a
+build script above — and leaves out the GUI, item, and language assets.
