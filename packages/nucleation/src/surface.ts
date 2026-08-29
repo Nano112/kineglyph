@@ -256,7 +256,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         material.opacity = pose.opacity;
         material.transparent = pose.opacity < 0.999 || material.alphaTest > 0;
         material.depthWrite = true;
-        const cutout = material.userData.alphaTest;
+        const cutout: unknown = material.userData.alphaTest;
         if (typeof cutout === "number" && material.alphaTest !== cutout) {
           material.alphaTest = cutout;
           material.needsUpdate = true;
@@ -347,7 +347,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
         if (Array.isArray(child.material)) {
-          child.material = child.material.map((material) =>
+          child.material = child.material.map((material): THREE.Material =>
             material instanceof THREE.MeshStandardMaterial ? clone(material) : material,
           );
           return;
