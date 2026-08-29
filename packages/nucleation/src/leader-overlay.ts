@@ -62,6 +62,7 @@ export class LeaderOverlay {
   readonly #options: LeaderOverlayOptions;
   readonly #objects = new Map<string, LeaderObjects>();
   #colors: Readonly<Record<string, string>> = {};
+  #styleSource: ParentNode | undefined;
 
   constructor(options: LeaderOverlayOptions, doc: Document) {
     this.#options = options;
@@ -74,7 +75,7 @@ export class LeaderOverlay {
         opacity: options.opacity ?? 0.75,
         depthTest: true,
         depthWrite: false,
-        alphaToCoverage: false,
+        alphaToCoverage: true,
       });
       const geometry = new LineGeometry();
       geometry.setPositions([0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -102,6 +103,35 @@ export class LeaderOverlay {
   }
 
   /**
+   * Where the sheet's own leader paths live. When the bound `leader.<anchor>` path is found,
+   * its computed stroke colour, width, and opacity are used, so the two halves match exactly.
+   */
+  setStyleSource(root: ParentNode | undefined): void {
+    this.#styleSource = root;
+  }
+
+  #sheetStyle(anchor: string): { color: string; widthPx: number; opacity: number } | undefined {
+    const root = this.#styleSource;
+    if (root === undefined) return undefined;
+    const path = root.querySelector(`.kg-node-shape[data-shape-of="leader.${anchor}"]`);
+    if (!(path instanceof SVGGraphicsElement)) return undefined;
+    const view = path.ownerDocument.defaultView;
+    if (view === null) return undefined;
+    const computed = view.getComputedStyle(path);
+    const scale = path.getScreenCTM()?.a ?? 1;
+    const widthPx = Number.parseFloat(computed.strokeWidth) * scale;
+    let opacity = Number.parseFloat(computed.opacity) * Number.parseFloat(computed.strokeOpacity);
+    for (
+      let node = path.parentElement;
+      node !== null && node.tagName === "g";
+      node = node.parentElement
+    )
+      opacity *= Number.parseFloat(view.getComputedStyle(node).opacity);
+    if (!(widthPx > 0) || computed.stroke === "none") return undefined;
+    return { color: computed.stroke, widthPx, opacity: Number.isFinite(opacity) ? opacity : 1 };
+  }
+
+  /**
    * Place every leader for a frame. `viewProjection` and `camera` must describe the render
    * about to happen; `viewport` is the canvas size in CSS pixels.
    */
@@ -115,7 +145,7 @@ export class LeaderOverlay {
     const threshold = this.#options.threshold ?? 0.5;
     const pxPerUnit = viewport.width / rect.width;
     const linePx = Math.max(1, (this.#options.width ?? 0.8) * pxPerUnit);
-    const dotPx = Math.max(1.5, (this.#options.dot ?? 3.6) * pxPerUnit);
+    const dotPx = Math.max(1, (this.#options.dot ?? 3.6) * pxPerUnit);
     const lift = this.#options.lift ?? 0.35;
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
@@ -159,9 +189,16 @@ export class LeaderOverlay {
       }
       objects.line.geometry.setPositions(positions);
       objects.line.computeLineDistances();
-      objects.material.linewidth = linePx;
+      const sheet = this.#sheetStyle(note.anchor);
+      // A hairline thinner than a pixel is drawn one pixel wide at proportionally less opacity,
+      // which is how the browser rasterises the sheet's half.
+      const width = sheet?.widthPx ?? linePx;
+      const opacity = (sheet?.opacity ?? this.#options.opacity ?? 0.75) * Math.min(1, width);
+      objects.material.linewidth = Math.max(1, width);
+      objects.material.opacity = opacity;
+      objects.dotMaterial.opacity = opacity;
       objects.material.resolution.set(viewport.width, viewport.height);
-      const color = this.#colors[note.tone ?? "text"] ?? note.tone ?? "#000";
+      const color = sheet?.color ?? this.#colors[note.tone ?? "text"] ?? note.tone ?? "#000";
       objects.material.color.set(color);
       objects.dotMaterial.color.set(color);
       const centre = toWorld(projected.x, projected.y, depth);

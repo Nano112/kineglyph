@@ -297,7 +297,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
           }
         });
         controls.addEventListener("change", () => {
-          if (t.grabbed) applyPoses(t, t.lastTime);
+          if (!t.grabbed) return;
+          applyPoses(t, t.lastTime);
+          // The view moved without the clock: the sheet's frame signals (leader paths) need
+          // recomputing from the new view now, not at the next tick.
+          t.refresh?.();
         });
         t.controls = controls;
       }
@@ -316,6 +320,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       }
       if (options.leaders !== undefined) {
         t.overlay = new LeaderOverlay(options.leaders, element.ownerDocument);
+        t.overlay.setStyleSource(element.closest(".kg-figure") ?? element.ownerDocument);
         scene.add(t.overlay.group);
       }
       target = t;
