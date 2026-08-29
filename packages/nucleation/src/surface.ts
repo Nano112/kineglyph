@@ -346,14 +346,15 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       };
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
-        if (Array.isArray(child.material)) {
-          child.material = child.material.map((material): THREE.Material =>
+        const mesh = child as THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
+        const current = mesh.material;
+        if (Array.isArray(current)) {
+          mesh.material = current.map((material) =>
             material instanceof THREE.MeshStandardMaterial ? clone(material) : material,
           );
           return;
         }
-        if (child.material instanceof THREE.MeshStandardMaterial)
-          child.material = clone(child.material);
+        if (current instanceof THREE.MeshStandardMaterial) mesh.material = clone(current);
       });
       t.materials.set(group.group, materials);
     }

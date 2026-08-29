@@ -23,10 +23,9 @@ anchors are recorded — the top of the beacon, and the first gold block placed 
 leaders track them as the blocks drop in. Drag the build to orbit it; the leaders stay attached.
 The Export menu's PNG and GIF include the textured build: the surface renders each export frame
 and takes the place of its static fallback image in the sheet.
-Click a note to ease the camera onto its anchor (click anywhere else to ease back); blocks that
-have not landed yet show faintly where they will go; the dimension between the two anchors is
-drawn in the scene and read out below the notes; and the STEPS table follows the group in
-progress. The Export menu also offers the animated **GLB** and the finished build as
+Click a note to ease the camera onto its anchor (click anywhere else to ease back); the
+dimension between the two anchors is drawn in the scene and read out below the notes; and the
+STEPS table follows the group in progress. The Export menu also offers the animated **GLB** and the finished build as
 **.schem** and **.litematic** — straight from the engine, no Kineglyph in the loop. In the
 editor, **Signals** lists every signal in force for the current frame (anchor positions, leader
 paths, the dimension), which is the quickest way to find the names when authoring a sheet.
@@ -72,8 +71,6 @@ const surface = build.buildSurface({
   leaders: { frame: VIEW, notes: NOTES },
   // A dimension line between two anchors, also in the scene.
   dimensions: DIMENSIONS,
-  // Blocks that have not landed yet show faintly where they will go.
-  ghost: 0.16,
   // Click a note to ease the camera onto its anchor; click anywhere else to ease back.
   focus: { "beacon-note": "beacon", "first-note": "first-gold" },
 });
@@ -219,7 +216,6 @@ const surface = build.buildSurface({
   interactive: true,
   leaders: { frame: VIEW, notes: NOTES },
   dimensions: DIMENSIONS,
-  ghost: 0.16,
   focus: { "table-note": "crafting-table", "window-note": "window", "torch-note": "torch" },
 });
 export const liveSurfaces = { "build-view": surface };
@@ -346,7 +342,6 @@ const surface = build.buildSurface({
   interactive: true,
   leaders: { frame: VIEW, notes: NOTES },
   dimensions: DIMENSIONS,
-  ghost: 0.16,
   focus: { "beacon-note": "beacon", "corner-note": "corner" },
 });
 export const liveSurfaces = { "build-view": surface };
@@ -503,8 +498,8 @@ resource pack and the Python with `nucleation` installed).
   anchors into sheet space as frame signals, through a surface's view or a `headlessView` of the
   same camera. With `leaders` on the surface and `embedded` on the signals, the part of a leader
   inside the view is drawn in the scene itself — depth-tested, so a block in front of the anchor
-  covers it — and the sheet's path takes over at the view's edge; `dimensions`, `ghost`, and
-  `focus` (click-to-focus, listening for clicks on the sheet's nodes) build on the same view. It
+  covers it — and the sheet's path takes over at the view's edge; `dimensions` and `focus`
+  (click-to-focus, listening for clicks on the sheet's nodes) build on the same view. It
   never imports the engine.
 - **The lab** — a live block's `exportItems` export adds downloads to the Export menu (the GLB
   and schematics here come from `docs/assets/nucleation/setup.mjs`, which also loads the engine
