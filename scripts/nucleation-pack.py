@@ -29,7 +29,15 @@ BLOCKS = [
     "torch",
 ]
 # Entity-rendered blocks reference textures outside the model graph.
-EXTRA_TEXTURES = ["entity/chest/normal", "entity/beacon_beam"]
+# The mesher marks torches, campfires, and candles with flame and smoke particle quads.
+EXTRA_TEXTURES = [
+    "entity/chest/normal",
+    "entity/beacon_beam",
+    "particle/flame",
+    "particle/soul_fire_flame",
+    *[f"particle/big_smoke_{i}" for i in range(7)],
+    *[f"particle/generic_{i}" for i in range(8)],
+]
 BUDGET = 200 * 1024
 
 

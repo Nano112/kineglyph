@@ -9,6 +9,7 @@
 import { drafting, type Variables } from "@kineglyph/core";
 import { project } from "./camera.js";
 import type { FrameSource } from "./frame-source.js";
+import { clipOutside, leaderPolyline, placedAnchor, placedCount } from "./leaders.js";
 import type { BuildView } from "./surface.js";
 
 /** A degenerate path for hidden leaders — valid path data that draws nothing. */
@@ -22,6 +23,11 @@ export interface AnchorNote {
   readonly y: number;
   /** The callout's anchor side; the leader leaves the note from the opposite edge. */
   readonly side?: "top-left" | "top-right";
+  /**
+   * Colour of the part of the leader a surface draws inside the view (`buildSurface`'s
+   * `leaders`): a theme colour token such as `"accent"`, or a CSS colour. Default `"text"`.
+   */
+  readonly tone?: string;
 }
 
 export interface SheetRect {
@@ -44,6 +50,11 @@ export interface AnchorSignalsOptions {
   readonly notes: readonly AnchorNote[];
   /** Below this pose opacity or scale the anchor counts as not there yet. Default 0.5. */
   readonly threshold?: number;
+  /**
+   * The surface draws the part of each leader inside `frame` itself (`buildSurface`'s `leaders`
+   * option, depth-tested against the blocks), so the sheet's path stops at the view's edge.
+   */
+  readonly embedded?: boolean;
 }
 
 export interface AnchorSignals extends Variables {
@@ -73,33 +84,16 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
     const source = view?.source ?? options.source?.();
     if (source === undefined) return hidden();
     const frame = source.frame(time);
-    const out: Record<string, number | string> = { groups: source.groups, placed: 0 };
-    let placed = 0;
-    for (const pose of frame.poses.values()) {
-      const scale = Math.min(
-        Math.abs(pose.scale[0]),
-        Math.abs(pose.scale[1]),
-        Math.abs(pose.scale[2]),
-      );
-      if (pose.opacity >= 0.99 && scale >= 0.99) placed += 1;
-    }
-    out.placed = placed;
+    const out: Record<string, number | string> = {
+      groups: source.groups,
+      placed: placedCount(frame),
+    };
     for (const { note, leader } of leaders) {
-      const sample = frame.anchors.find((anchor) => anchor.name === note.anchor);
-      const pose = sample === undefined ? undefined : frame.poses.get(sample.group);
-      const scale =
-        pose === undefined
-          ? 0
-          : Math.min(Math.abs(pose.scale[0]), Math.abs(pose.scale[1]), Math.abs(pose.scale[2]));
+      const sample = placedAnchor(frame, note.anchor, threshold);
       let visible = false;
       let sx = 0;
       let sy = 0;
-      if (
-        view !== undefined &&
-        sample !== undefined &&
-        sample.opacity >= threshold &&
-        scale >= threshold
-      ) {
+      if (view !== undefined && sample !== undefined) {
         const projected = project(view.viewProjection, sample.world, view.viewport);
         if (projected.visible) {
           sx = options.frame.x + (projected.x / view.viewport.width) * options.frame.width;
@@ -107,7 +101,12 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
           visible = true;
         }
       }
-      out[`leader.${note.anchor}`] = visible ? leader(sx, sy) : EMPTY_PATH;
+      const path = !visible
+        ? EMPTY_PATH
+        : options.embedded === true
+          ? (clipOutside(leaderPolyline(note, [sx, sy]), options.frame) ?? EMPTY_PATH)
+          : leader(sx, sy);
+      out[`leader.${note.anchor}`] = path;
       out[`anchor.${note.anchor}.x`] = visible ? Math.round(sx * 100) / 100 : 0;
       out[`anchor.${note.anchor}.y`] = visible ? Math.round(sy * 100) / 100 : 0;
       out[`anchor.${note.anchor}.visible`] = visible ? 1 : 0;

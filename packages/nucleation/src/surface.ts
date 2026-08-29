@@ -10,6 +10,7 @@ import { bindLiveSurface, type LiveSurfaceContext, type LiveSurfaceRenderer } fr
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { LeaderOverlay, type LeaderOverlayOptions } from "./leader-overlay.js";
 import { ISOMETRIC, cameraMatrices, multiply, withPose, type CameraConfig } from "./camera.js";
 import { fromAnimatedGlb, type FrameSource } from "./frame-source.js";
 import { parseBuildGlb, type BuildGlb } from "./glb.js";
@@ -40,13 +41,27 @@ export interface BuildSurfaceOptions {
    * `(glb) => fromBuildAnimation(engine, glb)` to drive the renderer from a live engine.
    */
   readonly source?: (glb: BuildGlb) => FrameSource;
+  /**
+   * Draw the in-view part of each callout leader inside the render, depth-tested against the
+   * blocks, so a leader reads as embedded in the scene. Pair with `embedded: true` on
+   * `anchorFrameSignals` so the sheet's leader stops at the view's edge.
+   */
+  readonly leaders?: LeaderOverlayOptions;
+  /**
+   * When a watched signal rebuilds the build, restart the figure's timeline so the new build
+   * plays from its first block (instead of re-seeking the current time). Default true.
+   */
+  readonly replay?: boolean;
   readonly onView?: (view: BuildView) => void;
   readonly onError?: (error: unknown) => void;
 }
 
 export interface BuildSurface extends LiveSurfaceRenderer {
-  /** The last rendered view, once the surface has rendered. */
-  view(): BuildView | undefined;
+  /**
+   * The view at `time` — the camera the surface would render for that frame — or, without a
+   * time or while the viewer is orbiting, the last rendered view.
+   */
+  view(time?: number): BuildView | undefined;
   /** The frame source, once the GLB is loaded. */
   source(): FrameSource | undefined;
   /** The WebGL canvas (drawing buffer preserved), for compositing exports. */
@@ -68,6 +83,8 @@ interface Target {
   lastTime: number;
   observer: ResizeObserver | undefined;
   refresh: (() => void) | undefined;
+  replay: (() => void) | undefined;
+  overlay: LeaderOverlay | undefined;
 }
 
 function toArrayBuffer(bytes: GlbBytes): ArrayBuffer {
@@ -154,6 +171,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       }
       viewProjection = matrices.viewProjection;
     }
+    t.overlay?.update(frame, viewProjection, t.camera, viewport);
     t.renderer.render(t.scene, t.camera);
     t.lastTime = time;
     current = { time, viewProjection, viewport, source: t.source };
@@ -248,6 +266,8 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         lastTime: 0,
         observer: undefined,
         refresh: context.refresh,
+        replay: context.replay,
+        overlay: undefined,
       };
       if (options.interactive === true) {
         const controls = new OrbitControls(camera, gl.domElement);
@@ -294,6 +314,10 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         });
         t.observer.observe(element);
       }
+      if (options.leaders !== undefined) {
+        t.overlay = new LeaderOverlay(options.leaders, element.ownerDocument);
+        scene.add(t.overlay.group);
+      }
       target = t;
       return t;
     },
@@ -303,6 +327,9 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         const reload =
           update.initial || update.changed.some((name) => (options.watch ?? []).includes(name));
         if (reload) {
+          t.overlay?.setColors(
+            (update.scene.theme as { colors?: Readonly<Record<string, string>> }).colors ?? {},
+          );
           await loadModel(t, {
             element: t.element,
             node: update.node,
@@ -318,8 +345,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         }
         if (signal.aborted) return;
         applyPoses(t, update.time);
-        // A new model changes what the frame signals report; ask the figure to re-apply now.
-        if (reload) t.refresh?.();
+        // A new model changes what the frame signals report; ask the figure to re-apply now —
+        // or, for a rebuild the viewer asked for, to play the new build from the start.
+        if (reload && !update.initial && options.replay !== false && t.replay !== undefined)
+          t.replay();
+        else if (reload) t.refresh?.();
       } catch (error) {
         options.onError?.(error);
         throw error;
@@ -339,6 +369,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         if (object instanceof THREE.Mesh && object.geometry instanceof THREE.BufferGeometry)
           object.geometry.dispose();
       });
+      t.overlay?.dispose();
       t.renderer.dispose();
       t.renderer.domElement.remove();
       if (target === t) target = undefined;
@@ -346,8 +377,24 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
     },
   });
 
+  const viewAt = (time?: number): BuildView | undefined => {
+    const t = target;
+    if (time === undefined || t?.source === undefined || t.grabbed) return current;
+    const viewport = viewportOf(t.element);
+    if (!(viewport.width > 0 && viewport.height > 0)) return current;
+    const frame = t.source.frame(time);
+    const config = withPose(base, frame.camera, t.source.bounds);
+    const matrices = cameraMatrices(t.source.bounds, viewport.width / viewport.height, config);
+    return {
+      time: frame.time,
+      viewProjection: matrices.viewProjection,
+      viewport,
+      source: t.source,
+    };
+  };
+
   return Object.assign(renderer, {
-    view: () => current,
+    view: viewAt,
     source: () => target?.source,
     capture: () => target?.renderer.domElement,
   });

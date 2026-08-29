@@ -62,16 +62,18 @@ const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
-  { anchor: "beacon", x: 2000, y: 420, side: "top-left" },
-  { anchor: "first-gold", x: 2000, y: 1180, side: "top-left" },
+  { anchor: "beacon", x: 2000, y: 420, side: "top-left", tone: "accent" },
+  { anchor: "first-gold", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
 const surface = build.buildSurface({
   glb,
   camera: { yaw: 28, pitch: 24, zoom: 0.8 },
   interactive: true,
+  // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
+  leaders: { frame: VIEW, notes: NOTES },
 });
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
 export const frameSignals = (time) => {
   const s = anchors(time);
   return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
@@ -97,7 +99,7 @@ export default figure("nucleation-beacon", {
     height: `${(VIEW.height / 1800) * 100}%`,
   });
   const leaders = NOTES.map((n) =>
-    L(`leader.${n.anchor}`, { fill: "none", stroke: n.anchor === "beacon" ? "accent" : "info", strokeWidth: 0.8, opacity: 0.75 }),
+    L(`leader.${n.anchor}`, { fill: "none", stroke: n.tone, strokeWidth: 0.8, opacity: 0.75 }),
   );
   const notes = [
     D.callout(f, 2000, 420, ["BEACON", "spin-in · 680 ms", "anchor (0, 1.5, 0)"], { id: "beacon-note", tone: "accent" }).node,
@@ -196,13 +198,18 @@ const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
-  { anchor: "crafting-table", x: 2000, y: 420, side: "top-left" },
-  { anchor: "window", x: 2000, y: 700, side: "top-left" },
-  { anchor: "torch", x: 2000, y: 980, side: "top-left" },
+  { anchor: "crafting-table", x: 2000, y: 420, side: "top-left", tone: "accent" },
+  { anchor: "window", x: 2000, y: 700, side: "top-left", tone: "info" },
+  { anchor: "torch", x: 2000, y: 980, side: "top-left", tone: "warning" },
 ];
-const surface = build.buildSurface({ glb, camera: { yaw: 35, pitch: 28, zoom: 0.92 }, interactive: true });
+const surface = build.buildSurface({
+  glb,
+  camera: { yaw: 35, pitch: 28, zoom: 0.92 },
+  interactive: true,
+  leaders: { frame: VIEW, notes: NOTES },
+});
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
 export const frameSignals = (time) => {
   const s = anchors(time);
   return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
@@ -227,8 +234,7 @@ export default figure("nucleation-nook", {
     width: `${(VIEW.width / 2880) * 100}%`,
     height: `${(VIEW.height / 1800) * 100}%`,
   });
-  const tones = { "crafting-table": "accent", window: "info", torch: "warning" };
-  const leaders = NOTES.map((n) => L(`leader.${n.anchor}`, { fill: "none", stroke: tones[n.anchor], strokeWidth: 0.8, opacity: 0.75 }));
+  const leaders = NOTES.map((n) => L(`leader.${n.anchor}`, { fill: "none", stroke: n.tone, strokeWidth: 0.8, opacity: 0.75 }));
   const notes = [
     D.callout(f, 2000, 420, ["CRAFTING TABLE", "spin-in · 620 ms", "anchor (1, 1.5, 1)"], { id: "table-note", tone: "accent" }).node,
     D.callout(f, 2000, 700, ["WINDOW", "wall group · 1 step", "anchor (2, 2, 0)"], { id: "window-note", tone: "info" }).node,
@@ -312,8 +318,8 @@ let latest = record(1, 140);
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
-  { anchor: "beacon", x: 2000, y: 420, side: "top-left" },
-  { anchor: "corner", x: 2000, y: 1180, side: "top-left" },
+  { anchor: "beacon", x: 2000, y: 420, side: "top-left", tone: "accent" },
+  { anchor: "corner", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
 const surface = build.buildSurface({
   // Rebuilt whenever a watched signal changes; the live source reads the same engine object.
@@ -325,9 +331,11 @@ const surface = build.buildSurface({
   source: (glb) => build.fromBuildAnimation(latest, glb),
   camera: { yaw: 28, pitch: 24, zoom: 0.8 },
   interactive: true,
+  // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
+  leaders: { frame: VIEW, notes: NOTES },
 });
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
 export const frameSignals = (time) => {
   const s = anchors(time);
   return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
@@ -357,7 +365,7 @@ export default figure("nucleation-parametric", {
     height: `${(VIEW.height / 1800) * 100}%`,
   });
   const leaders = NOTES.map((n) =>
-    L(`leader.${n.anchor}`, { fill: "none", stroke: n.anchor === "beacon" ? "accent" : "info", strokeWidth: 0.8, opacity: 0.75 }),
+    L(`leader.${n.anchor}`, { fill: "none", stroke: n.tone, strokeWidth: 0.8, opacity: 0.75 }),
   );
   const notes = [
     D.callout(f, 2000, 420, ["BEACON", "spin-in · 680 ms", "anchor (0, 1.5, 0)"], { id: "beacon-note", tone: "accent" }).node,
@@ -472,7 +480,9 @@ resource pack and the Python with `nucleation` installed).
 - **`@kineglyph/nucleation`** — `fromAnimatedGlb` samples the GLB into a frame source;
   `buildSurface` renders it with three.js on Kineglyph's clock; `anchorFrameSignals` projects the
   anchors into sheet space as frame signals, through a surface's view or a `headlessView` of the
-  same camera. It never imports the engine.
+  same camera. With `leaders` on the surface and `embedded` on the signals, the part of a leader
+  inside the view is drawn in the scene itself — depth-tested, so a block in front of the anchor
+  covers it — and the sheet's path takes over at the view's edge. It never imports the engine.
 - **Kineglyph** — `frameSignals` (a `mountKineglyph` option, a live-block export, or the React
   prop) applies those values to bound paths and text at seek time, so playback and exports agree.
 

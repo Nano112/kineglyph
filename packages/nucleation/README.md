@@ -17,6 +17,8 @@ convention and turns it into Kineglyph vocabulary:
   frame source on Kineglyph's clock.
 - `anchorFrameSignals(...)` — projected anchors as [frame signals](../../docs/authoring-api.md),
   so `drafting.callout` leaders land with the blocks they point at.
+- `buildSurface({ leaders })` + `anchorFrameSignals({ embedded: true })` — the in-view part of
+  each leader is drawn in the scene, depth-tested against the blocks; the sheet draws the rest.
 - `fromBuildAnimation(engine, glb)` — a frame source over a live `BuildAnimation` (duck-typed),
   for editing the build script in a page while the sheet plays.
 - `headlessView({ source, camera, viewport })` — the surface's camera without a renderer, so

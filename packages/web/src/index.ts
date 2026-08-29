@@ -805,6 +805,13 @@ class FigureRuntime implements KineglyphController {
           const animator = this.#animator;
           if (animator !== undefined && !animator.playing) animator.seek(this.#time);
         },
+        onReplay: () => {
+          // Signals settling right after mount (derived controls) are not a viewer's change;
+          // a figure that has not presented past its first frame keeps its autoplay policy.
+          if (this.#animator === undefined || this.#duration <= 0) return;
+          if (this.#time <= 0 && !this.#playing) return;
+          this.restart(!this.#reducedMotion);
+        },
         ...(this.#options.onSurfaceError === undefined
           ? {}
           : { onError: this.#options.onSurfaceError }),

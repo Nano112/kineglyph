@@ -67,3 +67,33 @@ describe("headlessView", () => {
     expect(at(0)["anchor.beacon.visible"]).toBe(0);
   });
 });
+
+describe("leader geometry", () => {
+  it("matches drafting.calloutLeader for both sides", async () => {
+    const { drafting } = await import("@kineglyph/core");
+    const { leaderPolyline, clipOutside } = await import("../src/leaders.js");
+    for (const side of ["top-left", "top-right"] as const) {
+      const points = leaderPolyline({ x: 2000, y: 420, side }, [900, 700]);
+      const expected = drafting.calloutLeader(2000, 420, side)(900, 700);
+      const [, turn, end] = points;
+      expect(expected.startsWith(`M900 700 L${turn![0]} ${turn![1]} h${end![0] - turn![0]}`)).toBe(
+        true,
+      );
+    }
+    // Clipped to the outside of a view rect: the anchor→turn segment starts at the rect's edge.
+    const rect = { x: 366, y: 366, width: 1368, height: 1168 };
+    const path = clipOutside(leaderPolyline({ x: 2000, y: 420 }, [900, 700]), rect);
+    expect(path?.startsWith("M1734 ")).toBe(true);
+    expect(path?.endsWith("L1992 454")).toBe(true);
+    // A polyline entirely inside the rect leaves nothing for the sheet.
+    expect(
+      clipOutside(
+        [
+          [400, 400],
+          [500, 500],
+        ],
+        rect,
+      ),
+    ).toBeUndefined();
+  });
+});

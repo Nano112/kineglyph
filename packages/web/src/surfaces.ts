@@ -26,6 +26,8 @@ export interface LiveSurfaceContext {
    * model reload) and whose frame signals should be recomputed now rather than at the next tick.
    */
   readonly refresh?: () => void;
+  /** Restart the figure's timeline from the start — a surface rebuilt by a viewer's control. */
+  readonly replay?: () => void;
 }
 
 export interface LiveSurfaceUpdate {
@@ -70,6 +72,8 @@ export interface MountLiveSurfacesOptions {
   readonly onError?: (nodeId: string, error: unknown) => void;
   /** Re-apply the current frame (see `LiveSurfaceContext.refresh`). */
   readonly onRefresh?: () => void;
+  /** Restart the timeline (see `LiveSurfaceContext.replay`). */
+  readonly onReplay?: () => void;
 }
 
 interface SurfaceRecord {
@@ -135,6 +139,7 @@ export class LiveSurfaceManager {
         signal: record.abort.signal,
         send: this.#options.send,
         ...(this.#options.onRefresh === undefined ? {} : { refresh: this.#options.onRefresh }),
+        ...(this.#options.onReplay === undefined ? {} : { replay: this.#options.onReplay }),
       });
       const handle = normaliseHandle(result);
       if (record.abort.signal.aborted || this.#disposed) {
