@@ -68,7 +68,8 @@ export interface BuildSurfaceOptions {
   readonly ghost?: number;
   /**
    * Click-to-focus: sheet node ids (a callout's id) mapped to anchor names. Clicking the node
-   * eases the camera onto that anchor; clicking anything else eases back.
+   * on the sheet eases the camera onto that anchor; clicking elsewhere on the sheet eases back.
+   * Pointer activity on the view itself (orbiting) is left alone.
    */
   readonly focus?: Readonly<Record<string, string>>;
   /** Magnification while focused. Default 1.6. */
@@ -111,6 +112,7 @@ interface Target {
   replay: (() => void) | undefined;
   overlay: LeaderOverlay | undefined;
   dimensions: DimensionOverlay | undefined;
+  unlisten: (() => void) | undefined;
   finalFrame: Frame | undefined;
   focusAnchor: string | undefined;
   /** 0 = base camera, 1 = on the anchor. */
@@ -222,8 +224,13 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       object.matrix.fromArray(pose.matrix);
       object.matrixWorldNeedsUpdate = true;
       const hidden = pose.opacity <= 0.001;
+      // Not there yet: faded out, or scaled to nothing (Nucleation's drop / pop effects).
+      const absent =
+        hidden ||
+        Math.min(Math.abs(pose.scale[0]), Math.abs(pose.scale[1]), Math.abs(pose.scale[2])) <=
+          0.001;
       const ghostPose: Pose | undefined =
-        hidden && options.ghost !== undefined && options.ghost > 0
+        absent && options.ghost !== undefined && options.ghost > 0
           ? t.finalFrame?.poses.get(group)
           : undefined;
       if (ghostPose !== undefined) {
@@ -236,6 +243,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
           material.depthWrite = false;
           material.color.setRGB(1, 1, 1);
           material.emissive.setRGB(0, 0, 0);
+          // A faint ghost would fail the atlas's cutout test; drop it while ghosted.
+          if (material.alphaTest !== 0) {
+            material.alphaTest = 0;
+            material.needsUpdate = true;
+          }
         }
         continue;
       }
@@ -244,6 +256,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         material.opacity = pose.opacity;
         material.transparent = pose.opacity < 0.999 || material.alphaTest > 0;
         material.depthWrite = true;
+        const cutout = material.userData.alphaTest;
+        if (typeof cutout === "number" && material.alphaTest !== cutout) {
+          material.alphaTest = cutout;
+          material.needsUpdate = true;
+        }
         material.color.setRGB(pose.tint[0], pose.tint[1], pose.tint[2]);
         material.emissive.setRGB(pose.emissive[0], pose.emissive[1], pose.emissive[2]);
       }
@@ -305,22 +322,38 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       if (object === undefined) continue;
       t.groups.set(group.group, object);
       const materials: THREE.MeshStandardMaterial[] = [];
+      // The GLB carries one material per atlas, shared by every group; each group needs its own
+      // so opacity, tint, and the ghost preview are per-group. Textures stay shared.
+      const clones = new Map<THREE.MeshStandardMaterial, THREE.MeshStandardMaterial>();
+      const clone = (material: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial => {
+        const existing = clones.get(material);
+        if (existing !== undefined) return existing;
+        const copy = material.clone();
+        if (copy.map !== null) {
+          copy.map.magFilter = THREE.NearestFilter;
+          copy.map.minFilter = THREE.NearestFilter;
+          copy.map.generateMipmaps = false;
+          copy.map.needsUpdate = true;
+        }
+        copy.metalness = 0;
+        copy.roughness = 1;
+        // Remembered so the ghost preview can drop the cutout test and the normal pass restore it.
+        copy.userData.alphaTest = copy.alphaTest;
+        copy.needsUpdate = true;
+        clones.set(material, copy);
+        materials.push(copy);
+        return copy;
+      };
       object.traverse((child) => {
         if (!(child instanceof THREE.Mesh)) return;
-        const list = Array.isArray(child.material) ? child.material : [child.material];
-        for (const material of list) {
-          if (!(material instanceof THREE.MeshStandardMaterial)) continue;
-          if (material.map !== null) {
-            material.map.magFilter = THREE.NearestFilter;
-            material.map.minFilter = THREE.NearestFilter;
-            material.map.generateMipmaps = false;
-            material.map.needsUpdate = true;
-          }
-          material.metalness = 0;
-          material.roughness = 1;
-          material.needsUpdate = true;
-          materials.push(material);
+        if (Array.isArray(child.material)) {
+          child.material = child.material.map((material) =>
+            material instanceof THREE.MeshStandardMaterial ? clone(material) : material,
+          );
+          return;
         }
+        if (child.material instanceof THREE.MeshStandardMaterial)
+          child.material = clone(child.material);
       });
       t.materials.set(group.group, materials);
     }
@@ -379,6 +412,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         replay: context.replay,
         overlay: undefined,
         dimensions: undefined,
+        unlisten: undefined,
         finalFrame: undefined,
         focusAnchor: undefined,
         focusMix: 0,
@@ -443,14 +477,19 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         );
         scene.add(t.dimensions.group);
       }
-      if (options.focus !== undefined && context.on !== undefined) {
+      if (options.focus !== undefined) {
         const focus = options.focus;
-        context.on("inspect", (payload) => {
-          const id = (payload as { readonly id?: string } | undefined)?.id;
+        const figure = element.closest(".kg-figure") ?? element.ownerDocument;
+        const onClick = (event: Event): void => {
+          const source = event.target;
+          if (!(source instanceof Element) || element.contains(source)) return;
+          const id = source.closest("[data-node-id]")?.getAttribute("data-node-id") ?? undefined;
           const anchor = id === undefined ? undefined : focus[id];
           if (anchor === undefined) setFocus(t, undefined);
           else setFocus(t, t.focusAnchor === anchor && t.focusTo === 1 ? undefined : anchor);
-        });
+        };
+        figure.addEventListener("click", onClick);
+        t.unlisten = () => figure.removeEventListener("click", onClick);
       }
       if (options.leaders !== undefined) {
         t.overlay = new LeaderOverlay(options.leaders, element.ownerDocument);
@@ -515,6 +554,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       });
       if (t.focusRaf !== undefined)
         t.element.ownerDocument.defaultView?.cancelAnimationFrame(t.focusRaf);
+      t.unlisten?.();
       t.overlay?.dispose();
       t.dimensions?.dispose();
       t.renderer.dispose();

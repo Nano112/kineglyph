@@ -504,7 +504,7 @@ resource pack and the Python with `nucleation` installed).
   same camera. With `leaders` on the surface and `embedded` on the signals, the part of a leader
   inside the view is drawn in the scene itself — depth-tested, so a block in front of the anchor
   covers it — and the sheet's path takes over at the view's edge; `dimensions`, `ghost`, and
-  `focus` (click-to-focus through the figure's `inspect` events) build on the same view. It
+  `focus` (click-to-focus, listening for clicks on the sheet's nodes) build on the same view. It
   never imports the engine.
 - **The lab** — a live block's `exportItems` export adds downloads to the Export menu (the GLB
   and schematics here come from `docs/assets/nucleation/setup.mjs`, which also loads the engine

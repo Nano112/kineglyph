@@ -20,7 +20,7 @@ convention and turns it into Kineglyph vocabulary:
 - `buildSurface({ leaders })` + `anchorFrameSignals({ embedded: true })` — the in-view part of
   each leader is drawn in the scene, depth-tested against the blocks; the sheet draws the rest.
 - `buildSurface({ ghost, focus, dimensions })` — ghost preview of blocks still to come, click-to-focus
-  (sheet node id → anchor, through the figure's `inspect` events), and dimension lines between
+  (sheet node id → anchor, on clicks on the sheet), and dimension lines between
   anchors drawn in the view; the frame signals add `current` (the group in progress) and
   `dimension.<from>.<to>`.
 - `fromBuildAnimation(engine, glb)` — a frame source over a live `BuildAnimation` (duck-typed),
