@@ -81,6 +81,9 @@ describe("frameSignals", () => {
     expect(controller.toSvg()).toContain(MOVED);
     controller.seek(0);
     expect(leaderD()).toBe(REST);
+    // Export frames use the same overrides for any time, independent of the live position.
+    expect(controller.frameSvg(1000)).toContain(MOVED);
+    expect(controller.frameSvg(0)).toContain(REST);
     controller.destroy();
   });
 

@@ -314,6 +314,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         throw error;
       }
     },
+    capture(t: Target, time: number) {
+      if (t.source === undefined) return undefined;
+      applyPoses(t, time);
+      return t.renderer.domElement;
+    },
     destroy(t) {
       t.observer?.disconnect();
       t.controls?.dispose();

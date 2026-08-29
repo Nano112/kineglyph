@@ -58,6 +58,7 @@ export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
 export * from "./math.js";
 export * from "./nucleation.js";
+export * from "./compose.js";
 export * from "./micro.js";
 export * from "./stream.js";
 export * from "./export.js";
@@ -231,6 +232,13 @@ export interface KineglyphController {
   ): void;
   /** Merges live signal values and re-renders; pass `replace` to discard earlier overrides. */
   setSignals(signals: Variables, options?: { readonly replace?: boolean }): void;
+  /** The frame at `time` as SVG markup, with frame signals applied. */
+  frameSvg(time: number, options?: SvgRenderOptions): string;
+  /**
+   * PNG data URLs of every live surface that can capture `time`, keyed by node id. Surfaces render
+   * that time for it, so call it before `frameSvg(time)` when compositing an export.
+   */
+  surfaceSnapshots(time: number): Promise<ReadonlyMap<string, string>>;
   setReducedMotion(reduced: boolean): void;
   /** Enables or disables repetition without remounting the figure. */
   setLoop(loop: boolean): void;
@@ -571,6 +579,17 @@ class FigureRuntime implements KineglyphController {
   #seekOptions(time: number): { readonly signals?: Variables } {
     const signals = this.#frameSignalsAt(time);
     return signals === undefined ? {} : { signals };
+  }
+
+  frameSvg(time: number, options: SvgRenderOptions = {}): string {
+    this.#assertLive();
+    const clamped = Math.max(0, Math.min(this.#duration, time));
+    return renderSvg(seekTimeline(this.#resolved, clamped, this.#seekOptions(clamped)), options);
+  }
+
+  async surfaceSnapshots(time: number): Promise<ReadonlyMap<string, string>> {
+    this.#assertLive();
+    return this.#liveSurfaces?.snapshots(time) ?? new Map();
   }
 
   setSignals(signals: Variables, options: { readonly replace?: boolean } = {}): void {

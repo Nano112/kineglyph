@@ -10,6 +10,7 @@ import {
   type LiveSurfaceHandle,
   type LiveSurfaceRenderer,
   type LiveSurfaceUpdate,
+  LiveSurfaceManager,
 } from "../src/surfaces.js";
 
 const node = {
@@ -165,5 +166,44 @@ describe("videoSurface", () => {
     expect(pause).toHaveBeenCalled();
     mounted.destroy?.();
     expect(ctx.element.querySelector("video")).toBeNull();
+  });
+});
+
+describe("LiveSurfaceManager.snapshots", () => {
+  it("collects data URLs from surfaces that can capture", async () => {
+    const stage = document.createElement("div");
+    document.body.append(stage);
+    const manager = new LiveSurfaceManager(stage, scene, {
+      renderers: {
+        [node.id]: () => ({ capture: (time: number) => `data:image/png;base64,${time}` }),
+      },
+      theme: defaultTheme,
+      machineState: undefined,
+      signals: {},
+      time: 0,
+      playing: false,
+      send: () => undefined,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const snapshots = await manager.snapshots(450);
+    expect(snapshots.get(node.id)).toBe("data:image/png;base64,450");
+    manager.dispose();
+  });
+
+  it("is empty when no surface captures", async () => {
+    const stage = document.createElement("div");
+    document.body.append(stage);
+    const manager = new LiveSurfaceManager(stage, scene, {
+      renderers: { [node.id]: () => ({}) },
+      theme: defaultTheme,
+      machineState: undefined,
+      signals: {},
+      time: 0,
+      playing: false,
+      send: () => undefined,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await manager.snapshots(0)).size).toBe(0);
+    manager.dispose();
   });
 });

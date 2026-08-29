@@ -21,6 +21,8 @@ in-page: change the build, and the sheet follows.
 The Nucleation "basics" beacon: nine gold blocks in loop order, then a spinning beacon. Two
 anchors are recorded — the top of the beacon, and the first gold block placed — and the sheet's
 leaders track them as the blocks drop in. Drag the build to orbit it; the leaders stay attached.
+The Export menu's PNG and GIF include the textured build: the surface renders each export frame
+and takes the place of its static fallback image in the sheet.
 
 ```kineglyph live id=nucleation-beacon view=preview height=640
 import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kineglyph";

@@ -31,6 +31,9 @@ export interface LiveSurfaceUpdate {
   readonly time: number;
 }
 
+/** What a surface hands back for an export frame: a canvas-like source or a PNG data URL. */
+export type SurfaceCapture = CanvasImageSource | string | undefined;
+
 export interface LiveSurfaceHandle {
   /** Leave the static image visible and discard the HTML layer. */
   readonly mounted?: boolean;
@@ -39,6 +42,11 @@ export interface LiveSurfaceHandle {
   readonly update?: (next: LiveSurfaceUpdate) => void | Promise<void>;
   /** Playback changes are delivered even when no new timeline frame is emitted. */
   readonly playback?: (playing: boolean) => void | Promise<void>;
+  /**
+   * Render `time` and return it for compositing into an export. Optional: surfaces without it
+   * keep their static fallback image in exports.
+   */
+  readonly capture?: (time: number) => SurfaceCapture | Promise<SurfaceCapture>;
   readonly destroy?: () => void;
 }
 
@@ -182,6 +190,26 @@ export class LiveSurfaceManager {
     }
   }
 
+  /**
+   * Snapshots of every surface that can capture, keyed by node id, as PNG data URLs. Surfaces
+   * render `time` for it, so call this before rendering the frame that will embed them.
+   */
+  async snapshots(time: number): Promise<ReadonlyMap<string, string>> {
+    const out = new Map<string, string>();
+    for (const record of this.#records) {
+      const capture = record.handle?.capture;
+      if (!record.ready || capture === undefined) continue;
+      try {
+        const source = await capture(time);
+        const url = snapshotUrl(source, record.layer.ownerDocument);
+        if (url !== undefined) out.set(record.nodeId, url);
+      } catch (error) {
+        this.#options.onError?.(record.nodeId, error);
+      }
+    }
+    return out;
+  }
+
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
@@ -214,6 +242,7 @@ export interface FrameSurfaceAdapter<Target> {
     playing: boolean,
     signal: AbortSignal,
   ) => void | Promise<void>;
+  readonly capture?: (target: Target, time: number) => SurfaceCapture | Promise<SurfaceCapture>;
   readonly destroy?: (target: Target) => void;
 }
 
@@ -255,6 +284,9 @@ export function adaptLiveSurface<Target>(
         : {
             playback: (playing: boolean) => adapter.playback?.(target, playing, context.signal),
           }),
+      ...(adapter.capture === undefined
+        ? {}
+        : { capture: (time: number) => adapter.capture?.(target, time) }),
       destroy() {
         pending = undefined;
         adapter.destroy?.(target);
@@ -291,6 +323,7 @@ export interface BoundSignalSurfaceAdapter<Target> {
     playing: boolean,
     signal: AbortSignal,
   ) => void | Promise<void>;
+  readonly capture?: (target: Target, time: number) => SurfaceCapture | Promise<SurfaceCapture>;
   readonly destroy?: (target: Target) => void;
 }
 
@@ -365,6 +398,9 @@ export function bindLiveSurface<Target>(
       : {
           playback: (holder, playing, signal) => adapter.playback?.(holder.target, playing, signal),
         }),
+    ...(adapter.capture === undefined
+      ? {}
+      : { capture: (holder, time) => adapter.capture?.(holder.target, time) }),
     destroy(holder) {
       adapter.destroy?.(holder.target);
     },
@@ -447,6 +483,24 @@ export function videoSurface(options: VideoSurfaceOptions): LiveSurfaceRenderer 
       video.remove();
     },
   });
+}
+
+function snapshotUrl(source: SurfaceCapture, doc: Document): string | undefined {
+  if (source === undefined) return undefined;
+  if (typeof source === "string") return source;
+  const view = doc.defaultView;
+  if (view !== null && source instanceof view.HTMLCanvasElement)
+    return source.toDataURL("image/png");
+  const width = "width" in source && typeof source.width === "number" ? source.width : 0;
+  const height = "height" in source && typeof source.height === "number" ? source.height : 0;
+  if (width <= 0 || height <= 0) return undefined;
+  const canvas = doc.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (context === null) return undefined;
+  context.drawImage(source, 0, 0);
+  return canvas.toDataURL("image/png");
 }
 
 function normaliseHandle(

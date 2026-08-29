@@ -13,6 +13,7 @@ import {
   type ThemeTokens,
 } from "@kineglyph/core";
 import { renderSvg } from "@kineglyph/svg";
+import { composeSurfaceSnapshots } from "./compose.js";
 import { loadGifenc } from "./gifenc.js";
 import {
   autoplayAttr,
@@ -258,7 +259,11 @@ async function drawSvgFrame(
 }
 
 /** Browser-native GIF export: the same seekable scene is sampled without a server round-trip. */
-async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
+async function gifBlob(
+  doc: Document,
+  scene: ResolvedScene,
+  frameSvg: (time: number, index: number) => Promise<string>,
+): Promise<Blob> {
   const view = doc.defaultView;
   if (view === null) throw new Error("GIF export needs a browser window");
   const gifenc = await loadGifenc();
@@ -281,13 +286,7 @@ async function gifBlob(doc: Document, scene: ResolvedScene): Promise<Blob> {
   const encoder = gifenc.GIFEncoder({ auto: true });
 
   for (const [index, time] of times.entries()) {
-    const frame = seekTimeline(scene, time);
-    const svg = renderSvg(frame, {
-      idPrefix: `export-${scene.id}-frame-${index}`,
-      background: "none",
-      animateFlow: false,
-      effects: "portable",
-    });
+    const svg = await frameSvg(time, index);
     const rgba = await drawSvgFrame(doc, context, svg, width, height, scene.theme.background);
     const palette = gifenc.quantize(rgba, 256);
     const indexed = gifenc.applyPalette(rgba, palette);
@@ -713,6 +712,25 @@ class LabRuntime implements KineglyphLabController {
     return await this.#editorLoading;
   }
 
+  /** One export frame: live surfaces captured at `time`, then the frame with frame signals. */
+  async #compositeFrame(
+    scene: ResolvedScene,
+    time: number,
+    idPrefix: string,
+    doc: Document,
+  ): Promise<string> {
+    const options = {
+      idPrefix,
+      background: "none",
+      animateFlow: false,
+      effects: "portable",
+    } as const;
+    const controller = this.#figure;
+    if (controller === undefined) return renderSvg(seekTimeline(scene, time), options);
+    const snapshots = await controller.surfaceSnapshots(time);
+    return composeSurfaceSnapshots(controller.frameSvg(time, options), snapshots, doc);
+  }
+
   #setStatus(text: string, kind: "pending" | "success" | "error"): void {
     this.#status.textContent = text;
     this.#status.dataset.kind = kind;
@@ -747,14 +765,8 @@ class LabRuntime implements KineglyphLabController {
     this.#setStatus(`Preparing ${format.toUpperCase()}…`, "pending");
     try {
       const time = this.#figure?.state.time ?? scene.timeline?.duration ?? 0;
-      const frame = seekTimeline(scene, time);
-      const svg = renderSvg(frame, {
-        idPrefix: `export-${scene.id}`,
-        background: "none",
-        animateFlow: false,
-        effects: "portable",
-      });
       const doc = this.element.ownerDocument;
+      const svg = await this.#compositeFrame(scene, time, `export-${scene.id}`, doc);
       if (format === "svg") {
         const BlobConstructor = doc.defaultView?.Blob ?? Blob;
         downloadBlob(
@@ -768,7 +780,14 @@ class LabRuntime implements KineglyphLabController {
           await pngBlob(doc, svg, scene.width, scene.height),
           exportFileName(scene, format),
         );
-      } else downloadBlob(doc, await gifBlob(doc, scene), exportFileName(scene, format));
+      } else
+        downloadBlob(
+          doc,
+          await gifBlob(doc, scene, (frameTime, index) =>
+            this.#compositeFrame(scene, frameTime, `export-${scene.id}-frame-${index}`, doc),
+          ),
+          exportFileName(scene, format),
+        );
       this.#setStatus(`${format.toUpperCase()} downloaded`, "success");
     } catch (error) {
       this.#setStatus(message(error), "error");
