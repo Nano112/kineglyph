@@ -45,6 +45,15 @@ describe("parametric", () => {
     expect(params.machine.initial).toBe("tuning");
   });
 
+  it("rejects model signals that shadow a parameter name", () => {
+    expect(() =>
+      parametric(
+        { radius: { value: 300, label: "Radius", min: 100, max: 600 } },
+        (v: { radius: number }) => ({ radius: drafting.circle(1440, 900, v.radius) }),
+      ),
+    ).toThrow(/"radius" share a name with a parameter/);
+  });
+
   it("installs a valid machine and controls on a figure", () => {
     const definition = scene();
     expect(definition.machine?.variables).toEqual({ radius: 300, turns: 2 });

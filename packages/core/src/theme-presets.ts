@@ -325,6 +325,91 @@ export const draftingTheme: ThemeTokens = professionalTheme({
   ornament: { grid: "none", surface: "outlined", lineCap: "butt", eyebrow: true },
 });
 
+/**
+ * Architectural blueprint: white line work on Prussian-blue paper, amber reserved for what the
+ * sheet calls out. Same drafting typography and sheet chrome as `draftingTheme`.
+ */
+export const blueprintDraftingTheme: ThemeTokens = professionalTheme({
+  name: "blueprint-drafting",
+  colors: {
+    canvas: "#0a2140",
+    surface: "#133b66",
+    surfaceRaised: "#1b4b7e",
+    surfaceMuted: "#0e2c50",
+    text: "#f2f7ff",
+    textMuted: "#a3bedc",
+    accent: "#ffb454",
+    accentContrast: "#0a2140",
+    info: "#bcd7ff",
+    success: "#7fe0b7",
+    warning: "#ffd166",
+    danger: "#ff7b72",
+    connector: "#d2e2f6",
+    border: "#2c5c8e",
+    chart1: "#ffb454",
+    chart2: "#7fe0b7",
+    chart3: "#bcd7ff",
+    chart4: "#c9a5ff",
+    chart5: "#ff9ab0",
+    chart6: "#a3bedc",
+    chartPositive: "#7fe0b7",
+    chartNegative: "#ff7b72",
+    chartNeutral: "#a3bedc",
+  },
+  spacing: { xs: 4, sm: 8, md: 14, lg: 20, xl: 28, "2xl": 40 },
+  radii: { sm: 0, md: 0, lg: 0, pill: 0 },
+  typography: draftingType(),
+  motion: { fast: 120, normal: 320, slow: 900, easing: "easeInOut" },
+  strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.6 },
+  ornament: { grid: "none", surface: "outlined", lineCap: "butt", eyebrow: true },
+});
+
+/**
+ * Hand-drawn notes on cream paper: graphite ink, red and blue pencil for emphasis. Pair with the
+ * `sketch` material on the drawing layers for the wobble of a pen.
+ */
+export const paperDraftingTheme: ThemeTokens = professionalTheme({
+  name: "paper-drafting",
+  colors: {
+    canvas: "#e3dbc6",
+    surface: "#f3edde",
+    surfaceRaised: "#fbf7ec",
+    surfaceMuted: "#eae3d1",
+    text: "#26282c",
+    textMuted: "#6f6b62",
+    accent: "#b23a2a",
+    accentContrast: "#fbf7ec",
+    info: "#3b4f8e",
+    success: "#2f6b4e",
+    warning: "#9a6a1c",
+    danger: "#a83a30",
+    connector: "#3a3c42",
+    border: "#c9c1ab",
+    chart1: "#b23a2a",
+    chart2: "#3b4f8e",
+    chart3: "#2f6b4e",
+    chart4: "#7a5a9a",
+    chart5: "#9a6a1c",
+    chart6: "#6f6b62",
+    chartPositive: "#2f6b4e",
+    chartNegative: "#a83a30",
+    chartNeutral: "#8a8578",
+  },
+  spacing: { xs: 4, sm: 8, md: 14, lg: 20, xl: 28, "2xl": 40 },
+  radii: { sm: 0, md: 0, lg: 0, pill: 0 },
+  typography: draftingType(),
+  motion: { fast: 120, normal: 320, slow: 900, easing: "easeInOut" },
+  strokes: { hairline: 1, thin: 1.25, regular: 1.75, bold: 2.6 },
+  ornament: { grid: "none", surface: "outlined", lineCap: "butt", eyebrow: true },
+});
+
+/** The drafting palettes: graphite (the original wallpapers), blueprint, and paper. */
+export const draftingThemes = {
+  graphite: draftingTheme,
+  blueprint: blueprintDraftingTheme,
+  paper: paperDraftingTheme,
+} as const;
+
 /** Equipment manuals and field reports: compact typography, olive neutrals, safety orange. */
 export const fieldManualTheme: ThemeTokens = professionalTheme({
   name: "field-manual",

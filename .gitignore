@@ -7,3 +7,6 @@ apps/playground/.vite/
 .release/
 site/
 site.pgz
+
+# Rendered wallpapers (npm run render:drafting-sheets)
+docs/assets/drafting/

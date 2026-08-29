@@ -11,6 +11,7 @@
   <a href="./docs/authoring-api.md">Authoring API</a> ·
   <a href="./docs/materials-and-effects.md">Materials</a> ·
   <a href="./docs/drafting-sheets.md">Drafting sheets</a> ·
+  <a href="./docs/drafting-styles.md">Drafting styles</a> ·
   <a href="./packages/plot/README.md">Plots</a> ·
   <a href="./packages/web/README.md">Web runtime</a> ·
   <a href="./packages/export/README.md">Export</a>
@@ -175,7 +176,9 @@ The [drafting sheets](./docs/drafting-sheets.md) push the system furthest: a gra
 `draftingTheme`, a `drafting` toolkit (indexed frame, grained paper, raised cartouches with drop
 shadows, dimension lines, leaders, a hand-drawn `sketch` material), an `orbital` mechanics module,
 typeset TeX through `@kineglyph/math`, and host-side `deriveSignals` so a slider changes real physics
-while the entrance animation keeps playing.
+while the entrance animation keeps playing. The toolkit is palette-neutral: [Drafting
+styles](./docs/drafting-styles.md) puts the same primitives on blueprint and cream hand-drawn paper
+(`draftingThemes`).
 
 ```ts
 import {

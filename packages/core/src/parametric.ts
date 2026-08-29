@@ -39,9 +39,9 @@ export interface Parametric<V extends Record<string, number>, S extends Variable
   /** Machine event that sets each parameter, e.g. `SET_ALTITUDE`. */
   readonly events: Readonly<Record<keyof V, string>>;
   /** Recomputes the signals for a machine's variables; the `deriveSignals` hook for hosts. */
-  deriveSignals(variables: Variables): S;
+  deriveSignals: (variables: Variables) => S;
   /** Declares the machine and the range controls on a figure builder. */
-  install(f: FigureBuilder): void;
+  install: (f: FigureBuilder) => void;
   /** The machine definition (without id) and controls, for hand assembly. */
   readonly machine: Omit<StateMachineDefinition, "id">;
   readonly controls: readonly Omit<SceneControl, "id">[];
@@ -67,6 +67,13 @@ export function parametric<V extends Record<string, number>, S extends Variables
 ): Parametric<V, S> {
   const keys = Object.keys(spec) as (keyof V & string)[];
   const defaults = Object.fromEntries(keys.map((key) => [key, spec[key].value])) as V;
+  // A range control displays `signals[bind]`, so a model output named like its parameter would
+  // shadow the number with a path or label. Fail here, where the author can see it.
+  const collisions = keys.filter((key) => key in model(defaults));
+  if (collisions.length > 0)
+    throw new Error(
+      `parametric: model signal(s) ${collisions.map((key) => `"${key}"`).join(", ")} share a name with a parameter; rename the signal (for example "${collisions[0]}Path").`,
+    );
   const events = Object.fromEntries(keys.map((key) => [key, eventName(key)])) as Record<
     keyof V,
     string

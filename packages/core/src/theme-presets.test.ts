@@ -10,6 +10,7 @@ import {
   instrumentTheme,
   kineglyphTheme,
   professionalThemes,
+  draftingThemes,
   signalTheme,
 } from "./theme-presets.js";
 
@@ -27,6 +28,18 @@ const specimen = figure("theme-specimen", { title: "Release review" }, (f) => {
       frame: material("flat"),
     }),
   );
+});
+
+describe("drafting theme presets", () => {
+  it("ship three complete drafting palettes with distinct papers", () => {
+    const papers = Object.values(draftingThemes).map((theme) => theme.colors.canvas);
+    expect(new Set(papers).size).toBe(3);
+    for (const theme of Object.values(draftingThemes)) {
+      expect(declaredColorRoles(theme)).toEqual(declaredColorRoles(draftingThemes.graphite));
+      expect(theme.typography.label.family).toBe(draftingThemes.graphite.typography.label.family);
+      expect(theme.ornament.lineCap).toBe("butt");
+    }
+  });
 });
 
 describe("professional theme presets", () => {

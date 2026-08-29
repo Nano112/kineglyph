@@ -16,9 +16,13 @@ interface SheetModule {
 }
 
 const root = resolve(process.cwd(), "packages/core/src/zz-drafting-docs");
-const source = readFileSync(resolve(process.cwd(), "docs/drafting-sheets.md"), "utf8");
-const blocks = [...source.matchAll(/```kineglyph live id=([^\s]+)[^\n]*\n([\s\S]*?)```/g)].map(
-  ([, id, body]) => ({ id: id as string, body: body as string }),
+const PAGES = ["docs/drafting-sheets.md", "docs/drafting-styles.md"];
+const blocks = PAGES.flatMap((page) =>
+  [
+    ...readFileSync(resolve(process.cwd(), page), "utf8").matchAll(
+      /```kineglyph live id=([^\s]+)[^\n]*\n([\s\S]*?)```/g,
+    ),
+  ].map(([, id, body]) => ({ id: id as string, body: body as string })),
 );
 
 beforeAll(() => {
@@ -57,13 +61,15 @@ async function load(block: { id: string; body: string }): Promise<SheetModule> {
 }
 
 describe("drafting-sheets docs", () => {
-  it("documents five sheets", () => {
+  it("documents five sheets and two styles", () => {
     expect(blocks.map((block) => block.id)).toEqual([
       "drafting-hohmann",
       "drafting-elements",
       "drafting-ground-track",
       "drafting-libration",
       "drafting-ascent",
+      "drafting-style-blueprint",
+      "drafting-style-paper",
     ]);
   });
 

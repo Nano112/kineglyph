@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Renders every live sheet on docs/drafting-sheets.md as a 2880 × 1800 wallpaper PNG.
+ * Renders every live sheet on docs/drafting-sheets.md and docs/drafting-styles.md as a 2880 × 1800 wallpaper PNG.
  *
  * The sheets are authored for a ~960px docs column, so they are laid out at that width and
  * rasterised at 3× — text keeps its designed proportion instead of shrinking to a 2880px layout.
@@ -24,8 +24,13 @@ const only = option("only");
 const width = Number(option("width", "960"));
 const scale = Number(option("scale", "3"));
 
-const source = readFileSync(resolve(process.cwd(), "docs/drafting-sheets.md"), "utf8");
-const blocks = [...source.matchAll(/```kineglyph live id=([^\s]+)[^\n]*\n([\s\S]*?)```/g)]
+const pages = ["docs/drafting-sheets.md", "docs/drafting-styles.md"];
+const blocks = pages
+  .flatMap((page) => [
+    ...readFileSync(resolve(process.cwd(), page), "utf8").matchAll(
+      /```kineglyph live id=([^\s]+)[^\n]*\n([\s\S]*?)```/g,
+    ),
+  ])
   .map(([, id, body]) => ({ id, body }))
   .filter((block) => only === undefined || block.id === only);
 

@@ -735,8 +735,10 @@ is unit-testable without a scene.
 2880 × 1800 sheet space — frame, grids, grained paper, raised plates, dimensions, leaders,
 vectors, callouts — and `drafting.sheet(f, …)` assembles a whole sheet with the `draftingTheme`.
 `orbital` supplies two-body and three-body mechanics for the reference sheets. Formulas come from
-`@kineglyph/math` (`loadMath()` in `@kineglyph/web`) as single path marks. See
-[Drafting sheets](./drafting-sheets.md).
+`@kineglyph/math` (`loadMath()` in `@kineglyph/web`) as single path marks. Every primitive paints
+with semantic tokens, so `draftingThemes.blueprint` and `draftingThemes.paper` restyle a sheet
+without touching its code. See [Drafting sheets](./drafting-sheets.md) and
+[Drafting styles](./drafting-styles.md).
 
 ## External live signals
 
