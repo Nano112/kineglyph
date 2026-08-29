@@ -59,6 +59,7 @@ export interface KineglyphFigureProps {
   readonly signals?: Variables;
   /** Host-side derived signals, recomputed after every machine step (see `@kineglyph/web`). */
   readonly deriveSignals?: MountOptions["deriveSignals"];
+  readonly frameSignals?: MountOptions["frameSignals"];
   readonly onInspectChange?: (node: ResolvedNode | undefined, target?: InspectTarget) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
@@ -92,6 +93,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       initialState,
       signals,
       deriveSignals,
+      frameSignals,
       onInspectChange,
       onFrame,
       onPlaybackChange,
@@ -127,6 +129,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         ...(initialState === undefined ? {} : { initialState }),
         ...(signals === undefined ? {} : { signals }),
         ...(deriveSignals === undefined ? {} : { deriveSignals }),
+        ...(frameSignals === undefined ? {} : { frameSignals }),
         ...(className === undefined ? {} : { className }),
         onInspect: (target) => callbacksRef.current.onInspectChange?.(target?.node, target),
         onFrame: (frame) => callbacksRef.current.onFrame?.(frame),

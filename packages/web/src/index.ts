@@ -138,6 +138,14 @@ export interface MountOptions {
    * numerical roots, propagated trajectories — is computed while the scene stays plain data.
    */
   readonly deriveSignals?: (variables: Variables, signals: Variables) => Variables;
+  /**
+   * Frame signals: evaluated for every rendered frame with the scene time (ms) and the live
+   * signals, and applied at seek time to bound paths, text, opacity and visibility. Unlike
+   * `deriveSignals` (per machine step) this runs per frame without re-resolving the scene, so a
+   * live surface can report where its objects are and callouts follow them — in playback and in
+   * exported frames alike.
+   */
+  readonly frameSignals?: (time: number, signals: Variables) => Variables;
   readonly onSurfaceError?: (nodeId: string, error: unknown) => void;
   readonly onInspect?: (target: InspectTarget | undefined) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
@@ -216,6 +224,8 @@ export interface KineglyphController {
       readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>> | undefined;
       /** Replaces the derived-signal hook while swapping the scene. Omit to keep it. */
       readonly deriveSignals?: MountOptions["deriveSignals"] | undefined;
+      /** Replaces the frame-signal hook while swapping the scene. Omit to keep it. */
+      readonly frameSignals?: MountOptions["frameSignals"] | undefined;
     },
   ): void;
   /** Merges live signal values and re-renders; pass `replace` to discard earlier overrides. */
@@ -507,10 +517,19 @@ class FigureRuntime implements KineglyphController {
       readonly initialState?: MachineState;
       readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>> | undefined;
       readonly deriveSignals?: MountOptions["deriveSignals"] | undefined;
+      readonly frameSignals?: MountOptions["frameSignals"] | undefined;
     } = {},
   ): void {
     this.#assertLive();
     this.#source = scene;
+    if ("frameSignals" in options) {
+      const { frameSignals: _previousFrame, ...mountOptions } = this.#options;
+      void _previousFrame;
+      this.#options =
+        options.frameSignals === undefined
+          ? mountOptions
+          : { ...mountOptions, frameSignals: options.frameSignals };
+    }
     if ("liveSurfaces" in options) {
       const { liveSurfaces: _previousLiveSurfaces, ...mountOptions } = this.#options;
       void _previousLiveSurfaces;
@@ -540,6 +559,17 @@ class FigureRuntime implements KineglyphController {
     this.#deriveSignals();
     this.#resolved = this.#resolve();
     this.#render(true, true);
+  }
+
+  /** Frame signals for `time`, or undefined when the mount has none. */
+  #frameSignalsAt(time: number): Variables | undefined {
+    const frameSignals = this.#options.frameSignals;
+    return frameSignals === undefined ? undefined : frameSignals(time, this.#signals);
+  }
+
+  #seekOptions(time: number): { readonly signals?: Variables } {
+    const signals = this.#frameSignalsAt(time);
+    return signals === undefined ? {} : { signals };
   }
 
   setSignals(signals: Variables, options: { readonly replace?: boolean } = {}): void {
@@ -590,7 +620,8 @@ class FigureRuntime implements KineglyphController {
     } = {},
   ): string {
     this.#assertLive();
-    const frame = seekTimeline(this.#resolved, this.#reducedMotion ? this.#duration : this.#time);
+    const svgTime = this.#reducedMotion ? this.#duration : this.#time;
+    const frame = seekTimeline(this.#resolved, svgTime, this.#seekOptions(svgTime));
     const { crop = "scene", cropPadding = 0, ...renderOptions } = options;
     const bounds = resolvedSceneBounds(frame, crop, cropPadding);
     const svg = renderSvg(frame, renderOptions);
@@ -702,7 +733,7 @@ class FigureRuntime implements KineglyphController {
     const initialPlaying = resetTime
       ? this.#shouldAutoplay() && !this.#reducedMotion && this.#duration > 0
       : wasPlaying && !this.#reducedMotion;
-    const frame = seekTimeline(this.#resolved, initialTime);
+    const frame = seekTimeline(this.#resolved, initialTime, this.#seekOptions(initialTime));
     const drawing = patchStageSvg(
       this.stage,
       renderSvg(frame, {
@@ -763,6 +794,9 @@ class FigureRuntime implements KineglyphController {
       reducedMotion: this.#reducedMotion,
       loop: this.#options.loop ?? false,
       ambientFlow: this.#shouldAutoplay() && !this.#reducedMotion,
+      ...(this.#options.frameSignals === undefined
+        ? {}
+        : { frameSignals: (time: number) => this.#frameSignalsAt(time) ?? {} }),
       onFrame: (nextFrame) => {
         this.#time = nextFrame.time;
         this.#shaders?.seek(nextFrame.time);

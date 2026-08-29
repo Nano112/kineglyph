@@ -43,6 +43,8 @@ export interface KineglyphLabModuleResult {
   readonly setup?: KineglyphLabSetup;
   /** Host-side derived signals recomputed after every machine step (see `MountOptions`). */
   readonly deriveSignals?: MountOptions["deriveSignals"];
+  /** Frame signals evaluated per rendered frame (see `MountOptions`). */
+  readonly frameSignals?: MountOptions["frameSignals"];
 }
 export type KineglyphLabLoader = (
   source: string,
@@ -329,6 +331,7 @@ export async function loadKineglyphLabModule(
       setup?: unknown;
       liveSurfaces?: unknown;
       deriveSignals?: unknown;
+      frameSignals?: unknown;
     };
     if (mod.default === null || typeof mod.default !== "object")
       throw new Error("inline scene: no default export");
@@ -336,6 +339,8 @@ export async function loadKineglyphLabModule(
       throw new Error("inline scene: setup export must be a function");
     if (mod.deriveSignals !== undefined && typeof mod.deriveSignals !== "function")
       throw new Error("inline scene: deriveSignals export must be a function");
+    if (mod.frameSignals !== undefined && typeof mod.frameSignals !== "function")
+      throw new Error("inline scene: frameSignals export must be a function");
     if (mod.loop !== undefined && typeof mod.loop !== "boolean")
       throw new Error("inline scene: loop export must be a boolean");
     if (
@@ -353,6 +358,9 @@ export async function loadKineglyphLabModule(
       ...(mod.deriveSignals === undefined
         ? {}
         : { deriveSignals: mod.deriveSignals as MountOptions["deriveSignals"] }),
+      ...(mod.frameSignals === undefined
+        ? {}
+        : { frameSignals: mod.frameSignals as MountOptions["frameSignals"] }),
       ...(mod.liveSurfaces === undefined
         ? {}
         : {
@@ -618,6 +626,7 @@ class LabRuntime implements KineglyphLabController {
           doctor: this.#doctorEnabled,
           ...(loaded.liveSurfaces === undefined ? {} : { liveSurfaces: loaded.liveSurfaces }),
           ...(loaded.deriveSignals === undefined ? {} : { deriveSignals: loaded.deriveSignals }),
+          ...(loaded.frameSignals === undefined ? {} : { frameSignals: loaded.frameSignals }),
         });
       } else {
         if (nextTheme !== this.#theme) this.#figure.setTheme(nextTheme);
@@ -629,6 +638,7 @@ class LabRuntime implements KineglyphLabController {
         this.#figure.setScene(scene, {
           liveSurfaces: loaded.liveSurfaces,
           deriveSignals: loaded.deriveSignals,
+          frameSignals: loaded.frameSignals,
         });
       }
       this.#moduleCleanup?.();

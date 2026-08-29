@@ -9,6 +9,7 @@ import {
   type ResolvedNode,
   type ResolvedScene,
   type SegmentSnapshot,
+  type Variables,
 } from "@kineglyph/core";
 import {
   edgeDashArray,
@@ -301,12 +302,19 @@ export interface KineglyphSceneAnimatorOptions {
   readonly ambientFlow?: boolean;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
+  /**
+   * Frame signals: evaluated for every rendered frame and passed to `seekTimeline`, so bound
+   * paths, text, opacity and visibility can follow something that moves with time outside the
+   * timeline (a live surface reporting where its objects are).
+   */
+  readonly frameSignals?: (time: number) => Variables;
 }
 
 /** Anime.js clock compiled directly from a resolved scene's seekable core timeline. */
 export class KineglyphSceneAnimator {
   readonly #root: HTMLElement | SVGElement;
   #scene: ResolvedScene;
+  #frameSignals: ((time: number) => Variables) | undefined;
   readonly #scope: Scope;
   readonly #onFrame: KineglyphSceneAnimatorOptions["onFrame"];
   readonly #onPlaybackChange: KineglyphSceneAnimatorOptions["onPlaybackChange"];
@@ -325,6 +333,7 @@ export class KineglyphSceneAnimator {
     this.#scene = options.scene;
     this.#reducedMotion = options.reducedMotion ?? false;
     this.#onFrame = options.onFrame;
+    this.#frameSignals = options.frameSignals;
     this.#onPlaybackChange = options.onPlaybackChange;
     this.#loop = options.loop ?? false;
     this.#ambientFlow = options.ambientFlow ?? false;
@@ -559,7 +568,8 @@ export class KineglyphSceneAnimator {
   }
 
   #apply(time: number): ResolvedFrame {
-    const frame = seekTimeline(this.#scene, time);
+    const signals = this.#frameSignals?.(time);
+    const frame = seekTimeline(this.#scene, time, signals === undefined ? {} : { signals });
     if (this.#disposed) return frame;
     const accent = this.#scene.theme.accent;
     // Paint written here has to name its role exactly as the renderer's does, or the first frame

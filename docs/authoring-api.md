@@ -729,6 +729,23 @@ accepted by `mountKineglyph`, the React component, `resolveScene`, live-block ex
 export CLI (`--derive module#export`, `--var key=value`). The model stays a pure function, so it
 is unit-testable without a scene.
 
+## Frame signals
+
+Bound properties can also follow time. `frameSignals(time, signals)` is evaluated for every
+rendered frame — as a `mountKineglyph` option, a live-block export, or the React prop — and its
+values override `bind.path`, `bind.text`, `bind.opacity`, and `bind.hidden` at seek time, without
+re-resolving the scene. Where `deriveSignals` answers "the control changed", `frameSignals`
+answers "the clock moved": a live surface reporting where its objects are, a callout leader that
+lands with the block it points at. Because the override happens inside `seekTimeline`, exported
+frames agree with live playback.
+
+```ts
+mountKineglyph(element, {
+  scene,
+  frameSignals: (time) => ({ leader: leaderPathAt(time), placed: String(placedAt(time)) }),
+});
+```
+
 ## Drafting sheets and formulas
 
 `drafting` is the vocabulary of an engineering drawing as deterministic path data in a fixed
