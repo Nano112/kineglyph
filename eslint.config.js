@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/scripts/**/*.mjs",
       "examples/**",
       "site/**",
+      "docs/assets/nucleation/engine/**",
     ],
   },
   eslint.configs.recommended,

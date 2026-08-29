@@ -12,6 +12,7 @@
   <a href="./docs/materials-and-effects.md">Materials</a> ·
   <a href="./docs/drafting-sheets.md">Drafting sheets</a> ·
   <a href="./docs/drafting-styles.md">Drafting styles</a> ·
+  <a href="./docs/nucleation-builds.md">Build animations</a> ·
   <a href="./packages/plot/README.md">Plots</a> ·
   <a href="./packages/web/README.md">Web runtime</a> ·
   <a href="./packages/export/README.md">Export</a>
@@ -330,17 +331,18 @@ working [Laravel example](./examples/laravel-blade/README.md).
 
 ## Packages
 
-| Package             | Responsibility                                                    |
-| ------------------- | ----------------------------------------------------------------- |
-| `@kineglyph/core`   | scene schema, authoring, layout, edges, timelines, state machines |
-| `@kineglyph/svg`    | accessible scene SVGs plus runtime-free table microcharts         |
-| `@kineglyph/anime`  | scoped Anime.js frame application                                 |
-| `@kineglyph/plot`   | typed plots, scales, marks, axes, annotations, and stable handles |
-| `@kineglyph/web`    | controller, live signals, WebSocket feeds, and browser bundle     |
-| `@kineglyph/react`  | React component and imperative handle                             |
-| `@kineglyph/export` | SVG, PNG, GIF, and the `kineglyph-export` CLI                     |
-| `@kineglyph/scenes` | twelve catalogue scenes, shared recipes, and three themes         |
-| `@kineglyph/math`   | TeX formulas as deterministic path marks (MathJax, loaded lazily) |
+| Package                 | Responsibility                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `@kineglyph/core`       | scene schema, authoring, layout, edges, timelines, state machines                              |
+| `@kineglyph/svg`        | accessible scene SVGs plus runtime-free table microcharts                                      |
+| `@kineglyph/anime`      | scoped Anime.js frame application                                                              |
+| `@kineglyph/plot`       | typed plots, scales, marks, axes, annotations, and stable handles                              |
+| `@kineglyph/web`        | controller, live signals, WebSocket feeds, and browser bundle                                  |
+| `@kineglyph/react`      | React component and imperative handle                                                          |
+| `@kineglyph/export`     | SVG, PNG, GIF, and the `kineglyph-export` CLI                                                  |
+| `@kineglyph/scenes`     | twelve catalogue scenes, shared recipes, and three themes                                      |
+| `@kineglyph/math`       | TeX formulas as deterministic path marks (MathJax, loaded lazily)                              |
+| `@kineglyph/nucleation` | Nucleation build animations: animated-GLB frame source, three.js surface, anchor frame signals |
 
 ## Run the workbench
 

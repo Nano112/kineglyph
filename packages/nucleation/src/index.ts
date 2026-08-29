@@ -1,4 +1,4 @@
-export { anchorFrameSignals, anchorSignalDefaults } from "./anchors.js";
+export { EMPTY_PATH, anchorFrameSignals, anchorSignalDefaults } from "./anchors.js";
 export type { AnchorNote, AnchorSignalsOptions, SheetRect } from "./anchors.js";
 export {
   ISOMETRIC,

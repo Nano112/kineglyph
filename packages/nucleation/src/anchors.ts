@@ -11,6 +11,9 @@ import { project } from "./camera.js";
 import type { FrameSource } from "./frame-source.js";
 import type { BuildView } from "./surface.js";
 
+/** A degenerate path for hidden leaders — valid path data that draws nothing. */
+export const EMPTY_PATH = "M0 0";
+
 export interface AnchorNote {
   /** Anchor name as recorded in the build. */
   readonly anchor: string;
@@ -55,7 +58,7 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
   const hidden = (): Variables => {
     const out: Record<string, number | string> = { placed: 0, groups: 0 };
     for (const { note } of leaders) {
-      out[`leader.${note.anchor}`] = "";
+      out[`leader.${note.anchor}`] = EMPTY_PATH;
       out[`anchor.${note.anchor}.x`] = 0;
       out[`anchor.${note.anchor}.y`] = 0;
       out[`anchor.${note.anchor}.visible`] = 0;
@@ -101,7 +104,7 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
           visible = true;
         }
       }
-      out[`leader.${note.anchor}`] = visible ? leader(sx, sy) : "";
+      out[`leader.${note.anchor}`] = visible ? leader(sx, sy) : EMPTY_PATH;
       out[`anchor.${note.anchor}.x`] = visible ? Math.round(sx * 100) / 100 : 0;
       out[`anchor.${note.anchor}.y`] = visible ? Math.round(sy * 100) / 100 : 0;
       out[`anchor.${note.anchor}.visible`] = visible ? 1 : 0;
@@ -116,7 +119,7 @@ export function anchorSignalDefaults(
 ): Record<string, number | string> {
   const out: Record<string, number | string> = { placed: 0, groups: 0 };
   for (const note of notes) {
-    out[`leader.${note.anchor}`] = "";
+    out[`leader.${note.anchor}`] = EMPTY_PATH;
     out[`anchor.${note.anchor}.x`] = 0;
     out[`anchor.${note.anchor}.y`] = 0;
     out[`anchor.${note.anchor}.visible`] = 0;

@@ -10,3 +10,6 @@ site.pgz
 
 # Rendered wallpapers (npm run render:drafting-sheets)
 docs/assets/drafting/
+
+# Local copy of the Nucleation WASM engine (node scripts/sync-nucleation-engine.mjs)
+docs/assets/nucleation/engine/

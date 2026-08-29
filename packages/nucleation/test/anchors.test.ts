@@ -20,7 +20,7 @@ const notes = [{ anchor: "beacon", x: 2100, y: 400, side: "top-left" as const }]
 describe("anchorFrameSignals", () => {
   it("is hidden before the surface has rendered", () => {
     const signals = anchorFrameSignals({ view: () => undefined, frame, notes })(1000);
-    expect(signals["leader.beacon"]).toBe("");
+    expect(signals["leader.beacon"]).toBe("M0 0");
     expect(signals["anchor.beacon.visible"]).toBe(0);
     expect(signals.placed).toBe(0);
   });
@@ -29,7 +29,7 @@ describe("anchorFrameSignals", () => {
     const at = anchorFrameSignals({ view: () => view, frame, notes });
     const before = at(0);
     expect(before["anchor.beacon.visible"]).toBe(0);
-    expect(before["leader.beacon"]).toBe("");
+    expect(before["leader.beacon"]).toBe("M0 0");
     expect(before.groups).toBe(10);
     expect(before.placed).toBe(0);
 

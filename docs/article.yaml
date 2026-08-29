@@ -39,6 +39,7 @@ nav:
   - { title: Glyph style laboratory, page: glyph-style-lab.md }
   - { title: Drafting sheets, page: drafting-sheets.md }
   - { title: Drafting styles, page: drafting-styles.md }
+  - { title: Build animations, page: nucleation-builds.md }
   - { title: Build a CPU from bits, page: cpu-from-bits.md }
   - { title: Minecraft solar-system builder, page: minecraft-sdf-guide.md }
   - { title: Editorial infographic patterns, page: infographic-patterns.md }

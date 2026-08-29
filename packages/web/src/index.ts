@@ -57,6 +57,7 @@ import { LiveSurfaceManager, type LiveSurfaceRenderer } from "./surfaces.js";
 export { FIGURE_STYLES, STYLE_ID, ensureStyles } from "./styles.js";
 export * from "./surfaces.js";
 export * from "./math.js";
+export * from "./nucleation.js";
 export * from "./micro.js";
 export * from "./stream.js";
 export * from "./export.js";

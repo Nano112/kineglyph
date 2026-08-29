@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@kineglyph/web": ["./src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"]
 }
