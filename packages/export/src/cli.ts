@@ -7,10 +7,12 @@ import type {
   ResolvedScene,
   ResolvedSceneCrop,
   SceneDefinition,
+  ResolveSceneOptions,
   TextMeasurer,
   ThemeTokens,
 } from "@kineglyph/core";
 import {
+  createMachineState,
   resolvedSceneBounds,
   resolveMachineState,
   resolvePipeline,
@@ -47,6 +49,8 @@ Options:
   --crop-padding <units>      Padding around surface/content crop
   --layout <mode>             auto | wide | compact | narrow (stacked for pipelines)
   --state <id>                Machine state to resolve (scene definitions with a machine)
+  --var <key=value>           Override a machine variable before resolving (repeatable)
+  --derive <module>#<export>  deriveSignals(variables, signals) hook, as a live host would run
   --width-container <px>      Container width used to resolve pipeline definitions (default: 960)
   --font <path>               Font file for png/gif (repeatable)
   --shape-font <family=path>  HarfBuzz font for layout and png/gif (repeatable)
@@ -73,6 +77,8 @@ interface CliArgs {
   readonly cropPadding?: number;
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly state?: string;
+  readonly variables?: Readonly<Record<string, number | string | boolean>>;
+  readonly derive?: string;
   readonly containerWidth?: number;
   readonly fonts: readonly string[];
   readonly shapeFonts: readonly string[];
@@ -86,6 +92,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
   const positional: string[] = [];
   const values = new Map<string, string>();
   const fonts: string[] = [];
+  const variableFlags: string[] = [];
   const shapeFonts: string[] = [];
   let loop: boolean | undefined;
   let loadSystemFonts: boolean | undefined;
@@ -105,6 +112,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     "crop-padding",
     "layout",
     "state",
+    "var",
+    "derive",
     "width-container",
     "font",
     "shape-font",
@@ -142,6 +151,7 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
       if (value === undefined) throw new UsageError(`--${name} requires a value`);
       if (name === "font") fonts.push(value);
       else if (name === "shape-font") shapeFonts.push(value);
+      else if (name === "var") variableFlags.push(value);
       else values.set(name, value);
       continue;
     }
@@ -180,6 +190,8 @@ function parseArgs(argv: readonly string[]): CliArgs | "help" {
     ...optional("cropPadding", numeric("crop-padding", values.get("crop-padding"))),
     ...optional("layout", layout),
     ...optional("state", state),
+    ...(variableFlags.length === 0 ? {} : { variables: parseVariables(variableFlags) }),
+    ...optional("derive", values.get("derive")),
     ...optional("containerWidth", numeric("width-container", values.get("width-container"))),
     fonts,
     shapeFonts,
@@ -331,7 +343,36 @@ interface ResolveContext {
   readonly layout: LayoutName | "auto" | "stacked" | undefined;
   readonly theme: ThemeTokens | undefined;
   readonly state: string | undefined;
+  readonly variables: Readonly<Record<string, number | string | boolean>> | undefined;
+  readonly deriveSignals: ResolveSceneOptions["deriveSignals"] | undefined;
   readonly textMeasurer: TextMeasurer | undefined;
+}
+
+/** `key=value` pairs; numbers and booleans are parsed, everything else stays a string. */
+function parseVariables(flags: readonly string[]): Record<string, number | string | boolean> {
+  const out: Record<string, number | string | boolean> = {};
+  for (const flag of flags) {
+    const equals = flag.indexOf("=");
+    if (equals <= 0) throw new UsageError(`--var expects key=value, got "${flag}"`);
+    const key = flag.slice(0, equals).trim();
+    const raw = flag.slice(equals + 1).trim();
+    out[key] =
+      raw === "true"
+        ? true
+        : raw === "false"
+          ? false
+          : raw !== "" && Number.isFinite(Number(raw))
+            ? Number(raw)
+            : raw;
+  }
+  return out;
+}
+
+async function loadDerive(spec: string | undefined): Promise<ResolveSceneOptions["deriveSignals"]> {
+  if (spec === undefined) return undefined;
+  const value = await loadExport(spec);
+  if (typeof value !== "function") throw new UsageError(`--derive ${spec} is not a function`);
+  return value as NonNullable<ResolveSceneOptions["deriveSignals"]>;
 }
 
 async function loadScene(spec: string, context: ResolveContext): Promise<ResolvedScene> {
@@ -341,10 +382,16 @@ async function loadScene(spec: string, context: ResolveContext): Promise<Resolve
   }
   if (isResolvedScene(value)) return value;
   if (isSceneDefinition(value)) {
-    const machineState =
+    const base =
       context.state === undefined || value.machine === undefined
-        ? undefined
+        ? value.machine === undefined || context.variables === undefined
+          ? undefined
+          : createMachineState(value.machine)
         : resolveMachineState(value.machine, context.state);
+    const machineState =
+      base === undefined || context.variables === undefined
+        ? base
+        : { ...base, variables: { ...base.variables, ...context.variables } };
     return resolveScene(value, {
       width: context.width,
       ...(context.layout === undefined
@@ -352,6 +399,7 @@ async function loadScene(spec: string, context: ResolveContext): Promise<Resolve
         : { layout: context.layout === "stacked" ? "compact" : context.layout }),
       ...(context.theme === undefined ? {} : { theme: context.theme }),
       ...(machineState === undefined ? {} : { machineState }),
+      ...(context.deriveSignals === undefined ? {} : { deriveSignals: context.deriveSignals }),
       ...(context.textMeasurer === undefined ? {} : { textMeasurer: context.textMeasurer }),
     });
   }
@@ -422,10 +470,14 @@ export async function runExport(argv: readonly string[]): Promise<number> {
   const containerWidth = parsed.containerWidth ?? preset.containerWidth ?? 960;
   const layout = parsed.layout ?? preset.layout;
   const state = parsed.state ?? preset.state;
+  const variables = parsed.variables ?? preset.variables;
+  const deriveSignals = await loadDerive(parsed.derive ?? preset.derive);
   const scene = await loadScene(sceneSpec, {
     width: containerWidth,
     layout,
     state,
+    variables,
+    deriveSignals,
     theme,
     textMeasurer: shapedFonts,
   });

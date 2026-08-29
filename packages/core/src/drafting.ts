@@ -630,6 +630,88 @@ export function plate(
   ];
 }
 
+export interface CalloutOptions extends AnnotationOptions {
+  /** Length of the horizontal stub between the leader and the text (sheet units). */
+  readonly stub?: number;
+}
+
+export interface Callout {
+  /** The annotation block, already placed. */
+  readonly node: GroupNode;
+  /**
+   * Leader path data from a point on the drawing to the block's head line. Call it inside the
+   * model so the leader follows the point; draw the result as a stroke-only layer.
+   */
+  leader(px: number, py: number): string;
+}
+
+/**
+ * The leader for a callout placed at (x, y) with `anchor`, as a function of the point on the
+ * drawing. Pure geometry, so a model can call it before the figure exists.
+ */
+export function calloutLeader(
+  x: number,
+  y: number,
+  anchor: Anchor = "top-left",
+  stub = 34,
+): (px: number, py: number) => string {
+  const fromRight = anchor.endsWith("right") || anchor === "right";
+  const gap = 8;
+  const tx = fromRight ? x + gap + stub : x - gap - stub;
+  const ty = y + 34;
+  return (px, py) => leader(px, py, tx, ty, { stub: fromRight ? -stub : stub });
+}
+
+export interface BoundHelpers {
+  /** A full-sheet layer whose path is bound to `signals[key]`; other bindings (tone, …) merge. */
+  layer(key: string, options?: LayerOptions): PathMark;
+  /** Text bound to `signals[key]`, in `code` style by default. */
+  text(key: string, x: number, y: number, anchor?: Anchor, options?: SheetTextOptions): TextMark;
+}
+
+/**
+ * Helpers for the common case of one signal per layer: the node id, the initial value, and the
+ * binding all come from the same key.
+ */
+export function bound(f: FigureBuilder, signals: Readonly<Record<string, unknown>>): BoundHelpers {
+  const initial = (key: string): string => {
+    const value = signals[key];
+    if (typeof value !== "string") throw new Error(`bound signal "${key}" is not a string`);
+    return value;
+  };
+  return {
+    layer: (key, options = {}) =>
+      layer(f, initial(key), { id: key, ...options, bind: { path: key } }),
+    text: (key, x, y, anchor = "top-left", options = {}) =>
+      text(f, initial(key), x, y, anchor, {
+        id: key,
+        style: "code",
+        tone: "textMuted",
+        ...options,
+        bind: { text: key },
+      }),
+  };
+}
+
+/**
+ * An annotation with its leader convention baked in: the block is anchored at (x, y) and the
+ * leader lands on the head line's near end, coming from the drawing side of the text.
+ */
+export function callout(
+  f: FigureBuilder,
+  x: number,
+  y: number,
+  lines: readonly AnnotationLine[],
+  options: CalloutOptions = {},
+): Callout {
+  const { stub = 34, ...rest } = options;
+  const anchor = rest.anchor ?? "top-left";
+  return {
+    node: annotation(f, x, y, lines, { ...rest, anchor }),
+    leader: calloutLeader(x, y, anchor, stub),
+  };
+}
+
 export interface SheetOptions {
   readonly id?: string;
   readonly title: string;
@@ -813,5 +895,8 @@ export const drafting = {
   text,
   math,
   annotation,
+  callout,
+  calloutLeader,
+  bound,
   sheet,
 } as const;

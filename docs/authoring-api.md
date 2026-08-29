@@ -702,6 +702,42 @@ compiler and return `{ fragment, handles, domains, ticks, description, diagnosti
 - Determinism: equal input → byte-identical fragment; category order and domains are frozen and
   reported in `domains`/`ticks`.
 
+## Parametric figures
+
+A figure whose geometry follows a few numeric inputs is one declaration:
+
+```ts
+import { drafting, figure, parametric } from "@kineglyph/core";
+
+const model = (v: { radius: number }) => ({ orbit: drafting.circle(1440, 900, v.radius) });
+const params = parametric(
+  { radius: { value: 300, label: "Radius (px)", min: 100, max: 600, step: 10 } },
+  model,
+);
+
+export const deriveSignals = params.deriveSignals;
+export default figure("orbit", { title: "Orbit", signals: params.signals }, (f) => {
+  const { layer } = drafting.bound(f, params.signals);
+  f.root(drafting.sheet(f, { title: "Orbit", layers: [layer("orbit", { stroke: "accent" })] }));
+  params.install(f);
+});
+```
+
+`parametric` writes the state machine (one `SET_<KEY>` event per parameter), the range controls,
+and the initial signals; `deriveSignals` recomputes the model after every control change and is
+accepted by `mountKineglyph`, the React component, `resolveScene`, live-block exports, and the
+export CLI (`--derive module#export`, `--var key=value`). The model stays a pure function, so it
+is unit-testable without a scene.
+
+## Drafting sheets and formulas
+
+`drafting` is the vocabulary of an engineering drawing as deterministic path data in a fixed
+2880 × 1800 sheet space — frame, grids, grained paper, raised plates, dimensions, leaders,
+vectors, callouts — and `drafting.sheet(f, …)` assembles a whole sheet with the `draftingTheme`.
+`orbital` supplies two-body and three-body mechanics for the reference sheets. Formulas come from
+`@kineglyph/math` (`loadMath()` in `@kineglyph/web`) as single path marks. See
+[Drafting sheets](./drafting-sheets.md).
+
 ## External live signals
 
 A figure that receives values from application state or a network feed declares its binding keys

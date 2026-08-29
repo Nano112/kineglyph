@@ -13,6 +13,7 @@ import {
   evaluateSignals,
   validateStateMachine,
   type MachineState,
+  type Variables,
   type VariableValue,
 } from "./machine.js";
 import {
@@ -67,6 +68,15 @@ export interface ResolveSceneOptions {
   readonly machineState?: MachineState;
   /** Extra or overriding signal values, useful for tests and export snapshots. */
   readonly signals?: Readonly<Record<string, VariableValue>>;
+  /**
+   * Host-side derived signals: called with the machine's variables (the resolved state's, or
+   * the machine's initial ones) and merged before `signals`. Mirrors the mount option in
+   * `@kineglyph/web` so exports and tests can resolve a parametric figure at any control value.
+   */
+  readonly deriveSignals?: (
+    variables: Variables,
+    signals: Readonly<Record<string, VariableValue>>,
+  ) => Readonly<Record<string, VariableValue>>;
   readonly precision?: number;
   /** Embedded-font shaper used for exact text widths and line breaks. */
   readonly textMeasurer?: TextMeasurer;
@@ -1902,6 +1912,11 @@ export function resolveScene(input: SceneDefinition, options: ResolveSceneOption
     machineState = options.machineState ?? createMachineState(scene.machine);
     signals = { ...signals, ...evaluateSignals(scene.machine, machineState) };
   }
+  if (options.deriveSignals !== undefined)
+    signals = {
+      ...signals,
+      ...options.deriveSignals(machineState?.variables ?? scene.machine?.variables ?? {}, signals),
+    };
   if (options.signals !== undefined) signals = { ...signals, ...options.signals };
   checkBindings(scene, signals, diagnostics);
 
@@ -2166,6 +2181,7 @@ export interface ResolveFigureOptions {
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly machineState?: MachineState;
   readonly signals?: Readonly<Record<string, VariableValue>>;
+  readonly deriveSignals?: ResolveSceneOptions["deriveSignals"];
   readonly precision?: number;
   readonly textMeasurer?: TextMeasurer;
 }
@@ -2183,6 +2199,7 @@ export function resolveFigure(source: FigureSource, options: ResolveFigureOption
       ...(options.theme === undefined ? {} : { theme: options.theme }),
       ...(options.machineState === undefined ? {} : { machineState: options.machineState }),
       ...(options.signals === undefined ? {} : { signals: options.signals }),
+      ...(options.deriveSignals === undefined ? {} : { deriveSignals: options.deriveSignals }),
       ...(options.precision === undefined ? {} : { precision: options.precision }),
       ...(options.textMeasurer === undefined ? {} : { textMeasurer: options.textMeasurer }),
     });

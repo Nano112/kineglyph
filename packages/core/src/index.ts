@@ -43,6 +43,7 @@ export * from "./seek.js";
 export * from "./spec.js";
 export * from "./text.js";
 export * from "./technical-diagrams.js";
+export * from "./parametric.js";
 // Drafting and orbital helpers are namespaced: their short names (`grid`, `text`, `period`, …)
 // would otherwise collide with the general recipes.
 export {
@@ -53,6 +54,9 @@ export {
   sketchMaterial,
   type AnnotationLine,
   type AnnotationOptions,
+  type BoundHelpers,
+  type Callout,
+  type CalloutOptions,
   type Dimension,
   type DimensionOptions,
   type Frame,

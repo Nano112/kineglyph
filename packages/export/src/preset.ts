@@ -19,6 +19,10 @@ export interface ExportPreset {
   readonly cropPadding?: number;
   readonly layout?: LayoutName | "auto" | "stacked";
   readonly state?: string;
+  /** Machine variable overrides applied on top of the resolved state (`--var key=value`). */
+  readonly variables?: Readonly<Record<string, number | string | boolean>>;
+  /** `module#export` naming a `deriveSignals(variables, signals)` function (`--derive`). */
+  readonly derive?: string;
   readonly containerWidth?: number;
   readonly fonts?: readonly string[];
   readonly shapeFonts?: readonly EmbeddedFontSource[];

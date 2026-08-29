@@ -12,6 +12,7 @@ import type {
 } from "@kineglyph/core";
 import {
   mountKineglyph,
+  type MountOptions,
   type AutoplaySetting,
   type FigureLayoutRequest,
   type InspectTarget,
@@ -56,6 +57,8 @@ export interface KineglyphFigureProps {
   readonly initialState?: MachineState;
   /** External live-signal values; prop changes patch the mounted figure without remounting it. */
   readonly signals?: Variables;
+  /** Host-side derived signals, recomputed after every machine step (see `@kineglyph/web`). */
+  readonly deriveSignals?: MountOptions["deriveSignals"];
   readonly onInspectChange?: (node: ResolvedNode | undefined, target?: InspectTarget) => void;
   readonly onFrame?: (frame: ResolvedFrame) => void;
   readonly onPlaybackChange?: (playing: boolean) => void;
@@ -88,6 +91,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
       idPrefix,
       initialState,
       signals,
+      deriveSignals,
       onInspectChange,
       onFrame,
       onPlaybackChange,
@@ -122,6 +126,7 @@ export const KineglyphFigure = forwardRef<KineglyphFigureHandle, KineglyphFigure
         ...(idPrefix === undefined ? {} : { idPrefix }),
         ...(initialState === undefined ? {} : { initialState }),
         ...(signals === undefined ? {} : { signals }),
+        ...(deriveSignals === undefined ? {} : { deriveSignals }),
         ...(className === undefined ? {} : { className }),
         onInspect: (target) => callbacksRef.current.onInspectChange?.(target?.node, target),
         onFrame: (frame) => callbacksRef.current.onFrame?.(frame),

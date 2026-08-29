@@ -30,6 +30,22 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/** Pairs of text nodes whose boxes overlap by more than a third of a line — adjacent table rows touch by a pixel or two of line box without colliding. */
+function textOverlaps(resolved: ReturnType<typeof resolveScene>): string[] {
+  const texts = resolved.nodes.filter((node) => node.text !== undefined && node.width > 0);
+  const found: string[] = [];
+  for (let i = 0; i < texts.length; i += 1)
+    for (let j = i + 1; j < texts.length; j += 1) {
+      const a = texts[i]!;
+      const b = texts[j]!;
+      const dx = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+      const dy = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+      if (dx > 2 && dy > Math.min(a.height, b.height) * 0.35)
+        found.push(`${a.id} × ${b.id} (${Math.round(dx)}×${Math.round(dy)}px)`);
+    }
+  return found;
+}
+
 async function load(block: { id: string; body: string }): Promise<SheetModule> {
   const file = resolve(root, `${block.id}.mjs`);
   writeFileSync(
@@ -60,6 +76,9 @@ describe("drafting-sheets docs", () => {
         expect(problems, `${block.id} @${width}`).toEqual([]);
         const sheet = resolved.nodes.find((node) => node.id === "sheet");
         expect(sheet?.height).toBeCloseTo(width * 0.625, 1);
+        // Type does not scale with the sheet, so overlaps are a property of the width. The docs
+        // column is ~615px; guard the widths the sheets are designed for.
+        if (width >= 640) expect(textOverlaps(resolved), `${block.id} @${width}`).toEqual([]);
       }
       const variables = { ...(mod.default.machine?.variables ?? {}) };
       for (const control of mod.default.controls ?? []) {

@@ -41,7 +41,7 @@ The transfer ellipse, both burns, the dimensions, and the Δv budget follow. The
 the same scale as the orbits.
 
 ```kineglyph live id=drafting-hohmann view=preview height=640
-import { drafting as D, draftingTheme, figure, loadMath, orbital as O } from "kineglyph";
+import { drafting as D, draftingTheme, figure, loadMath, orbital as O, parametric } from "kineglyph";
 
 export const theme = draftingTheme;
 const math = await loadMath();
@@ -87,12 +87,12 @@ function model(vars) {
     craftVector: D.vector(s.x, s.y, s.x + 140 * Math.cos(heading), s.y + 140 * Math.sin(heading)),
     dims: `${d1.d} ${d2.d} ${d3.d}`,
     leadAmber: [
-      D.leader(peri.x, peri.y - 118, 782, 440, { stub: -34 }),
-      D.leader(ell.x, ell.y, 1958, 560),
-      D.leader(apo.x, apo.y + 118, 1958, 900),
+      D.calloutLeader(824, 406, "top-right")(peri.x, peri.y - 118),
+      D.calloutLeader(1916, 526, "top-left")(ell.x, ell.y),
+      D.calloutLeader(1916, 866, "top-left")(apo.x, apo.y + 118),
     ].join(" "),
-    leadInk: `${D.leader(park.x, park.y, 782, 1144, { stub: -34 })} ${D.leader(targ.x, targ.y, 1958, 1200)}`,
-    leadGreen: D.leader(s.x, s.y, 782, 780, { stub: -34 }),
+    leadInk: `${D.calloutLeader(824, 1110, "top-right")(park.x, park.y)} ${D.calloutLeader(1916, 1166, "top-left")(targ.x, targ.y)}`,
+    leadGreen: D.calloutLeader(824, 746, "top-right")(s.x, s.y),
     dimR1: `r₁ ${km(r1)}`,
     dimR2: `r₂ ${km(r2)}`,
     dim2a: `2a ${km(2 * t.a)}`,
@@ -114,8 +114,16 @@ function model(vars) {
   };
 }
 
-const defaults = { altitude: 400, target: 42164, nu: 132 };
-export const deriveSignals = (vars) => model({ ...defaults, ...vars });
+const params = parametric(
+{
+  altitude: { value: 400, label: "Parking altitude (km)", min: 200, max: 2000, step: 50 },
+  target: { value: 42164, label: "Target radius (km)", min: 8000, max: 60000, step: 500 },
+  nu: { value: 132, label: "Spacecraft ν (°)", min: 0, max: 180, step: 1 },
+},
+  model,
+  { group: "transfer" },
+);
+export const deriveSignals = params.deriveSignals;
 
 export default figure("drafting-hohmann", {
   title: "Hohmann transfer",
@@ -123,10 +131,10 @@ export default figure("drafting-hohmann", {
   background: "canvas",
   padding: 0,
   hold: 900,
-  signals: model(defaults),
+  signals: params.signals,
 }, (f) => {
-  const s = model(defaults);
-  const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
+  const s = params.signals;
+  const { layer: L, text: T } = D.bound(f, s);
   const spokes = L("spokes", { stroke: "textMuted", strokeWidth: 0.7, opacity: 0.16 });
   const cross = D.layer(f, D.crosshair(CX, CY), { id: "centre", strokeWidth: 0.8, opacity: 0.45 });
   const target = D.layer(f, D.circle(CX, CY, R2PX), { id: "target", strokeWidth: 1.3, opacity: 0.44, dash: "dashed" });
@@ -148,9 +156,8 @@ export default figure("drafting-hohmann", {
   const leadAmber = L("leadAmber", { fill: "none", stroke: "accent", strokeWidth: 0.8, opacity: 0.55 });
   const leadInk = L("leadInk", { fill: "none", stroke: "text", strokeWidth: 0.8, opacity: 0.5 });
   const leadGreen = L("leadGreen", { fill: "none", stroke: "success", strokeWidth: 0.8, opacity: 0.55 });
-  const T = (key, x, y, anchor) => D.text(f, s[key], x, y, anchor, { id: key, bind: { text: key }, style: "code", tone: "textMuted" });
   const dimLabels = [T("dimR1", CX - 130, CY + 134, "top-right"), T("dimR2", CX + 300, CY + 168, "bottom"), T("dim2a", CX + 180, CY - 310, "bottom")];
-  const note = (id, x, y, anchor, lines, tone) => D.annotation(f, x, y, lines, { id, anchor, tone });
+  const note = (id, x, y, anchor, lines, tone) => D.callout(f, x, y, lines, { id, anchor, tone }).node;
   const notes = [
     note("burn1", 740, 406, "top-right", ["BURN 1 — INJECTION", { text: s.burn1b, bind: "burn1b" }, { text: s.burn1c, bind: "burn1c" }], "accent"),
     note("craft", 740, 746, "top-right", ["SPACECRAFT", { text: s.craftb, bind: "craftb" }, { text: s.craftc, bind: "craftc" }], "success"),
@@ -169,8 +176,8 @@ export default figure("drafting-hohmann", {
   f.root(D.sheet(f, {
     id: "sheet",
     title: "Hohmann transfer",
-    subtitle: "Minimum-energy coplanar transfer  /  parking → target",
-    ident: "Sheet 1 of 5 · Rev D · to scale",
+    subtitle: "Minimum-energy coplanar transfer  /  parking → target  ·  to scale",
+    ident: "Sheet 1 of 5 · Rev D",
     seed: 11,
     titleBlock: { title: "Sheet 01 — Transfer", rows: [["Frame", "ECI J2000"], ["Method", "Impulsive 2-body"], ["Drawn", "Kineglyph"]] },
     layers: [
@@ -190,21 +197,7 @@ export default figure("drafting-hohmann", {
     [f.progress([leadAmber, leadInk, leadGreen], { duration: 500 }), f.reveal([...notes, ...visviva, facts, f1], { duration: 320, stagger: 70 })],
   ], { gap: 90 });
 
-  f.machine({
-    initial: "drafting",
-    variables: { ...defaults },
-    states: { drafting: { on: {
-      SET_ALTITUDE: { target: "drafting", actions: [{ type: "set", var: "altitude", value: { fromEvent: true } }] },
-      SET_TARGET: { target: "drafting", actions: [{ type: "set", var: "target", value: { fromEvent: true } }] },
-      SET_NU: { target: "drafting", actions: [{ type: "set", var: "nu", value: { fromEvent: true } }] },
-    } } },
-  });
-  f.controls([
-    { label: "Parking altitude (km)", kind: "range", event: "SET_ALTITUDE", bind: "altitude", min: 200, max: 2000, step: 50, group: "transfer" },
-    { label: "Target radius (km)", kind: "range", event: "SET_TARGET", bind: "target", min: 8000, max: 60000, step: 500, group: "transfer" },
-    { label: "Spacecraft ν (°)", kind: "range", event: "SET_NU", bind: "nu", min: 0, max: 180, step: 1, group: "transfer" },
-    { label: "Reset", kind: "reset", group: "transfer" },
-  ]);
+  params.install(f);
 });
 ```
 
@@ -215,7 +208,7 @@ the auxiliary circle, and two swept sectors of equal area. Raise the eccentricit
 apoapsis sector stretch to keep the same area as the periapsis one.
 
 ```kineglyph live id=drafting-elements view=preview height=640
-import { drafting as D, draftingTheme, figure, loadMath, orbital as O } from "kineglyph";
+import { drafting as D, draftingTheme, figure, loadMath, orbital as O, parametric } from "kineglyph";
 
 export const theme = draftingTheme;
 const math = await loadMath();
@@ -269,9 +262,9 @@ function model(vars) {
     nuArc: D.arc(F1.x, F1.y, 150, 180, 180 + nuSpan),
     eArc: D.arc(CX, CY, 112, 180, 180 + eSpan),
     dims: `${dA.d} ${dB.d} ${dC.d}`,
-    leadGreen: D.leader(P.x, P.y, 602, 430, { stub: -34 }),
-    leadViolet: D.leader(...Object.values(D.ellipsePoint(CX, CY, A, B, 0, 28)), 1958, 1234),
-    leadAmber: `${D.leader(peri.x, peri.y, 602, 1174, { stub: -34 })} ${D.leader(apo.x, apo.y, 1958, 1094)}`,
+    leadGreen: D.calloutLeader(644, 396, "top-right")(P.x, P.y),
+    leadViolet: D.calloutLeader(2000, 1200, "top-left")(...Object.values(D.ellipsePoint(CX, CY, A, B, 0, 28))),
+    leadAmber: `${D.calloutLeader(644, 1140, "top-right")(peri.x, peri.y)} ${D.calloutLeader(1916, 1060, "top-left")(apo.x, apo.y)}`,
     dimA: `a ${km(A_KM)}`,
     dimB: `b ${km(A_KM * Math.sqrt(1 - e * e))}`,
     dimC: `c = a·e`,
@@ -292,8 +285,15 @@ function model(vars) {
   };
 }
 
-const defaults = { e: 0.6896, nu: 235 };
-export const deriveSignals = (vars) => model({ ...defaults, ...vars });
+const params = parametric(
+{
+  e: { value: 0.6896, label: "Eccentricity e", min: 0.05, max: 0.9, step: 0.01 },
+  nu: { value: 235, label: "True anomaly ν (°)", min: 0, max: 359, step: 1 },
+},
+  model,
+  { group: "elements" },
+);
+export const deriveSignals = params.deriveSignals;
 
 export default figure("drafting-elements", {
   title: "Orbital elements",
@@ -301,10 +301,10 @@ export default figure("drafting-elements", {
   background: "canvas",
   padding: 0,
   hold: 900,
-  signals: model(defaults),
+  signals: params.signals,
 }, (f) => {
-  const s = model(defaults);
-  const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
+  const s = params.signals;
+  const { layer: L, text: T } = D.bound(f, s);
   const sectors = L("sectors", { fill: "info", stroke: "info", strokeWidth: 0.8, opacity: 0.16 });
   const aux = D.layer(f, D.circle(CX, CY, A), { id: "aux-circle", stroke: "textMuted", strokeWidth: 0.8, opacity: 0.26, dash: "dashed" });
   const ellipse = L("ellipse", { strokeWidth: 2, opacity: 0.88 });
@@ -324,7 +324,6 @@ export default figure("drafting-elements", {
   const leadGreen = L("leadGreen", { fill: "none", stroke: "success", strokeWidth: 0.8, opacity: 0.55 });
   const leadViolet = L("leadViolet", { fill: "none", stroke: "info", strokeWidth: 0.8, opacity: 0.55 });
   const leadAmber = L("leadAmber", { fill: "none", stroke: "accent", strokeWidth: 0.8, opacity: 0.55 });
-  const T = (key, x, y, anchor) => D.text(f, s[key], x, y, anchor, { id: key, bind: { text: key }, style: "code", tone: "textMuted" });
   const labels = [
     T("dimA", CX + 300, CY - 94, "bottom"),
     T("dimB", CX - 100, CY - 260, "right"),
@@ -333,7 +332,7 @@ export default figure("drafting-elements", {
     D.text(f, "E", CX - 60, CY - 150, "center", { style: "code", tone: "textMuted" }),
     D.text(f, "ν", CX - 414 - 200, CY - 120, "center", { style: "body", tone: "success" }),
   ];
-  const note = (id, x, y, anchor, lines, tone) => D.annotation(f, x, y, lines, { id, anchor, tone });
+  const note = (id, x, y, anchor, lines, tone) => D.callout(f, x, y, lines, { id, anchor, tone }).node;
   const notes = [
     note("state", 560, 396, "top-right", ["SPACECRAFT", { text: s.stateb, bind: "stateb" }, { text: s.statec, bind: "statec" }, { text: s.stated, bind: "stated" }], "success"),
     note("areas", 2000, 1200, "top-left", ["EQUAL AREAS", { text: s.areab, bind: "areab" }, { text: s.areac, bind: "areac" }], "info"),
@@ -380,19 +379,7 @@ export default figure("drafting-elements", {
     [f.progress([leadGreen, leadViolet, leadAmber], { duration: 500 }), f.reveal([...notes, ...table, ...equations, facts], { duration: 320, stagger: 40 })],
   ], { gap: 80 });
 
-  f.machine({
-    initial: "drafting",
-    variables: { ...defaults },
-    states: { drafting: { on: {
-      SET_E: { target: "drafting", actions: [{ type: "set", var: "e", value: { fromEvent: true } }] },
-      SET_NU: { target: "drafting", actions: [{ type: "set", var: "nu", value: { fromEvent: true } }] },
-    } } },
-  });
-  f.controls([
-    { label: "Eccentricity e", kind: "range", event: "SET_E", bind: "e", min: 0.05, max: 0.9, step: 0.01, group: "elements" },
-    { label: "True anomaly ν (°)", kind: "range", event: "SET_NU", bind: "nu", min: 0, max: 359, step: 1, group: "elements" },
-    { label: "Reset", kind: "reset", group: "elements" },
-  ]);
+  params.install(f);
 });
 ```
 
@@ -403,7 +390,7 @@ latitude envelope at ±i. Inclination, altitude, and how many revolutions to pro
 summary reads the period, mean motion, and J2 nodal regression off the same orbit.
 
 ```kineglyph live id=drafting-ground-track view=preview height=640
-import { drafting as D, draftingTheme, figure, loadMath, orbital as O } from "kineglyph";
+import { drafting as D, draftingTheme, figure, loadMath, orbital as O, parametric } from "kineglyph";
 
 export const theme = draftingTheme;
 const math = await loadMath();
@@ -424,7 +411,7 @@ function model(vars) {
     track: track.segments.filter((seg) => seg.length > 1).map((seg) => D.polyline(seg.map(([lon, lat]) => xy(lon, lat)))).join(" "),
     envelope: `${D.line(MX, xy(0, envelope).y, MX + MW, xy(0, envelope).y)} ${D.line(MX, xy(0, -envelope).y, MX + MW, xy(0, -envelope).y)}`,
     nodes: nodes.map((p) => D.circle(p.x, p.y, 9)).join(" "),
-    leadAmber: `${D.leader(start.x, start.y, start.x - 18, 1390, { stub: 34 })} ${D.leader(MX + MW, xy(0, envelope).y, 1958, 930)}`,
+    leadAmber: `${D.calloutLeader(xy(-74, 0).x + 24, 1356, "top-left")(start.x, start.y)} ${D.calloutLeader(1916, 896, "top-left")(MX + MW, xy(0, envelope).y)}`,
     envb: `φ_max = ± i = ± ${inclination.toFixed(2)}°`,
     nodeb: `λ 74°W · ${revolutions.toFixed(1)} revolutions`,
     nodec: `Ω̇ ${track.nodalRegression.toFixed(2)}°/day (J2)`,
@@ -438,8 +425,16 @@ function model(vars) {
   };
 }
 
-const defaults = { inclination: 51.6386, altitude: 408, revolutions: 3.2 };
-export const deriveSignals = (vars) => model({ ...defaults, ...vars });
+const params = parametric(
+{
+  inclination: { value: 51.6386, label: "Inclination (°)", min: 0, max: 98, step: 0.5 },
+  altitude: { value: 408, label: "Altitude (km)", min: 300, max: 2000, step: 10 },
+  revolutions: { value: 3.2, label: "Revolutions", min: 1, max: 5, step: 0.2 },
+},
+  model,
+  { group: "track" },
+);
+export const deriveSignals = params.deriveSignals;
 
 export default figure("drafting-ground-track", {
   title: "Ground track",
@@ -447,10 +442,10 @@ export default figure("drafting-ground-track", {
   background: "canvas",
   padding: 0,
   hold: 900,
-  signals: model(defaults),
+  signals: params.signals,
 }, (f) => {
-  const s = model(defaults);
-  const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
+  const s = params.signals;
+  const { layer: L, text: T } = D.bound(f, s);
   const fine = [], bold = [];
   for (let lon = -165; lon < 180; lon += 15) fine.push(D.line(xy(lon, 0).x, MY, xy(lon, 0).x, MY + MH));
   for (let lat = -75; lat < 90; lat += 15) fine.push(D.line(MX, xy(0, lat).y, MX + MW, xy(0, lat).y));
@@ -509,21 +504,7 @@ export default figure("drafting-ground-track", {
     [f.progress(leadAmber, { duration: 500 }), f.reveal([nodeNote, envelopeNote, ...table, ...equations], { duration: 320, stagger: 40 })],
   ], { gap: 80 });
 
-  f.machine({
-    initial: "drafting",
-    variables: { ...defaults },
-    states: { drafting: { on: {
-      SET_INCLINATION: { target: "drafting", actions: [{ type: "set", var: "inclination", value: { fromEvent: true } }] },
-      SET_ALTITUDE: { target: "drafting", actions: [{ type: "set", var: "altitude", value: { fromEvent: true } }] },
-      SET_REVOLUTIONS: { target: "drafting", actions: [{ type: "set", var: "revolutions", value: { fromEvent: true } }] },
-    } } },
-  });
-  f.controls([
-    { label: "Inclination (°)", kind: "range", event: "SET_INCLINATION", bind: "inclination", min: 0, max: 98, step: 0.5, group: "track" },
-    { label: "Altitude (km)", kind: "range", event: "SET_ALTITUDE", bind: "altitude", min: 300, max: 2000, step: 10, group: "track" },
-    { label: "Revolutions", kind: "range", event: "SET_REVOLUTIONS", bind: "revolutions", min: 1, max: 5, step: 0.2, group: "track" },
-    { label: "Reset", kind: "reset", group: "track" },
-  ]);
+  params.install(f);
 });
 ```
 
@@ -535,7 +516,7 @@ ones are the equilateral corners. Raise the mass ratio past Routh's limit (μ �
 lose their stability — the sheet recolours them.
 
 ```kineglyph live id=drafting-libration view=preview height=640
-import { drafting as D, draftingTheme, figure, loadMath, orbital as O } from "kineglyph";
+import { drafting as D, draftingTheme, figure, loadMath, orbital as O, parametric } from "kineglyph";
 
 export const theme = draftingTheme;
 const math = await loadMath();
@@ -569,9 +550,9 @@ function model(vars) {
     triangularTone: tone,
     sixty: D.arc(P1.x, P1.y, 210, 0, -60),
     dims: D.dimension(P1.x, P1.y, L1.x, L1.y, { offset: 190 }).d,
-    leadViolet: D.leader(L2.x + 26, L2.y - 92, 2018, 414),
-    leadAmber: `${D.leader(L1.x, L1.y + 33, 2018, 1154)} ${D.leader(L3.x, L3.y - 33, 602, 734, { stub: -34 })}`,
-    leadTri: `${D.leader(L4.x, L4.y - 34, 602, 440, { stub: -34 })} ${D.leader(L5.x, L5.y + 34, 1002, 1474, { stub: -34 })}`,
+    leadViolet: D.calloutLeader(1976, 380, "top-left")(L2.x + 26, L2.y - 92),
+    leadAmber: `${D.calloutLeader(1976, 1120, "top-left")(L1.x, L1.y + 33)} ${D.calloutLeader(644, 700, "top-right")(L3.x, L3.y - 33)}`,
+    leadTri: `${D.calloutLeader(644, 406, "top-right")(L4.x, L4.y - 34)} ${D.calloutLeader(1044, 1440, "top-right")(L5.x, L5.y + 34)}`,
     dimL1: km(pts.l1 * O.EARTH_MOON_DISTANCE),
     halob: `r ${km(pts.l2 * O.EARTH_MOON_DISTANCE)}`,
     haloc: `C ${pts.jacobi.l2.toFixed(4)} · T 14.8 d`,
@@ -589,8 +570,14 @@ function model(vars) {
   };
 }
 
-const defaults = { mu: 0.0121506 };
-export const deriveSignals = (vars) => model({ ...defaults, ...vars });
+const params = parametric(
+{
+  mu: { value: 0.0121506, label: "Mass ratio μ", min: 0.001, max: 0.06, step: 0.0005 },
+},
+  model,
+  { group: "cr3bp" },
+);
+export const deriveSignals = params.deriveSignals;
 
 export default figure("drafting-libration", {
   title: "Libration points",
@@ -598,10 +585,10 @@ export default figure("drafting-libration", {
   background: "canvas",
   padding: 0,
   hold: 900,
-  signals: model(defaults),
+  signals: params.signals,
 }, (f) => {
-  const s = model(defaults);
-  const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
+  const s = params.signals;
+  const { layer: L, text: T } = D.bound(f, s);
   const orbit = L("orbit", { strokeWidth: 1, opacity: 0.3, dash: "dashed" });
   const triangles = L("triangles", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.34, dash: "dashed" });
   const axis = L("axis", { stroke: "textMuted", strokeWidth: 0.8, opacity: 0.38, dash: "dashed" });
@@ -632,7 +619,7 @@ export default figure("drafting-libration", {
     D.text(f, "60°", P1.x + 232, P1.y - 100, "left", { style: "code", tone: "success" }),
     D.text(f, s.dimL1, P1.x + 0.42 * SEP, P1.y + 204, "top", { id: "dimL1", style: "code", tone: "textMuted", bind: { text: "dimL1" } }),
   ];
-  const note = (id, x, y, anchor, lines, tone) => D.annotation(f, x, y, lines, { id, anchor, tone });
+  const note = (id, x, y, anchor, lines, tone) => D.callout(f, x, y, lines, { id, anchor, tone }).node;
   const notes = [
     note("halo-note", 2060, 380, "top-left", ["L₂ HALO ORBIT", { text: s.halob, bind: "halob" }, { text: s.haloc, bind: "haloc" }], "info"),
     note("l1-note", 2060, 1120, "top-left", ["L₁ COLLINEAR", { text: s.l1b, bind: "l1b" }, { text: s.l1c, bind: "l1c" }], "accent"),
@@ -670,17 +657,7 @@ export default figure("drafting-libration", {
     [f.progress([leadViolet, leadAmber, leadTri], { duration: 500 }), f.reveal([...notes, facts, ...root], { duration: 320, stagger: 40 })],
   ], { gap: 80 });
 
-  f.machine({
-    initial: "drafting",
-    variables: { ...defaults },
-    states: { drafting: { on: {
-      SET_MU: { target: "drafting", actions: [{ type: "set", var: "mu", value: { fromEvent: true } }] },
-    } } },
-  });
-  f.controls([
-    { label: "Mass ratio μ", kind: "range", event: "SET_MU", bind: "mu", min: 0.001, max: 0.06, step: 0.0005, group: "cr3bp" },
-    { label: "Reset", kind: "reset", group: "cr3bp" },
-  ]);
+  params.install(f);
 });
 ```
 
@@ -691,7 +668,7 @@ flattens toward insertion. The insertion altitude and the shape of the climb are
 insertion speed, orbit period, and ideal Δv come from the target orbit.
 
 ```kineglyph live id=drafting-ascent view=preview height=640
-import { drafting as D, draftingTheme, figure, loadMath, orbital as O } from "kineglyph";
+import { drafting as D, draftingTheme, figure, loadMath, orbital as O, parametric } from "kineglyph";
 
 export const theme = draftingTheme;
 const math = await loadMath();
@@ -727,7 +704,7 @@ function model(vars) {
   const IX = 250, IY = 400, IW = 620, IH = 330;
   const curve = (fn) => D.polyline(Array.from({ length: 121 }, (_, k) => ({ x: IX + (IW * k) / 120, y: IY + IH - 20 - (IH - 90) * fn(k / 120) })));
   const gravityLoss = 1214 * (0.7 + (0.3 * climbExponent) / 0.62);
-  const lead = (tone) => EVENTS.filter((e) => e.tone === tone).map((e) => { const p = point(e.w); return D.leader(p.x, p.y, e.tx, e.ty, { stub: 34 }); }).join(" ");
+  const lead = (tone) => EVENTS.filter((e) => e.tone === tone).map((e) => { const p = point(e.w); return D.calloutLeader(e.tx + 42, e.ty - 34, "top-left")(p.x, p.y); }).join(" ");
   const out = {
     trajectory: D.polyline(traj),
     insertionArc: D.polyline(arcAt(targetAltitude)),
@@ -757,8 +734,15 @@ function model(vars) {
   return out;
 }
 
-const defaults = { altitude: 200, climb: 0.62 };
-export const deriveSignals = (vars) => model({ ...defaults, ...vars });
+const params = parametric(
+{
+  altitude: { value: 200, label: "Insertion altitude (km)", min: 120, max: 400, step: 10 },
+  climb: { value: 0.62, label: "Climb exponent", min: 0.4, max: 0.9, step: 0.02 },
+},
+  model,
+  { group: "ascent" },
+);
+export const deriveSignals = params.deriveSignals;
 
 export default figure("drafting-ascent", {
   title: "Ascent profile",
@@ -766,10 +750,10 @@ export default figure("drafting-ascent", {
   background: "canvas",
   padding: 0,
   hold: 900,
-  signals: model(defaults),
+  signals: params.signals,
 }, (f) => {
-  const s = model(defaults);
-  const L = (key, o) => D.layer(f, s[key], { id: key, bind: { path: key }, ...o });
+  const s = params.signals;
+  const { layer: L, text: T } = D.bound(f, s);
   const body = D.layer(f, D.polyline([...arcAt(0), { x: 2670, y: 1682 }, { x: 210, y: 1682 }], true), { id: "body", fill: "text", stroke: "none", strokeWidth: 0, opacity: 0.05 });
   const surface = D.layer(f, D.polyline(arcAt(0)), { id: "surface", strokeWidth: 1.7, opacity: 0.8 });
   const layers = [[12, 0.26], [50, 0.22], [85, 0.2], [100, 0.48]].map(([h, op]) =>
@@ -791,7 +775,7 @@ export default figure("drafting-ascent", {
   });
   const insertionLabelPos = onArc(200, 1560);
   const insertionLabel = D.text(f, s.insertionLabel, insertionLabelPos.x + 2, insertionLabelPos.y - 8, "bottom-left", { id: "insertionLabel", style: "code", tone: "textMuted", bind: { text: "insertionLabel" } });
-  const notes = EVENTS.map((e, i) => D.annotation(f, e.tx + 42, e.ty - 34, [e.name, { text: s[`event${i}b`], bind: `event${i}b` }, ...(e.w === 0 ? [] : [{ text: s[`event${i}c`], bind: `event${i}c` }])], { id: `event-${i}`, anchor: "top-left", tone: e.tone }));
+  const notes = EVENTS.map((e, i) => D.callout(f, e.tx + 42, e.ty - 34, [e.name, { text: s[`event${i}b`], bind: `event${i}b` }, ...(e.w === 0 ? [] : [{ text: s[`event${i}c`], bind: `event${i}c` }])], { id: `event-${i}`, anchor: "top-left", tone: e.tone }).node);
   const IX = 250, IY = 400, IW = 620, IH = 330;
   const insetGrid = [];
   for (let k = 1; k < 6; k += 1) insetGrid.push(D.line(IX + (IW * k) / 6, IY, IX + (IW * k) / 6, IY + IH));
@@ -813,12 +797,12 @@ export default figure("drafting-ascent", {
       D.text(f, s[bind], 1976, 1240 + i * 54, "right", { id: bind, style: "code", bind: { text: bind } }),
     ]),
   ];
-  const budget = D.annotation(f, 2000, 280, ["Δv BUDGET", ...["budget1", "budget2", "budget3", "budget4", "budget5"].map((bind) => ({ text: s[bind], bind }))], { id: "budget", tone: "text", gap: 5, opacity: 0.7 });
+  const budget = D.annotation(f, 2000, 310, ["Δv BUDGET", ...["budget1", "budget2", "budget3", "budget4", "budget5"].map((bind) => ({ text: s[bind], bind }))], { id: "budget", tone: "text", gap: 5, opacity: 0.7 });
 
   f.root(D.sheet(f, {
     id: "sheet",
     title: "Ascent profile",
-    subtitle: "Gravity-turn trajectory  /  two-stage to circular insertion",
+    subtitle: "Gravity-turn ascent  /  two-stage to circular insertion",
     ident: "Sheet 5 of 5 · Rev D",
     seed: 77,
     titleBlock: { title: "Sheet 05 — Ascent", rows: [["Pad", "LC-39A  28.608°N"], ["Azimuth", "44.9° true"], ["Drawn", "Kineglyph"]] },
@@ -833,19 +817,7 @@ export default figure("drafting-ascent", {
     [f.progress([leadAmber, leadInk, leadGreen], { duration: 500 }), f.reveal([...notes, ...inset, ...vehicle, budget], { duration: 320, stagger: 40 })],
   ], { gap: 80 });
 
-  f.machine({
-    initial: "drafting",
-    variables: { ...defaults },
-    states: { drafting: { on: {
-      SET_ALTITUDE: { target: "drafting", actions: [{ type: "set", var: "altitude", value: { fromEvent: true } }] },
-      SET_CLIMB: { target: "drafting", actions: [{ type: "set", var: "climb", value: { fromEvent: true } }] },
-    } } },
-  });
-  f.controls([
-    { label: "Insertion altitude (km)", kind: "range", event: "SET_ALTITUDE", bind: "altitude", min: 120, max: 400, step: 10, group: "ascent" },
-    { label: "Climb exponent", kind: "range", event: "SET_CLIMB", bind: "climb", min: 0.4, max: 0.9, step: 0.02, group: "ascent" },
-    { label: "Reset", kind: "reset", group: "ascent" },
-  ]);
+  params.install(f);
 });
 ```
 
@@ -878,10 +850,27 @@ On a sheet, `drafting.math(f, glyph, x, y, anchor, { size, tone })` does the siz
 A sheet is an ordinary figure. `drafting.sheet` returns a `coordinates` group whose height follows
 the 2880 × 1800 sheet aspect at any container width; `drafting.layer` turns path data into a
 full-sheet `path` mark, and `drafting.text` / `drafting.annotation` place type in the same space.
-Because every layer is a path with a `bind.path` and every number is a text with a `bind.text`,
-a control changes real physics through `deriveSignals` while the entrance timeline keeps playing.
 Type does not scale with the sheet — it stays legible at every width — so a sheet meant for a
 narrow column carries fewer, shorter annotations than one meant for a wallpaper.
+
+The sheets above share one shape, and the helpers exist so that shape is short to write:
+
+- **`parametric(spec, model)`** declares the numeric inputs and the pure model that turns them into
+  signals. It returns `signals` (the model at its defaults, for the figure's metadata),
+  `deriveSignals` (for the host), and `install(f)`, which declares the state machine and the range
+  controls. No `SET_` events or `f.controls` by hand.
+- **`drafting.bound(f, signals)`** gives `layer(key, …)` and `text(key, x, y, anchor, …)` whose id,
+  initial value, and binding all come from the same signal key.
+- **`drafting.callout(f, x, y, lines, { anchor, tone })`** places an annotation and returns
+  `leader(px, py)`: the leader path from a point on the drawing to the block's head line. The pure
+  form `drafting.calloutLeader(x, y, anchor)` builds the same function inside a model, where the
+  point is recomputed.
+- **`drafting.plate`**, **`drafting.dimension`**, **`drafting.math`** cover raised cards,
+  dimension lines with upright labels, and typeset formulas.
+
+Because `deriveSignals` is also a `resolveScene` option, exports resolve at any control value:
+`kineglyph-export png --scene sheet.mjs#default --derive sheet.mjs#deriveSignals --var altitude=800`.
+`npm run render:drafting-sheets` rasterises the five sheets above at 2880 × 1800.
 
 ```ts
 import { drafting, draftingTheme, figure, orbital } from "@kineglyph/core";
