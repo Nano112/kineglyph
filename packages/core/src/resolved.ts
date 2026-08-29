@@ -189,6 +189,8 @@ export interface ResolvedNode extends Rect {
   readonly interactive: boolean;
   readonly focusable: boolean;
   readonly metadata: Readonly<Record<string, string | number | boolean | null>>;
+  /** Signal bindings kept from the definition, so frame signals can override them at seek time. */
+  readonly bind?: Readonly<Record<string, string>>;
   /** Parent node id inside the resolved hierarchy; absent for the root and legacy pipelines. */
   readonly parent?: string;
   /** Sibling paint order; lower values paint first. */

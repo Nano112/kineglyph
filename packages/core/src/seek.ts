@@ -1,5 +1,6 @@
 import { packetPositions } from "./edges.js";
 import { applyEasing } from "./easing.js";
+import type { VariableValue, Variables } from "./machine.js";
 import type {
   AnimationTimeline,
   ResolvedEdge,
@@ -357,7 +358,60 @@ function numberValue(value: unknown): number {
 }
 
 /** Pure random-access evaluation of a resolved scene's animation tracks. */
-export function seekTimeline(scene: ResolvedScene, requestedTime: number): ResolvedFrame {
+/** Options for {@link seekTimeline}. */
+export interface SeekOptions {
+  /**
+   * Frame signals: values that override a node's `bind.path`, `bind.text`, `bind.opacity`, and
+   * `bind.hidden` for this frame only. They come from things that move with time outside the
+   * timeline — a live surface reporting where its objects are — and apply equally to live
+   * playback and exported frames.
+   */
+  readonly signals?: Variables;
+}
+
+function frameTruthy(value: VariableValue): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0 && !Number.isNaN(value);
+  if (typeof value === "string") return value !== "" && value !== "false" && value !== "0";
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+function applyFrameSignals(node: ResolvedNode, signals: Variables): ResolvedNode {
+  const bind = node.bind;
+  if (bind === undefined) return node;
+  let next = node;
+  const path = bind.path === undefined ? undefined : signals[bind.path];
+  if (path !== undefined && next.path !== undefined)
+    next = { ...next, path: { ...next.path, d: String(path) } };
+  const text = bind.text === undefined ? undefined : signals[bind.text];
+  if (text !== undefined && next.text !== undefined) {
+    const first = next.text.lines[0];
+    next = {
+      ...next,
+      text: {
+        ...next.text,
+        lines: first === undefined ? [] : [{ ...first, text: String(text) }],
+      },
+    };
+  }
+  const opacity = bind.opacity === undefined ? undefined : signals[bind.opacity];
+  if (opacity !== undefined) {
+    const factor = clamp(numberValue(opacity), 0, 1);
+    next = { ...next, state: { ...next.state, opacity: next.state.opacity * factor } };
+  }
+  const hidden = bind.hidden === undefined ? undefined : signals[bind.hidden];
+  if (hidden !== undefined) {
+    const value = frameTruthy(hidden);
+    next = value ? { ...next, hidden: true } : { ...next, hidden: false };
+  }
+  return next;
+}
+
+export function seekTimeline(
+  scene: ResolvedScene,
+  requestedTime: number,
+  options: SeekOptions = {},
+): ResolvedFrame {
   if (!Number.isFinite(requestedTime)) throw new RangeError("seek time must be finite");
   const timeline = scene.timeline ?? { duration: 0, tracks: [] };
   validateTimeline(timeline, scene);
@@ -372,7 +426,10 @@ export function seekTimeline(scene: ResolvedScene, requestedTime: number): Resol
     ...scene,
     time,
     progress: timeline.duration === 0 ? 1 : time / timeline.duration,
-    nodes: scene.nodes.map((node) => updateNode(node, tracksByTarget.get(node.id) ?? [], time)),
+    nodes: scene.nodes.map((node) => {
+      const updated = updateNode(node, tracksByTarget.get(node.id) ?? [], time);
+      return options.signals === undefined ? updated : applyFrameSignals(updated, options.signals);
+    }),
     edges: scene.edges.map((edge) => updateEdge(edge, tracksByTarget.get(edge.id) ?? [], time)),
   };
 }

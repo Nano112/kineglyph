@@ -201,6 +201,17 @@ function fontFor(style: SemanticTextStyle, theme: ThemeTokens): TextFont {
   };
 }
 
+/** Bindings carried onto the resolved node (undefined entries dropped) for seek-time overrides. */
+function retainedBindings(bind: object | undefined): {
+  readonly bind?: Readonly<Record<string, string>>;
+} {
+  if (bind === undefined) return {};
+  const entries = Object.entries(bind as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  return entries.length === 0 ? {} : { bind: Object.fromEntries(entries) };
+}
+
 function truthy(value: VariableValue | undefined): boolean {
   return value !== undefined && value !== null && value !== false && value !== 0 && value !== "";
 }
@@ -1791,6 +1802,7 @@ function emit(
     interactive,
     focusable: interactive,
     metadata: node.metadata ?? {},
+    ...retainedBindings(node.bind),
     ...(parent === undefined ? {} : { parent }),
     z: view.z,
     ...(view.hidden ? { hidden: true } : {}),
