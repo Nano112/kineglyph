@@ -12,7 +12,7 @@ import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import type { AnchorNote, SheetRect } from "./anchors.js";
 import { project } from "./camera.js";
 import type { Frame } from "./frame-source.js";
-import { leaderPolyline, placedAnchor } from "./leaders.js";
+import { leaderViewportPolyline, placedAnchor } from "./leaders.js";
 
 export interface LeaderOverlayOptions {
   /** The surface node's rectangle in sheet units (the same `frame` the frame signals use). */
@@ -68,6 +68,10 @@ export class LeaderOverlay {
   readonly #objects = new Map<string, LeaderObjects>();
   #colors: Readonly<Record<string, string>> = {};
   #styleSource: ParentNode | undefined;
+  readonly #styleCache = new Map<
+    string,
+    { color: string; widthPx: number; opacity: number } | undefined
+  >();
 
   constructor(options: LeaderOverlayOptions, doc: Document) {
     this.#options = options;
@@ -113,9 +117,22 @@ export class LeaderOverlay {
    */
   setStyleSource(root: ParentNode | undefined): void {
     this.#styleSource = root;
+    this.#styleCache.clear();
+  }
+
+  /** Forget the cached sheet styles — after a resize, a theme change, or a model reload. */
+  invalidateStyle(): void {
+    this.#styleCache.clear();
   }
 
   #sheetStyle(anchor: string): { color: string; widthPx: number; opacity: number } | undefined {
+    if (this.#styleCache.has(anchor)) return this.#styleCache.get(anchor);
+    const style = this.#readSheetStyle(anchor);
+    this.#styleCache.set(anchor, style);
+    return style;
+  }
+
+  #readSheetStyle(anchor: string): { color: string; widthPx: number; opacity: number } | undefined {
     const root = this.#styleSource;
     if (root === undefined) return undefined;
     const path = root.querySelector(`.kg-node-shape[data-shape-of="leader.${anchor}"]`);
@@ -181,18 +198,15 @@ export class LeaderOverlay {
         sample.world[2] - forward.z * lift,
       ];
       const depth = project(viewProjection, lifted, viewport).depth;
-      // The polyline in sheet units, then in viewport pixels, then on the anchor's plane.
-      const sheetAnchor: readonly [number, number] = [
-        rect.x + (projected.x / viewport.width) * rect.width,
-        rect.y + (projected.y / viewport.height) * rect.height,
-      ];
+      // The polyline in viewport pixels, lifted onto the anchor's plane.
       const positions: number[] = [];
-      for (const [sx, sy] of leaderPolyline(note, sheetAnchor)) {
-        const world = toWorld(
-          ((sx - rect.x) / rect.width) * viewport.width,
-          ((sy - rect.y) / rect.height) * viewport.height,
-          depth,
-        );
+      for (const [px, py] of leaderViewportPolyline(
+        note,
+        [projected.x, projected.y],
+        rect,
+        viewport,
+      )) {
+        const world = toWorld(px, py, depth);
         positions.push(world.x, world.y, world.z);
       }
       objects.line.geometry.setPositions(positions);

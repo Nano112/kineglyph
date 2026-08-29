@@ -44,6 +44,62 @@ export function placedAnchor(
   return scale >= threshold ? sample : undefined;
 }
 
+/** Sheet units → viewport pixels for a surface node's rectangle. */
+export function sheetToViewport(
+  point: Point,
+  rect: Rect,
+  viewport: { readonly width: number; readonly height: number },
+): Point {
+  return [
+    ((point[0] - rect.x) / rect.width) * viewport.width,
+    ((point[1] - rect.y) / rect.height) * viewport.height,
+  ];
+}
+
+/** Viewport pixels → sheet units. */
+export function viewportToSheet(
+  point: Point,
+  rect: Rect,
+  viewport: { readonly width: number; readonly height: number },
+): Point {
+  return [
+    rect.x + (point[0] / viewport.width) * rect.width,
+    rect.y + (point[1] / viewport.height) * rect.height,
+  ];
+}
+
+/** The leader's polyline in viewport pixels, from an anchor already projected to pixels. */
+export function leaderViewportPolyline(
+  note: { readonly x: number; readonly y: number; readonly side?: "top-left" | "top-right" },
+  anchorPx: Point,
+  rect: Rect,
+  viewport: { readonly width: number; readonly height: number },
+): readonly Point[] {
+  return leaderPolyline(note, viewportToSheet(anchorPx, rect, viewport)).map((point) =>
+    sheetToViewport(point, rect, viewport),
+  );
+}
+
+/**
+ * The group in progress: the highest group whose pose is visible but not yet settled; else
+ * the last settled group; else -1 before anything has appeared.
+ */
+export function currentGroup(frame: Frame): number {
+  let animating = -1;
+  let settled = -1;
+  for (const [group, pose] of frame.poses) {
+    if (pose.opacity <= 0.001) continue;
+    const scale = Math.min(
+      Math.abs(pose.scale[0]),
+      Math.abs(pose.scale[1]),
+      Math.abs(pose.scale[2]),
+    );
+    if (pose.opacity >= 0.99 && scale >= 0.99) settled = Math.max(settled, group);
+    else animating = Math.max(animating, group);
+  }
+  return animating >= 0 ? animating : settled;
+}
+
 /** Groups whose pose is fully there (opacity and scale at 1). */
 export function placedCount(frame: Frame): number {
   let placed = 0;

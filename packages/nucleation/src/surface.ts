@@ -10,9 +10,18 @@ import { bindLiveSurface, type LiveSurfaceContext, type LiveSurfaceRenderer } fr
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DimensionOverlay, type BuildDimension } from "./dimension-overlay.js";
 import { LeaderOverlay, type LeaderOverlayOptions } from "./leader-overlay.js";
-import { ISOMETRIC, cameraMatrices, multiply, withPose, type CameraConfig } from "./camera.js";
-import { fromAnimatedGlb, type FrameSource } from "./frame-source.js";
+import {
+  ISOMETRIC,
+  cameraMatrices,
+  centerOf,
+  multiply,
+  withPose,
+  type CameraConfig,
+} from "./camera.js";
+import { fromAnimatedGlb, type Frame, type FrameSource, type Pose } from "./frame-source.js";
+import type { Vec3 } from "./glb.js";
 import { parseBuildGlb, type BuildGlb } from "./glb.js";
 
 export type GlbBytes = Uint8Array | ArrayBuffer;
@@ -52,6 +61,22 @@ export interface BuildSurfaceOptions {
    * plays from its first block (instead of re-seeking the current time). Default true.
    */
   readonly replay?: boolean;
+  /**
+   * Ghost preview: groups that have not appeared yet are drawn in their final place at this
+   * opacity, so the reader sees where the build is going. Off by default.
+   */
+  readonly ghost?: number;
+  /**
+   * Click-to-focus: sheet node ids (a callout's id) mapped to anchor names. Clicking the node
+   * eases the camera onto that anchor; clicking anything else eases back.
+   */
+  readonly focus?: Readonly<Record<string, string>>;
+  /** Magnification while focused. Default 1.6. */
+  readonly focusZoom?: number;
+  /** Focus ease duration in ms. Default 480. */
+  readonly focusMs?: number;
+  /** Dimension lines between anchors, drawn in the view (see `DimensionOverlay`). */
+  readonly dimensions?: readonly BuildDimension[];
   readonly onView?: (view: BuildView) => void;
   readonly onError?: (error: unknown) => void;
 }
@@ -85,7 +110,17 @@ interface Target {
   refresh: (() => void) | undefined;
   replay: (() => void) | undefined;
   overlay: LeaderOverlay | undefined;
+  dimensions: DimensionOverlay | undefined;
+  finalFrame: Frame | undefined;
+  focusAnchor: string | undefined;
+  /** 0 = base camera, 1 = on the anchor. */
+  focusMix: number;
+  focusTo: number;
+  focusRaf: number | undefined;
+  lastTheme: unknown;
 }
+
+const easeInOut = (x: number): number => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
 
 function toArrayBuffer(bytes: GlbBytes): ArrayBuffer {
   if (bytes instanceof ArrayBuffer) return bytes;
@@ -111,7 +146,60 @@ function viewportOf(element: HTMLElement): { width: number; height: number } {
 export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
   let current: BuildView | undefined;
   let target: Target | undefined;
+  // Kept past destroy so a sheet whose surface went away still projects its anchors.
+  let lastSource: FrameSource | undefined;
+  let lastViewport: { width: number; height: number } | undefined;
   const base: CameraConfig = { ...ISOMETRIC, ...options.camera };
+
+  const anchorWorld = (t: Target, frame: Frame, name: string): Vec3 | undefined =>
+    (
+      frame.anchors.find((anchor) => anchor.name === name) ??
+      t.finalFrame?.anchors.find((anchor) => anchor.name === name)
+    )?.world;
+
+  /** The camera for a frame: the track over the base, then the focus ease if one is active. */
+  const configFor = (t: Target, frame: Frame, source: FrameSource): CameraConfig => {
+    const config = withPose(base, frame.camera, source.bounds);
+    if (t.focusAnchor === undefined || t.focusMix <= 0) return config;
+    const world = anchorWorld(t, frame, t.focusAnchor);
+    if (world === undefined) return config;
+    const k = easeInOut(t.focusMix);
+    const centre = config.target ?? centerOf(source.bounds);
+    return {
+      ...config,
+      target: [
+        centre[0] + (world[0] - centre[0]) * k,
+        centre[1] + (world[1] - centre[1]) * k,
+        centre[2] + (world[2] - centre[2]) * k,
+      ],
+      zoom: config.zoom * (1 + ((options.focusZoom ?? 1.6) - 1) * k),
+    };
+  };
+
+  const setFocus = (t: Target, anchor: string | undefined): void => {
+    if (t.grabbed) return;
+    if (anchor !== undefined) t.focusAnchor = anchor;
+    t.focusTo = anchor === undefined ? 0 : 1;
+    const view = t.element.ownerDocument.defaultView;
+    if (view === null || t.focusRaf !== undefined) return;
+    const duration = Math.max(1, options.focusMs ?? 480);
+    let last = view.performance.now();
+    const step = (now: number): void => {
+      const dt = now - last;
+      last = now;
+      const direction = t.focusTo > t.focusMix ? 1 : -1;
+      t.focusMix = Math.min(1, Math.max(0, t.focusMix + (direction * dt) / duration));
+      applyPoses(t, t.lastTime);
+      t.refresh?.();
+      if (t.focusMix === t.focusTo) {
+        t.focusRaf = undefined;
+        if (t.focusMix === 0) t.focusAnchor = undefined;
+        return;
+      }
+      t.focusRaf = view.requestAnimationFrame(step);
+    };
+    t.focusRaf = view.requestAnimationFrame(step);
+  };
 
   let rendering = false;
   const applyPoses = (t: Target, time: number): void => {
@@ -134,10 +222,28 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       object.matrix.fromArray(pose.matrix);
       object.matrixWorldNeedsUpdate = true;
       const hidden = pose.opacity <= 0.001;
+      const ghostPose: Pose | undefined =
+        hidden && options.ghost !== undefined && options.ghost > 0
+          ? t.finalFrame?.poses.get(group)
+          : undefined;
+      if (ghostPose !== undefined) {
+        // Not there yet: show where it will land, faintly.
+        object.matrix.fromArray(ghostPose.matrix);
+        object.visible = true;
+        for (const material of t.materials.get(group) ?? []) {
+          material.opacity = options.ghost ?? 0;
+          material.transparent = true;
+          material.depthWrite = false;
+          material.color.setRGB(1, 1, 1);
+          material.emissive.setRGB(0, 0, 0);
+        }
+        continue;
+      }
       object.visible = !hidden;
       for (const material of t.materials.get(group) ?? []) {
         material.opacity = pose.opacity;
         material.transparent = pose.opacity < 0.999 || material.alphaTest > 0;
+        material.depthWrite = true;
         material.color.setRGB(pose.tint[0], pose.tint[1], pose.tint[2]);
         material.emissive.setRGB(pose.emissive[0], pose.emissive[1], pose.emissive[2]);
       }
@@ -155,7 +261,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         Float64Array.from(t.camera.matrixWorldInverse.elements),
       );
     } else {
-      const config = withPose(base, frame.camera, t.source.bounds);
+      const config = configFor(t, frame, t.source);
       const matrices = cameraMatrices(t.source.bounds, aspect, config);
       const camera = t.camera;
       camera.matrixAutoUpdate = false;
@@ -172,8 +278,11 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       viewProjection = matrices.viewProjection;
     }
     t.overlay?.update(frame, viewProjection, t.camera, viewport);
+    t.dimensions?.update(frame, t.camera, viewport);
     t.renderer.render(t.scene, t.camera);
     t.lastTime = time;
+    lastSource = t.source;
+    lastViewport = viewport;
     current = { time, viewProjection, viewport, source: t.source };
     options.onView?.(current);
   };
@@ -218,6 +327,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
     t.root.add(model);
     t.glb = glb;
     t.source = options.source?.(glb) ?? fromAnimatedGlb(glb);
+    t.finalFrame = t.source.frame(t.source.durationMs);
   };
 
   const renderer: LiveSurfaceRenderer = bindLiveSurface<Target>({
@@ -268,6 +378,13 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         refresh: context.refresh,
         replay: context.replay,
         overlay: undefined,
+        dimensions: undefined,
+        finalFrame: undefined,
+        focusAnchor: undefined,
+        focusMix: 0,
+        focusTo: 0,
+        focusRaf: undefined,
+        lastTheme: undefined,
       };
       if (options.interactive === true) {
         const controls = new OrbitControls(camera, gl.domElement);
@@ -314,9 +431,26 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
             camera.aspect = size.width / size.height;
             camera.updateProjectionMatrix();
           }
+          t.overlay?.invalidateStyle();
           if (t.source !== undefined) applyPoses(t, t.lastTime);
         });
         t.observer.observe(element);
+      }
+      if (options.dimensions !== undefined && options.dimensions.length > 0) {
+        t.dimensions = new DimensionOverlay(
+          { dimensions: options.dimensions },
+          element.ownerDocument,
+        );
+        scene.add(t.dimensions.group);
+      }
+      if (options.focus !== undefined && context.on !== undefined) {
+        const focus = options.focus;
+        context.on("inspect", (payload) => {
+          const id = (payload as { readonly id?: string } | undefined)?.id;
+          const anchor = id === undefined ? undefined : focus[id];
+          if (anchor === undefined) setFocus(t, undefined);
+          else setFocus(t, t.focusAnchor === anchor && t.focusTo === 1 ? undefined : anchor);
+        });
       }
       if (options.leaders !== undefined) {
         t.overlay = new LeaderOverlay(options.leaders, element.ownerDocument);
@@ -331,15 +465,20 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
       try {
         const reload =
           update.initial || update.changed.some((name) => (options.watch ?? []).includes(name));
+        if (update.scene.theme !== t.lastTheme) {
+          t.lastTheme = update.scene.theme;
+          const colors = update.scene.theme.tokens.colors;
+          t.overlay?.setColors(colors);
+          t.overlay?.invalidateStyle();
+          t.dimensions?.setColors(colors);
+        }
         if (reload) {
-          t.overlay?.setColors(
-            (update.scene.theme as { colors?: Readonly<Record<string, string>> }).colors ?? {},
-          );
+          t.overlay?.invalidateStyle();
           await loadModel(t, {
             element: t.element,
             node: update.node,
             scene: update.scene,
-            theme: update.scene.theme as unknown as LiveSurfaceContext["theme"],
+            theme: update.scene.theme.tokens,
             machineState: update.machineState,
             signals: update.signals,
             time: update.time,
@@ -374,7 +513,10 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         if (object instanceof THREE.Mesh && object.geometry instanceof THREE.BufferGeometry)
           object.geometry.dispose();
       });
+      if (t.focusRaf !== undefined)
+        t.element.ownerDocument.defaultView?.cancelAnimationFrame(t.focusRaf);
       t.overlay?.dispose();
+      t.dimensions?.dispose();
       t.renderer.dispose();
       t.renderer.domElement.remove();
       if (target === t) target = undefined;
@@ -384,18 +526,16 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
 
   const viewAt = (time?: number): BuildView | undefined => {
     const t = target;
-    if (time === undefined || t?.source === undefined || t.grabbed) return current;
-    const viewport = viewportOf(t.element);
-    if (!(viewport.width > 0 && viewport.height > 0)) return current;
-    const frame = t.source.frame(time);
-    const config = withPose(base, frame.camera, t.source.bounds);
-    const matrices = cameraMatrices(t.source.bounds, viewport.width / viewport.height, config);
-    return {
-      time: frame.time,
-      viewProjection: matrices.viewProjection,
-      viewport,
-      source: t.source,
-    };
+    if (t?.grabbed === true) return current;
+    const source = t?.source ?? lastSource;
+    if (time === undefined || source === undefined) return current;
+    const viewport = t === undefined ? lastViewport : viewportOf(t.element);
+    if (viewport === undefined || !(viewport.width > 0 && viewport.height > 0)) return current;
+    const frame = source.frame(time);
+    const config =
+      t === undefined ? withPose(base, frame.camera, source.bounds) : configFor(t, frame, source);
+    const matrices = cameraMatrices(source.bounds, viewport.width / viewport.height, config);
+    return { time: frame.time, viewProjection: matrices.viewProjection, viewport, source };
   };
 
   return Object.assign(renderer, {

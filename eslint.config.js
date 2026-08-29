@@ -11,6 +11,7 @@ export default tseslint.config(
       "examples/**",
       "site/**",
       "docs/assets/nucleation/engine/**",
+      "docs/assets/nucleation/setup.mjs",
     ],
   },
   eslint.configs.recommended,

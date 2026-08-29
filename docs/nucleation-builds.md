@@ -23,6 +23,13 @@ anchors are recorded — the top of the beacon, and the first gold block placed 
 leaders track them as the blocks drop in. Drag the build to orbit it; the leaders stay attached.
 The Export menu's PNG and GIF include the textured build: the surface renders each export frame
 and takes the place of its static fallback image in the sheet.
+Click a note to ease the camera onto its anchor (click anywhere else to ease back); blocks that
+have not landed yet show faintly where they will go; the dimension between the two anchors is
+drawn in the scene and read out below the notes; and the STEPS table follows the group in
+progress. The Export menu also offers the animated **GLB** and the finished build as
+**.schem** and **.litematic** — straight from the engine, no Kineglyph in the loop. In the
+editor, **Signals** lists every signal in force for the current frame (anchor positions, leader
+paths, the dimension), which is the quickest way to find the names when authoring a sheet.
 
 ```kineglyph live id=nucleation-beacon view=preview height=640
 import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kineglyph";
@@ -30,21 +37,10 @@ import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kin
 export const theme = paperDraftingTheme;
 const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
+const { nucleation, pack, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+const { AnimationEffect, BuildAnimation } = nucleation;
 
-// The engine: a local sync of the Nucleation npm package when present, the published one otherwise.
-async function loadEngine() {
-  try {
-    return await import(asset("engine/index.mjs"));
-  } catch {
-    return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
-  }
-}
-const nucleation = await loadEngine();
-const { AnimationEffect, BuildAnimation, ResourcePack } = nucleation;
-const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
-const pack = ResourcePack.fromBytes(Array.from(packBytes));
-
-// The build script — edit it and the sheet re-exports the GLB.
+// The build script — edit it and the sheet re-exports the GLB. Any block id works.
 const animation = BuildAnimation.create("beacon");
 animation.setStepMs(140);
 for (let x = -1; x <= 1; x += 1) {
@@ -56,7 +52,9 @@ animation.addAnchorToGroup(0, "first-gold", -1, 0.5, -1);
 const orbit = AnimationEffect.create(2_400);
 orbit.addTween("rotateY", -4, 4, "inOutSine");
 animation.animateCamera(orbit, 0);
-const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
+const glb = glbOf(animation);
+// The Export menu offers the animated GLB and the finished build as .schem / .litematic.
+export const exportItems = exportsOf(animation, "beacon");
 
 // Sheet layout: a raised plate holds the build view; notes sit in the right column.
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
@@ -65,20 +63,36 @@ const NOTES = [
   { anchor: "beacon", x: 2000, y: 420, side: "top-left", tone: "accent" },
   { anchor: "first-gold", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
+const DIMENSIONS = [{ from: "first-gold", to: "beacon", tone: "textMuted" }];
 const surface = build.buildSurface({
   glb,
   camera: { yaw: 28, pitch: 24, zoom: 0.8 },
   interactive: true,
   // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
   leaders: { frame: VIEW, notes: NOTES },
+  // A dimension line between two anchors, also in the scene.
+  dimensions: DIMENSIONS,
+  // Blocks that have not landed yet show faintly where they will go.
+  ghost: 0.16,
+  // Click a note to ease the camera onto its anchor; click anywhere else to ease back.
+  focus: { "beacon-note": "beacon", "first-note": "first-gold" },
 });
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
+// The STEPS table: rows cover groups 0–8 and 9; a bar follows the group in progress.
+const STEP_ROWS = [[0, 8], [9, 9]];
+const rowBar = (row) => `M2004 ${722 + row * 54} h782 v46 h-782 z`;
 export const frameSignals = (time) => {
   const s = anchors(time);
-  return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
+  const row = STEP_ROWS.findIndex(([lo, hi]) => s.current >= lo && s.current <= hi);
+  return {
+    ...s,
+    placedLabel: `${s.placed} / ${s.groups} groups placed`,
+    dimLabel: s["dimension.first-gold.beacon.visible"] ? `first gold → beacon  ${s["dimension.first-gold.beacon"].toFixed(2)} bl` : "",
+    "steps.bar": row === -1 ? "M0 0" : rowBar(row),
+  };
 };
-const signals = { ...build.anchorSignalDefaults(NOTES), placedLabel: "0 / 10 groups placed" };
+const signals = { ...build.anchorSignalDefaults(NOTES, DIMENSIONS), placedLabel: "0 / 10 groups placed", dimLabel: "", "steps.bar": "M0 0" };
 
 export default figure("nucleation-beacon", {
   title: "Beacon build",
@@ -88,7 +102,7 @@ export default figure("nucleation-beacon", {
   hold: 900,
   signals,
 }, (f) => {
-  const { layer: L } = D.bound(f, signals);
+  const { layer: L, text: T } = D.bound(f, signals);
   const plate = D.plate(f, PLATE.x, PLATE.y, PLATE.width, PLATE.height, { id: "build-plate", seed: 9 });
   const view = f.image(asset("field-observatory.png"), "Beacon build, textured", {
     id: "build-view",
@@ -108,6 +122,7 @@ export default figure("nucleation-beacon", {
   const rows = [["00–08", "gold_block", "drop & pop"], ["09", "beacon", "spin-in 680"], ["cam", "yaw −4° → 4°", "2.4 s"]];
   const table = [
     ...D.plate(f, 2000, 660, 790, 76 + rows.length * 54, { id: "steps", seed: 9 }),
+    L("steps.bar", { fill: "accent", stroke: "none", opacity: 0.14 }),
     D.layer(f, D.line(2000, 716, 2790, 716), { id: "steps-rule", strokeWidth: 0.7, opacity: 0.3 }),
     D.text(f, "STEPS", 2024, 688, "left", { style: "label", tone: "textMuted" }),
     ...rows.flatMap(([g, block, effect], i) => [
@@ -116,7 +131,10 @@ export default figure("nucleation-beacon", {
       D.text(f, effect, 2766, 750 + i * 54, "right", { style: "code", tone: "textMuted" }),
     ]),
   ];
-  const readout = D.text(f, signals.placedLabel, 2000, 1560, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } });
+  const readouts = [
+    D.text(f, signals.placedLabel, 2000, 1560, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } }),
+    T("dimLabel", 2000, 1610, "top-left", { tone: "textMuted" }),
+  ];
 
   f.root(D.sheet(f, {
     id: "sheet",
@@ -125,13 +143,13 @@ export default figure("nucleation-beacon", {
     ident: "Sheet B-01",
     seed: 9,
     titleBlock: { title: "B-01 — Beacon", rows: [["Engine", "Nucleation WASM"], ["Export", "animated GLB · 30 fps"], ["Drawn", "Kineglyph"]] },
-    layers: [...plate, view, ...leaders, ...notes, ...table, readout],
+    layers: [...plate, view, ...leaders, ...notes, ...table, ...readouts],
   }));
 
   // The build plays on the sheet's clock; keep the timeline at least as long as the build.
   f.sequence([
     f.reveal([...plate, view], { duration: 320 }),
-    f.reveal([...notes, ...table, readout], { duration: 2_600, stagger: 120 }),
+    f.reveal([...notes, ...table, ...readouts], { duration: 2_600, stagger: 120 }),
   ], { gap: 0 });
 });
 ```
@@ -148,17 +166,8 @@ import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kin
 export const theme = paperDraftingTheme;
 const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
-
-async function loadEngine() {
-  try {
-    return await import(asset("engine/index.mjs"));
-  } catch {
-    return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
-  }
-}
-const { AnimationEffect, BuildAnimation, ResourcePack } = await loadEngine();
-const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
-const pack = ResourcePack.fromBytes(Array.from(packBytes));
+const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+const { AnimationEffect, BuildAnimation } = nucleation;
 
 const animation = BuildAnimation.create("crafting_nook");
 animation.setStepMs(520);
@@ -193,7 +202,8 @@ animation.endGroup();
 const orbit = AnimationEffect.create(3_000);
 orbit.addTween("rotateY", -5, 6, "inOutSine");
 animation.animateCamera(orbit, 0);
-const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
+const glb = glbOf(animation);
+export const exportItems = exportsOf(animation, "crafting-nook");
 
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
@@ -202,19 +212,27 @@ const NOTES = [
   { anchor: "window", x: 2000, y: 700, side: "top-left", tone: "info" },
   { anchor: "torch", x: 2000, y: 980, side: "top-left", tone: "warning" },
 ];
+const DIMENSIONS = [{ from: "crafting-table", to: "torch", tone: "textMuted" }];
 const surface = build.buildSurface({
   glb,
   camera: { yaw: 35, pitch: 28, zoom: 0.92 },
   interactive: true,
   leaders: { frame: VIEW, notes: NOTES },
+  dimensions: DIMENSIONS,
+  ghost: 0.16,
+  focus: { "table-note": "crafting-table", "window-note": "window", "torch-note": "torch" },
 });
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
 export const frameSignals = (time) => {
   const s = anchors(time);
-  return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
+  return {
+    ...s,
+    placedLabel: `${s.placed} / ${s.groups} groups placed`,
+    dimLabel: s["dimension.crafting-table.torch.visible"] ? `table → torch  ${s["dimension.crafting-table.torch"].toFixed(2)} bl` : "",
+  };
 };
-const signals = { ...build.anchorSignalDefaults(NOTES), placedLabel: "0 / 5 groups placed" };
+const signals = { ...build.anchorSignalDefaults(NOTES, DIMENSIONS), placedLabel: "0 / 5 groups placed", dimLabel: "" };
 
 export default figure("nucleation-nook", {
   title: "Crafting nook build",
@@ -224,7 +242,7 @@ export default figure("nucleation-nook", {
   hold: 900,
   signals,
 }, (f) => {
-  const { layer: L } = D.bound(f, signals);
+  const { layer: L, text: T } = D.bound(f, signals);
   const plate = D.plate(f, PLATE.x, PLATE.y, PLATE.width, PLATE.height, { id: "build-plate", seed: 14 });
   const view = f.image(asset("field-observatory.png"), "Crafting nook build, textured", {
     id: "build-view",
@@ -240,7 +258,10 @@ export default figure("nucleation-nook", {
     D.callout(f, 2000, 700, ["WINDOW", "wall group · 1 step", "anchor (2, 2, 0)"], { id: "window-note", tone: "info" }).node,
     D.callout(f, 2000, 980, ["WALL TORCH", "last group", "anchor (4, 2, 1)"], { id: "torch-note", tone: "warning" }).node,
   ];
-  const readout = D.text(f, signals.placedLabel, 2000, 1300, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } });
+  const readouts = [
+    D.text(f, signals.placedLabel, 2000, 1300, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } }),
+    T("dimLabel", 2000, 1350, "top-left", { tone: "textMuted" }),
+  ];
 
   f.root(D.sheet(f, {
     id: "sheet",
@@ -249,11 +270,11 @@ export default figure("nucleation-nook", {
     ident: "Sheet B-02",
     seed: 14,
     titleBlock: { title: "B-02 — Nook", rows: [["Engine", "Nucleation WASM"], ["Step", "520 ms"], ["Drawn", "Kineglyph"]] },
-    layers: [...plate, view, ...leaders, ...notes, readout],
+    layers: [...plate, view, ...leaders, ...notes, ...readouts],
   }));
   f.sequence([
     f.reveal([...plate, view], { duration: 320 }),
-    f.reveal([...notes, readout], { duration: 3_000, stagger: 160 }),
+    f.reveal([...notes, ...readouts], { duration: 3_000, stagger: 160 }),
   ], { gap: 0 });
 });
 ```
@@ -270,17 +291,8 @@ import { drafting as D, figure, loadBuildSurface, paperDraftingTheme, parametric
 export const theme = paperDraftingTheme;
 const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
-
-async function loadEngine() {
-  try {
-    return await import(asset("engine/index.mjs"));
-  } catch {
-    return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
-  }
-}
-const { AnimationEffect, BuildAnimation, ResourcePack } = await loadEngine();
-const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
-const pack = ResourcePack.fromBytes(Array.from(packBytes));
+const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+const { AnimationEffect, BuildAnimation } = nucleation;
 
 // The build as a function of its parameters.
 function record(radius, stepMs) {
@@ -297,8 +309,6 @@ function record(radius, stepMs) {
   animation.animateCamera(orbit, 0);
   return animation;
 }
-const glbOf = (animation) =>
-  Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
 
 const params = parametric(
   {
@@ -315,12 +325,15 @@ const params = parametric(
 export const deriveSignals = params.deriveSignals;
 
 let latest = record(1, 140);
+// Exports read whatever the sliders last recorded.
+export const exportItems = exportsOf(() => latest, "beacon-parametric");
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
   { anchor: "beacon", x: 2000, y: 420, side: "top-left", tone: "accent" },
   { anchor: "corner", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
+const DIMENSIONS = [{ from: "corner", to: "beacon", tone: "textMuted" }];
 const surface = build.buildSurface({
   // Rebuilt whenever a watched signal changes; the live source reads the same engine object.
   glb: (context) => {
@@ -331,19 +344,26 @@ const surface = build.buildSurface({
   source: (glb) => build.fromBuildAnimation(latest, glb),
   camera: { yaw: 28, pitch: 24, zoom: 0.8 },
   interactive: true,
-  // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
   leaders: { frame: VIEW, notes: NOTES },
+  dimensions: DIMENSIONS,
+  ghost: 0.16,
+  focus: { "beacon-note": "beacon", "corner-note": "corner" },
 });
 export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true });
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
 export const frameSignals = (time) => {
   const s = anchors(time);
-  return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
+  return {
+    ...s,
+    placedLabel: `${s.placed} / ${s.groups} groups placed`,
+    dimLabel: s["dimension.corner.beacon.visible"] ? `corner → beacon  ${s["dimension.corner.beacon"].toFixed(2)} bl` : "",
+  };
 };
 const signals = {
   ...params.signals,
-  ...build.anchorSignalDefaults(NOTES),
+  ...build.anchorSignalDefaults(NOTES, DIMENSIONS),
   placedLabel: "0 / 10 groups placed",
+  dimLabel: "",
 };
 
 export default figure("nucleation-parametric", {
@@ -374,6 +394,7 @@ export default figure("nucleation-parametric", {
   const readouts = [
     T("blocksLabel", 2000, 760, "top-left"),
     D.text(f, signals.placedLabel, 2000, 820, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } }),
+    T("dimLabel", 2000, 870, "top-left", { tone: "textMuted" }),
   ];
 
   f.root(D.sheet(f, {
@@ -482,7 +503,12 @@ resource pack and the Python with `nucleation` installed).
   anchors into sheet space as frame signals, through a surface's view or a `headlessView` of the
   same camera. With `leaders` on the surface and `embedded` on the signals, the part of a leader
   inside the view is drawn in the scene itself — depth-tested, so a block in front of the anchor
-  covers it — and the sheet's path takes over at the view's edge. It never imports the engine.
+  covers it — and the sheet's path takes over at the view's edge; `dimensions`, `ghost`, and
+  `focus` (click-to-focus through the figure's `inspect` events) build on the same view. It
+  never imports the engine.
+- **The lab** — a live block's `exportItems` export adds downloads to the Export menu (the GLB
+  and schematics here come from `docs/assets/nucleation/setup.mjs`, which also loads the engine
+  and the pack for every sheet), and the Signals panel lists `controller.signalsAt()`.
 - **Kineglyph** — `frameSignals` (a `mountKineglyph` option, a live-block export, or the React
   prop) applies those values to bound paths and text at seek time, so playback and exports agree.
 

@@ -41,7 +41,7 @@ describe("nucleation-builds docs", () => {
     for (const block of blocks.slice(0, 3)) {
       expect(block.body).toContain("export const liveSurfaces");
       expect(block.body).toContain("export const frameSignals");
-      expect(block.body).toContain("anchorSignalDefaults(NOTES)");
+      expect(block.body).toContain("anchorSignalDefaults(NOTES");
       expect(block.body).toContain('id: "build-view"');
     }
   });

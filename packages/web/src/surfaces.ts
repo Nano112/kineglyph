@@ -28,6 +28,11 @@ export interface LiveSurfaceContext {
   readonly refresh?: () => void;
   /** Restart the figure's timeline from the start — a surface rebuilt by a viewer's control. */
   readonly replay?: () => void;
+  /**
+   * Subscribe to the figure's events (`inspect`, `frame`, `data`, …) for the surface's lifetime;
+   * returns the unsubscribe. A surface can react to a note being clicked, for instance.
+   */
+  readonly on?: (event: string, handler: (payload: unknown) => void) => () => void;
 }
 
 export interface LiveSurfaceUpdate {
@@ -74,6 +79,8 @@ export interface MountLiveSurfacesOptions {
   readonly onRefresh?: () => void;
   /** Restart the timeline (see `LiveSurfaceContext.replay`). */
   readonly onReplay?: () => void;
+  /** The figure's event bus (see `LiveSurfaceContext.on`). */
+  readonly on?: (event: string, handler: (payload: unknown) => void) => () => void;
 }
 
 interface SurfaceRecord {
@@ -140,6 +147,15 @@ export class LiveSurfaceManager {
         send: this.#options.send,
         ...(this.#options.onRefresh === undefined ? {} : { refresh: this.#options.onRefresh }),
         ...(this.#options.onReplay === undefined ? {} : { replay: this.#options.onReplay }),
+        ...(this.#options.on === undefined
+          ? {}
+          : {
+              on: (event: string, handler: (payload: unknown) => void) => {
+                const off = this.#options.on?.(event, handler) ?? (() => undefined);
+                record.abort.signal.addEventListener("abort", off, { once: true });
+                return off;
+              },
+            }),
       });
       const handle = normaliseHandle(result);
       if (record.abort.signal.aborted || this.#disposed) {

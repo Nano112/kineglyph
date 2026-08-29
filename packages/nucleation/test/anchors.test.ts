@@ -97,3 +97,28 @@ describe("leader geometry", () => {
     ).toBeUndefined();
   });
 });
+
+describe("viewport helpers and progress", () => {
+  it("maps sheet units to viewport pixels and back", async () => {
+    const { leaderViewportPolyline, sheetToViewport, viewportToSheet, currentGroup } =
+      await import("../src/leaders.js");
+    const rect = { x: 366, y: 366, width: 1368, height: 1168 };
+    const viewport = { width: 684, height: 584 };
+    expect(sheetToViewport([366, 366], rect, viewport)).toEqual([0, 0]);
+    expect(sheetToViewport([1734, 1534], rect, viewport)).toEqual([684, 584]);
+    expect(viewportToSheet([342, 292], rect, viewport)).toEqual([1050, 950]);
+    const [anchor, turn] = leaderViewportPolyline({ x: 2000, y: 420 }, [342, 292], rect, viewport);
+    expect(anchor).toEqual([342, 292]);
+    expect(turn![0]).toBeCloseTo(((2000 - 8 - 34 - 366) / 1368) * 684, 6);
+    const poses = new Map([
+      [0, { opacity: 1, scale: [1, 1, 1] }],
+      [1, { opacity: 0.6, scale: [0.4, 0.4, 0.4] }],
+      [2, { opacity: 0, scale: [1, 1, 1] }],
+    ]);
+    expect(currentGroup({ time: 0, poses, anchors: [] } as never)).toBe(1);
+    poses.set(1, { opacity: 1, scale: [1, 1, 1] });
+    expect(currentGroup({ time: 0, poses, anchors: [] } as never)).toBe(1);
+    poses.clear();
+    expect(currentGroup({ time: 0, poses, anchors: [] } as never)).toBe(-1);
+  });
+});

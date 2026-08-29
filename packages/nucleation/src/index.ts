@@ -28,7 +28,18 @@ export type {
   Vec3,
 } from "./glb.js";
 export { headlessView } from "./headless.js";
-export { clipOutside, leaderPolyline, placedAnchor, placedCount } from "./leaders.js";
+export {
+  clipOutside,
+  currentGroup,
+  leaderPolyline,
+  leaderViewportPolyline,
+  placedAnchor,
+  placedCount,
+  sheetToViewport,
+  viewportToSheet,
+} from "./leaders.js";
+export { DimensionOverlay } from "./dimension-overlay.js";
+export type { BuildDimension, DimensionOverlayOptions } from "./dimension-overlay.js";
 export type { Point, Rect } from "./leaders.js";
 export type { HeadlessViewOptions } from "./headless.js";
 export { fromBuildAnimation } from "./live-source.js";

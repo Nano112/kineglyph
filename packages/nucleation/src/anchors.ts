@@ -9,7 +9,7 @@
 import { drafting, type Variables } from "@kineglyph/core";
 import { project } from "./camera.js";
 import type { FrameSource } from "./frame-source.js";
-import { clipOutside, leaderPolyline, placedAnchor, placedCount } from "./leaders.js";
+import { clipOutside, currentGroup, leaderPolyline, placedAnchor, placedCount } from "./leaders.js";
 import type { BuildView } from "./surface.js";
 
 /** A degenerate path for hidden leaders — valid path data that draws nothing. */
@@ -55,6 +55,11 @@ export interface AnchorSignalsOptions {
    * option, depth-tested against the blocks), so the sheet's path stops at the view's edge.
    */
   readonly embedded?: boolean;
+  /**
+   * Anchor pairs to measure: `dimension.<from>.<to>` carries the distance in blocks (two
+   * decimals) and `dimension.<from>.<to>.visible` whether both anchors are there.
+   */
+  readonly dimensions?: readonly { readonly from: string; readonly to: string }[];
 }
 
 export interface AnchorSignals extends Variables {
@@ -70,7 +75,11 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
     leader: drafting.calloutLeader(note.x, note.y, note.side ?? "top-left"),
   }));
   const hidden = (): Variables => {
-    const out: Record<string, number | string> = { placed: 0, groups: 0 };
+    const out: Record<string, number | string> = { placed: 0, groups: 0, current: -1 };
+    for (const dimension of options.dimensions ?? []) {
+      out[`dimension.${dimension.from}.${dimension.to}`] = 0;
+      out[`dimension.${dimension.from}.${dimension.to}.visible`] = 0;
+    }
     for (const { note } of leaders) {
       out[`leader.${note.anchor}`] = EMPTY_PATH;
       out[`anchor.${note.anchor}.x`] = 0;
@@ -87,7 +96,18 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
     const out: Record<string, number | string> = {
       groups: source.groups,
       placed: placedCount(frame),
+      current: currentGroup(frame),
     };
+    for (const dimension of options.dimensions ?? []) {
+      const a = placedAnchor(frame, dimension.from, threshold);
+      const b = placedAnchor(frame, dimension.to, threshold);
+      const both = a !== undefined && b !== undefined;
+      const distance = both
+        ? Math.hypot(b.world[0] - a.world[0], b.world[1] - a.world[1], b.world[2] - a.world[2])
+        : 0;
+      out[`dimension.${dimension.from}.${dimension.to}`] = Math.round(distance * 100) / 100;
+      out[`dimension.${dimension.from}.${dimension.to}.visible`] = both ? 1 : 0;
+    }
     for (const { note, leader } of leaders) {
       const sample = placedAnchor(frame, note.anchor, threshold);
       let visible = false;
@@ -118,8 +138,13 @@ export function anchorFrameSignals(options: AnchorSignalsOptions): (time: number
 /** The signal keys `anchorFrameSignals` produces, for a figure's `signals` metadata. */
 export function anchorSignalDefaults(
   notes: readonly AnchorNote[],
+  dimensions: readonly { readonly from: string; readonly to: string }[] = [],
 ): Record<string, number | string> {
-  const out: Record<string, number | string> = { placed: 0, groups: 0 };
+  const out: Record<string, number | string> = { placed: 0, groups: 0, current: -1 };
+  for (const dimension of dimensions) {
+    out[`dimension.${dimension.from}.${dimension.to}`] = 0;
+    out[`dimension.${dimension.from}.${dimension.to}.visible`] = 0;
+  }
   for (const note of notes) {
     out[`leader.${note.anchor}`] = EMPTY_PATH;
     out[`anchor.${note.anchor}.x`] = 0;

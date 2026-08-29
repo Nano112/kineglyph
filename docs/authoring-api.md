@@ -752,6 +752,20 @@ in the pattern picks the file by time at the GIF's `--fps`, holding the last one
 sheet whose surface is rendered elsewhere — a native renderer, a video tool — exports as one
 image with its leaders in place; see [Nucleation builds](./nucleation-builds.md#native-export).
 
+`controller.signalsAt(time?)` returns every signal in force for a frame — machine signals under
+the frame signals — and the lab's **Signals** button lists them live (click a key to copy it).
+A live surface can also subscribe to the figure's events through `LiveSurfaceContext.on`
+(`inspect` when a node is clicked, `frame`, `data`), which is how a surface reacts to a note
+being clicked without the block wiring anything by hand.
+
+## Export items
+
+A live block can add downloads to its Export menu: `export const exportItems = [{ label,
+detail, filename, type, data: () => bytes }]`, where `data` returns a `Uint8Array`, `Blob`, or
+string (sync or async). They sit under the PNG / SVG / GIF entries and stay available even when
+the block has a `setup` export (which disables the image exports). The build-animation sheets use
+this for the animated GLB and the `.schem` / `.litematic` of the finished build.
+
 ## Drafting sheets and formulas
 
 `drafting` is the vocabulary of an engineering drawing as deterministic path data in a fixed

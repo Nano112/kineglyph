@@ -239,6 +239,8 @@ export interface KineglyphController {
    * that time for it, so call it before `frameSvg(time)` when compositing an export.
    */
   surfaceSnapshots(time: number): Promise<ReadonlyMap<string, string>>;
+  /** Every signal in force at `time` (default: now): machine signals under the frame signals. */
+  signalsAt(time?: number): Variables;
   setReducedMotion(reduced: boolean): void;
   /** Enables or disables repetition without remounting the figure. */
   setLoop(loop: boolean): void;
@@ -581,6 +583,12 @@ class FigureRuntime implements KineglyphController {
     return signals === undefined ? {} : { signals };
   }
 
+  signalsAt(time = this.#time): Variables {
+    this.#assertLive();
+    const clamped = Math.max(0, Math.min(this.#duration, time));
+    return { ...this.#signals, ...(this.#frameSignalsAt(clamped) ?? {}) };
+  }
+
   frameSvg(time: number, options: SvgRenderOptions = {}): string {
     this.#assertLive();
     const clamped = Math.max(0, Math.min(this.#duration, time));
@@ -805,6 +813,8 @@ class FigureRuntime implements KineglyphController {
           const animator = this.#animator;
           if (animator !== undefined && !animator.playing) animator.seek(this.#time);
         },
+        on: (event: string, handler: (payload: unknown) => void) =>
+          this.on(event as keyof KineglyphEventMap, handler),
         onReplay: () => {
           // Signals settling right after mount (derived controls) are not a viewer's change;
           // a figure that has not presented past its first frame keeps its autoplay policy.

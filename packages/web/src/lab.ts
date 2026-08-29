@@ -33,8 +33,20 @@ export type KineglyphLabSetup = (
   controller: KineglyphController,
   element: HTMLElement,
 ) => void | (() => void);
+/** A download a live block adds to the Export menu — a model, a data file, anything it can make. */
+export interface KineglyphLabExportItem {
+  readonly label: string;
+  readonly detail?: string;
+  readonly filename: string;
+  /** MIME type of the download. Default "application/octet-stream". */
+  readonly type?: string;
+  readonly data: () =>
+    Uint8Array | ArrayBuffer | Blob | string | Promise<Uint8Array | ArrayBuffer | Blob | string>;
+}
 export interface KineglyphLabModuleResult {
   readonly scene: FigureSource;
+  /** Extra downloads for the Export menu (see `KineglyphLabExportItem`). */
+  readonly exportItems?: readonly KineglyphLabExportItem[];
   readonly theme?: ThemeTokens;
   /** Live HTML/WebGL renderers keyed by a scene image node id. */
   readonly liveSurfaces?: Readonly<Record<string, LiveSurfaceRenderer>>;
@@ -108,7 +120,7 @@ const LAB_STYLES = `
 .kg-lab__tabs,.kg-lab__actions{display:flex;align-items:center;gap:4px}.kg-lab button{appearance:none;border:1px solid transparent;border-radius:7px;padding:8px 10px;background:transparent;color:var(--kg-lab-muted);font:650 12px/1 var(--kg-lab-font);cursor:pointer}.kg-lab button:hover{color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab button:focus-visible{outline:2px solid var(--kg-lab-accent);outline-offset:1px}.kg-lab__tabs button[aria-selected=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 35%,var(--kg-lab-border));background:color-mix(in srgb,var(--kg-lab-accent) 10%,transparent);color:var(--kg-lab-text)}.kg-lab__run{color:var(--kg-lab-text)!important}.kg-lab__shortcut{margin-left:4px;color:var(--kg-lab-muted);font:10px/1 var(--kg-lab-mono)}
 .kg-lab__workspace{display:grid;min-width:0;min-height:var(--kg-lab-height,420px);grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.kg-lab__editor,.kg-lab__preview{min-width:0;min-height:0}.kg-lab__editor{height:var(--kg-lab-height,420px);overflow:hidden;border-right:1px solid var(--kg-lab-border);background:var(--kg-lab-code-bg)}.kg-lab__preview{display:grid;align-content:center;overflow:auto;padding:16px;background:var(--kg-lab-bg)}.kg-lab__preview-host{width:100%;min-width:0}.kg-lab__loading{display:grid;height:100%;place-items:center;color:var(--kg-lab-muted);font:12px/1.5 var(--kg-lab-font)}
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
-.kg-lab__preview-actions{display:none}.kg-lab__edit,.kg-lab__export-toggle{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__export{position:relative}.kg-lab__export[hidden],.kg-lab__export-menu[hidden]{display:none!important}.kg-lab__export-toggle[aria-expanded=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__export-chevron{display:inline-block;margin-left:3px;font-size:9px;transform:translateY(-1px)}.kg-lab__export-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:max-content;min-width:138px;padding:4px;border:1px solid var(--kg-lab-border);border-radius:9px;background:var(--kg-lab-surface);box-shadow:0 10px 28px color-mix(in srgb,#000 24%,transparent)}.kg-lab__export-menu button{display:block;width:100%;padding:8px 10px;text-align:left;white-space:nowrap}.kg-lab__export-menu small{display:block;margin-top:3px;color:var(--kg-lab-muted);font:10px/1.2 var(--kg-lab-mono)}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
+.kg-lab__preview-actions{display:none}.kg-lab__edit,.kg-lab__export-toggle{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__export{position:relative}.kg-lab__export[hidden],.kg-lab__export-menu[hidden]{display:none!important}.kg-lab__export-toggle[aria-expanded=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__export-chevron{display:inline-block;margin-left:3px;font-size:9px;transform:translateY(-1px)}.kg-lab__export-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:max-content;min-width:138px;padding:4px;border:1px solid var(--kg-lab-border);border-radius:9px;background:var(--kg-lab-surface);box-shadow:0 10px 28px color-mix(in srgb,#000 24%,transparent)}.kg-lab__export-menu button{display:block;width:100%;padding:8px 10px;text-align:left;white-space:nowrap}.kg-lab__export-menu small{display:block;margin-top:3px;color:var(--kg-lab-muted);font:10px/1.2 var(--kg-lab-mono)}.kg-lab__signals-toggle[aria-pressed=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__signals{max-height:220px;overflow:auto;margin:0;padding:6px 10px;border-top:1px solid var(--kg-lab-border);background:var(--kg-lab-surface);color:var(--kg-lab-text);font:11px/1.5 var(--kg-lab-mono)}.kg-lab__signals[hidden]{display:none}.kg-lab__signals table{width:100%;border-collapse:collapse}.kg-lab__signals td{padding:1px 8px 1px 0;vertical-align:top}.kg-lab__signals td:first-child{white-space:nowrap;color:var(--kg-lab-muted);cursor:copy}.kg-lab__signals td:first-child:hover{color:var(--kg-lab-text)}.kg-lab__signals td:last-child{width:100%;word-break:break-all}.kg-lab[data-view=preview] .kg-lab__signals{margin-top:6px;border:1px solid var(--kg-lab-border);border-radius:9px}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
 .kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0 0;background:transparent}
 @container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
@@ -166,6 +178,13 @@ function exportFileName(scene: ResolvedScene, extension: LabExportFormat): strin
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return `${stem || "kineglyph-figure"}.${extension}`;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c,
+  );
 }
 
 function downloadBlob(doc: Document, blob: Blob, name: string): void {
@@ -331,7 +350,21 @@ export async function loadKineglyphLabModule(
       liveSurfaces?: unknown;
       deriveSignals?: unknown;
       frameSignals?: unknown;
+      exportItems?: unknown;
     };
+    if (mod.exportItems !== undefined && !Array.isArray(mod.exportItems))
+      throw new Error("inline scene: exportItems export must be an array");
+    for (const item of (mod.exportItems ?? []) as unknown[]) {
+      const candidate = item as Partial<KineglyphLabExportItem> | null;
+      if (
+        candidate === null ||
+        typeof candidate !== "object" ||
+        typeof candidate.label !== "string" ||
+        typeof candidate.filename !== "string" ||
+        typeof candidate.data !== "function"
+      )
+        throw new Error("inline scene: each exportItems entry needs label, filename, and data()");
+    }
     if (mod.default === null || typeof mod.default !== "object")
       throw new Error("inline scene: no default export");
     if (mod.setup !== undefined && typeof mod.setup !== "function")
@@ -360,6 +393,9 @@ export async function loadKineglyphLabModule(
       ...(mod.frameSignals === undefined
         ? {}
         : { frameSignals: mod.frameSignals as MountOptions["frameSignals"] }),
+      ...(mod.exportItems === undefined
+        ? {}
+        : { exportItems: mod.exportItems as readonly KineglyphLabExportItem[] }),
       ...(mod.liveSurfaces === undefined
         ? {}
         : {
@@ -405,6 +441,13 @@ class LabRuntime implements KineglyphLabController {
   readonly #exportToggle: HTMLButtonElement;
   readonly #exportMenu: HTMLElement;
   readonly #exportItems = new Map<LabExportFormat, HTMLButtonElement>();
+  #moduleExports: readonly KineglyphLabExportItem[] = [];
+  readonly #moduleExportButtons: HTMLButtonElement[] = [];
+  readonly #signalsPanel: HTMLElement;
+  readonly #signalsToggles: HTMLButtonElement[] = [];
+  #signalsOpen = false;
+  #signalsOff: (() => void) | undefined;
+  #signalsFrame: number | undefined;
   readonly #onDocumentClick = (event: Event): void => {
     if (event.target !== null && !this.#exportGroup.contains(event.target as Node))
       this.#closeExportMenu();
@@ -468,7 +511,8 @@ class LabRuntime implements KineglyphLabController {
     run.className = "kg-lab__run";
     run.innerHTML = 'Run <span class="kg-lab__shortcut">⌘↵</span>';
     run.addEventListener("click", () => void this.run());
-    actions.append(inspect, reset, run);
+    const signalsButton = this.#signalsToggle(doc);
+    actions.append(inspect, signalsButton, reset, run);
     bar.append(tabs, actions);
 
     const workspace = doc.createElement("div");
@@ -484,6 +528,11 @@ class LabRuntime implements KineglyphLabController {
     this.#previewHost = doc.createElement("div");
     this.#previewHost.className = "kg-lab__preview-host";
     preview.append(this.#previewHost);
+    this.#signalsPanel = doc.createElement("div");
+    this.#signalsPanel.className = "kg-lab__signals";
+    this.#signalsPanel.setAttribute("aria-label", "Signals in force");
+    this.#signalsPanel.hidden = true;
+    preview.append(this.#signalsPanel);
     workspace.append(this.#editorHost, preview);
     this.#status = doc.createElement("p");
     this.#status.className = "kg-lab__status";
@@ -540,7 +589,7 @@ class LabRuntime implements KineglyphLabController {
       this.#exportToggle.focus();
     });
     this.#exportGroup.append(this.#exportToggle, this.#exportMenu);
-    previewActions.append(edit, this.#exportGroup);
+    previewActions.append(edit, this.#signalsToggle(doc), this.#exportGroup);
     this.#shell.append(bar, workspace, previewActions, this.#status);
     const height = Number(element.dataset.height);
     if (Number.isFinite(height) && height >= 240 && height <= 1200)
@@ -643,6 +692,9 @@ class LabRuntime implements KineglyphLabController {
       this.#moduleCleanup?.();
       this.#moduleCleanup = loaded.setup?.(this.#figure, this.element) ?? undefined;
       this.#moduleHasSetup = loaded.setup !== undefined;
+      this.#moduleExports = loaded.exportItems ?? [];
+      this.#renderModuleExports();
+      this.#watchSignals();
       showStatic(this.element, false);
       delete this.element.dataset.kineglyphError;
       this.#setStatus("Preview updated", "success");
@@ -670,6 +722,9 @@ class LabRuntime implements KineglyphLabController {
   }
 
   destroy(): void {
+    this.#signalsOff?.();
+    if (this.#signalsFrame !== undefined)
+      this.element.ownerDocument.defaultView?.cancelAnimationFrame(this.#signalsFrame);
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#generation++;
@@ -749,13 +804,135 @@ class LabRuntime implements KineglyphLabController {
   }
 
   #syncExportVisibility(): void {
-    this.#exportGroup.hidden =
-      this.#figure === undefined ||
-      this.#moduleHasSetup ||
-      !isPortableExportScene(this.#figure.scene);
+    const portable =
+      this.#figure !== undefined &&
+      !this.#moduleHasSetup &&
+      isPortableExportScene(this.#figure.scene);
+    for (const button of this.#exportItems.values()) button.hidden = !portable;
     const gif = this.#exportItems.get("gif");
-    if (gif !== undefined) gif.hidden = (this.#figure?.scene.timeline?.duration ?? 0) <= 0;
+    if (gif !== undefined)
+      gif.hidden = !portable || (this.#figure?.scene.timeline?.duration ?? 0) <= 0;
+    this.#exportGroup.hidden = !portable && this.#moduleExports.length === 0;
     if (this.#exportGroup.hidden) this.#closeExportMenu();
+  }
+
+  #renderModuleExports(): void {
+    for (const button of this.#moduleExportButtons) button.remove();
+    this.#moduleExportButtons.length = 0;
+    const doc = this.element.ownerDocument;
+    for (const item of this.#moduleExports) {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.dataset.export = item.filename;
+      button.innerHTML = `${escapeHtml(item.label)}<small>${escapeHtml(item.detail ?? item.filename)}</small>`;
+      button.addEventListener("click", () => void this.#exportItem(item));
+      this.#exportMenu.append(button);
+      this.#moduleExportButtons.push(button);
+    }
+  }
+
+  async #exportItem(item: KineglyphLabExportItem): Promise<void> {
+    this.#closeExportMenu();
+    this.#setStatus(`Preparing ${item.label}…`, "pending");
+    try {
+      const doc = this.element.ownerDocument;
+      const BlobConstructor = doc.defaultView?.Blob ?? Blob;
+      const data = await item.data();
+      // A view over a shared buffer is copied so the Blob gets a plain ArrayBuffer.
+      const part: BlobPart =
+        typeof data === "string" || data instanceof ArrayBuffer || data instanceof BlobConstructor
+          ? data
+          : data.slice();
+      const blob =
+        part instanceof BlobConstructor
+          ? part
+          : new BlobConstructor([part], { type: item.type ?? "application/octet-stream" });
+      downloadBlob(doc, blob, item.filename);
+      this.#setStatus(`${item.label} downloaded`, "success");
+    } catch (error) {
+      this.#setStatus(message(error), "error");
+      this.#options.onError?.(error);
+    }
+  }
+
+  #signalsToggle(doc: Document): HTMLButtonElement {
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = "kg-lab__signals-toggle";
+    button.textContent = "Signals";
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => this.setSignalsOpen(!this.#signalsOpen));
+    this.#signalsToggles.push(button);
+    return button;
+  }
+
+  /** Show or hide the panel listing every signal in force for the current frame. */
+  setSignalsOpen(open: boolean): void {
+    this.#assertLive();
+    this.#signalsOpen = open;
+    this.#signalsPanel.hidden = !open;
+    for (const button of this.#signalsToggles) button.setAttribute("aria-pressed", String(open));
+    this.#watchSignals();
+    if (open) this.#renderSignals();
+  }
+
+  #watchSignals(): void {
+    this.#signalsOff?.();
+    this.#signalsOff = undefined;
+    const figure = this.#figure;
+    if (!this.#signalsOpen || figure === undefined) return;
+    const offFrame = figure.on("frame", () => this.#scheduleSignals());
+    const offData = figure.on("data", () => this.#scheduleSignals());
+    this.#signalsOff = () => {
+      offFrame();
+      offData();
+    };
+  }
+
+  #scheduleSignals(): void {
+    if (this.#signalsFrame !== undefined) return;
+    const view = this.element.ownerDocument.defaultView;
+    if (view === null) {
+      this.#renderSignals();
+      return;
+    }
+    this.#signalsFrame = view.requestAnimationFrame(() => {
+      this.#signalsFrame = undefined;
+      this.#renderSignals();
+    });
+  }
+
+  #renderSignals(): void {
+    const figure = this.#figure;
+    if (!this.#signalsOpen || figure === undefined || this.#destroyed) return;
+    const doc = this.element.ownerDocument;
+    const signals = figure.signalsAt();
+    const keys = Object.keys(signals).sort();
+    const table = doc.createElement("table");
+    for (const key of keys) {
+      const row = doc.createElement("tr");
+      const name = doc.createElement("td");
+      name.textContent = key;
+      name.title = "Copy the key";
+      name.addEventListener("click", () => {
+        void doc.defaultView?.navigator.clipboard?.writeText(key);
+        this.#setStatus(`Copied ${key}`, "success");
+      });
+      const value = doc.createElement("td");
+      const raw = signals[key];
+      const text =
+        typeof raw === "number"
+          ? String(Math.round(raw * 100) / 100)
+          : typeof raw === "string" && raw.length > 72
+            ? `${raw.slice(0, 72)}…`
+            : String(raw);
+      value.textContent = text;
+      row.append(name, value);
+      table.append(row);
+    }
+    this.#signalsPanel.replaceChildren(table);
+    if (keys.length === 0) this.#signalsPanel.textContent = "No signals.";
   }
 
   async #export(format: LabExportFormat): Promise<void> {
