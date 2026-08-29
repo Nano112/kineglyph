@@ -35,6 +35,11 @@ export interface BuildSurfaceOptions {
   readonly background?: string;
   /** Signals whose change rebuilds the model (the GLB function is called again). */
   readonly watch?: readonly string[];
+  /**
+   * Where poses come from. Defaults to the GLB's own tracks; pass
+   * `(glb) => fromBuildAnimation(engine, glb)` to drive the renderer from a live engine.
+   */
+  readonly source?: (glb: BuildGlb) => FrameSource;
   readonly onView?: (view: BuildView) => void;
   readonly onError?: (error: unknown) => void;
 }
@@ -62,6 +67,7 @@ interface Target {
   materials: Map<number, THREE.MeshStandardMaterial[]>;
   lastTime: number;
   observer: ResizeObserver | undefined;
+  refresh: (() => void) | undefined;
 }
 
 function toArrayBuffer(bytes: GlbBytes): ArrayBuffer {
@@ -193,7 +199,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
     }
     t.root.add(model);
     t.glb = glb;
-    t.source = fromAnimatedGlb(glb);
+    t.source = options.source?.(glb) ?? fromAnimatedGlb(glb);
   };
 
   const renderer: LiveSurfaceRenderer = bindLiveSurface<Target>({
@@ -241,6 +247,7 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         materials: new Map(),
         lastTime: 0,
         observer: undefined,
+        refresh: context.refresh,
       };
       if (options.interactive === true) {
         const controls = new OrbitControls(camera, gl.domElement);
@@ -293,7 +300,9 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
     async apply(t, update, signal) {
       if (signal.aborted) return;
       try {
-        if (update.initial || update.changed.some((name) => (options.watch ?? []).includes(name))) {
+        const reload =
+          update.initial || update.changed.some((name) => (options.watch ?? []).includes(name));
+        if (reload) {
           await loadModel(t, {
             element: t.element,
             node: update.node,
@@ -309,6 +318,8 @@ export function buildSurface(options: BuildSurfaceOptions): BuildSurface {
         }
         if (signal.aborted) return;
         applyPoses(t, update.time);
+        // A new model changes what the frame signals report; ask the figure to re-apply now.
+        if (reload) t.refresh?.();
       } catch (error) {
         options.onError?.(error);
         throw error;

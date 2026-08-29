@@ -21,6 +21,11 @@ export interface LiveSurfaceContext {
   readonly playing: boolean;
   readonly signal: AbortSignal;
   readonly send: (event: string | MachineEvent) => MachineStep | undefined;
+  /**
+   * Ask the figure to re-apply its current frame — for a surface that finished async work (a
+   * model reload) and whose frame signals should be recomputed now rather than at the next tick.
+   */
+  readonly refresh?: () => void;
 }
 
 export interface LiveSurfaceUpdate {
@@ -63,6 +68,8 @@ export interface MountLiveSurfacesOptions {
   readonly playing: boolean;
   readonly send: (event: string | MachineEvent) => MachineStep | undefined;
   readonly onError?: (nodeId: string, error: unknown) => void;
+  /** Re-apply the current frame (see `LiveSurfaceContext.refresh`). */
+  readonly onRefresh?: () => void;
 }
 
 interface SurfaceRecord {
@@ -127,6 +134,7 @@ export class LiveSurfaceManager {
         playing: this.#options.playing,
         signal: record.abort.signal,
         send: this.#options.send,
+        ...(this.#options.onRefresh === undefined ? {} : { refresh: this.#options.onRefresh }),
       });
       const handle = normaliseHandle(result);
       if (record.abort.signal.aborted || this.#disposed) {

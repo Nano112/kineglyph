@@ -252,6 +252,140 @@ export default figure("nucleation-nook", {
 });
 ```
 
+## Parametric beacon
+
+The build script is a function of two sliders. Each change re-records the animation with the
+WASM engine, re-exports the GLB for the meshes, and hands the surface a **live source**: poses
+come straight from the engine's `frameJson(t)` rather than the GLB's sampled tracks.
+
+```kineglyph live id=nucleation-parametric view=preview height=640
+import { drafting as D, figure, loadBuildSurface, paperDraftingTheme, parametric } from "kineglyph";
+
+export const theme = paperDraftingTheme;
+const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const build = await loadBuildSurface();
+
+async function loadEngine() {
+  try {
+    return await import(asset("engine/index.mjs"));
+  } catch {
+    return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
+  }
+}
+const { AnimationEffect, BuildAnimation, ResourcePack } = await loadEngine();
+const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
+const pack = ResourcePack.fromBytes(Array.from(packBytes));
+
+// The build as a function of its parameters.
+function record(radius, stepMs) {
+  const animation = BuildAnimation.create("beacon_parametric");
+  animation.setStepMs(stepMs);
+  for (let x = -radius; x <= radius; x += 1) {
+    for (let z = -radius; z <= radius; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
+  }
+  animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
+  animation.addAnchor("beacon", 0, 1.5, 0);
+  animation.addAnchorToGroup(0, "corner", -radius, 0.5, -radius);
+  const orbit = AnimationEffect.create(animation.durationMs() + 400);
+  orbit.addTween("rotateY", -6, 6, "inOutSine");
+  animation.animateCamera(orbit, 0);
+  return animation;
+}
+const glbOf = (animation) =>
+  Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
+
+const params = parametric(
+  {
+    radius: { value: 1, label: "Base radius (blocks)", min: 1, max: 2, step: 1 },
+    step: { value: 140, label: "Step (ms)", min: 60, max: 240, step: 20 },
+  },
+  (v) => ({
+    baseRadius: v.radius,
+    stepMs: v.step,
+    blocksLabel: `${(2 * v.radius + 1) ** 2} gold blocks · step ${v.step} ms`,
+  }),
+  { group: "build" },
+);
+export const deriveSignals = params.deriveSignals;
+
+let latest = record(1, 140);
+const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
+const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
+const NOTES = [
+  { anchor: "beacon", x: 2000, y: 420, side: "top-left" },
+  { anchor: "corner", x: 2000, y: 1180, side: "top-left" },
+];
+const surface = build.buildSurface({
+  // Rebuilt whenever a watched signal changes; the live source reads the same engine object.
+  glb: (context) => {
+    latest = record(Number(context.signals.baseRadius ?? 1), Number(context.signals.stepMs ?? 140));
+    return glbOf(latest);
+  },
+  watch: ["baseRadius", "stepMs"],
+  source: (glb) => build.fromBuildAnimation(latest, glb),
+  camera: { yaw: 28, pitch: 24, zoom: 0.8 },
+  interactive: true,
+});
+export const liveSurfaces = { "build-view": surface };
+const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES });
+export const frameSignals = (time) => {
+  const s = anchors(time);
+  return { ...s, placedLabel: `${s.placed} / ${s.groups} groups placed` };
+};
+const signals = {
+  ...params.signals,
+  ...build.anchorSignalDefaults(NOTES),
+  placedLabel: "0 / 10 groups placed",
+};
+
+export default figure("nucleation-parametric", {
+  title: "Parametric beacon build",
+  description: "Sliders re-record the build; the live engine drives every frame.",
+  background: "canvas",
+  padding: 0,
+  hold: 900,
+  signals,
+}, (f) => {
+  const { layer: L, text: T } = D.bound(f, signals);
+  const plate = D.plate(f, PLATE.x, PLATE.y, PLATE.width, PLATE.height, { id: "build-plate", seed: 21 });
+  const view = f.image(asset("field-observatory.png"), "Parametric beacon build, textured", {
+    id: "build-view",
+    live: true,
+    fit: "cover",
+    position: D.at(VIEW.x, VIEW.y),
+    width: `${(VIEW.width / 2880) * 100}%`,
+    height: `${(VIEW.height / 1800) * 100}%`,
+  });
+  const leaders = NOTES.map((n) =>
+    L(`leader.${n.anchor}`, { fill: "none", stroke: n.anchor === "beacon" ? "accent" : "info", strokeWidth: 0.8, opacity: 0.75 }),
+  );
+  const notes = [
+    D.callout(f, 2000, 420, ["BEACON", "spin-in · 680 ms", "anchor (0, 1.5, 0)"], { id: "beacon-note", tone: "accent" }).node,
+    D.callout(f, 2000, 1180, ["CORNER BLOCK", "group 0 · first placed", "anchor (−r, 0.5, −r)"], { id: "corner-note", tone: "info" }).node,
+  ];
+  const readouts = [
+    T("blocksLabel", 2000, 760, "top-left"),
+    D.text(f, signals.placedLabel, 2000, 820, "top-left", { id: "placed", style: "code", tone: "success", bind: { text: "placedLabel" } }),
+  ];
+
+  f.root(D.sheet(f, {
+    id: "sheet",
+    title: "Parametric beacon",
+    subtitle: "Live engine source  /  sliders re-record the build",
+    ident: "Sheet B-03",
+    seed: 21,
+    titleBlock: { title: "B-03 — Parametric", rows: [["Source", "frameJson(t)"], ["Meshes", "animated GLB"], ["Drawn", "Kineglyph"]] },
+    layers: [...plate, view, ...leaders, ...notes, ...readouts],
+  }));
+  // Long enough for the slowest build (26 groups × 240 ms plus the spin-in).
+  f.sequence([
+    f.reveal([...plate, view], { duration: 320 }),
+    f.reveal([...notes, ...readouts], { duration: 7_000, stagger: 120 }),
+  ], { gap: 0 });
+  params.install(f);
+});
+```
+
 ## The same GLB, anywhere
 
 The file the sheets play is ordinary glTF. Here it is in Google's `<model-viewer>`, animation

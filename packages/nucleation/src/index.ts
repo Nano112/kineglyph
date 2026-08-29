@@ -27,5 +27,7 @@ export type {
   Quat,
   Vec3,
 } from "./glb.js";
+export { fromBuildAnimation } from "./live-source.js";
+export type { BuildEngine } from "./live-source.js";
 export { buildSurface } from "./surface.js";
 export type { BuildSurface, BuildSurfaceOptions, BuildView, GlbBytes } from "./surface.js";

@@ -801,6 +801,10 @@ class FigureRuntime implements KineglyphController {
         time: initialTime,
         playing: initialPlaying,
         send: (event) => this.send(event),
+        onRefresh: () => {
+          const animator = this.#animator;
+          if (animator !== undefined && !animator.playing) animator.seek(this.#time);
+        },
         ...(this.#options.onSurfaceError === undefined
           ? {}
           : { onError: this.#options.onSurfaceError }),

@@ -17,6 +17,7 @@ describe("nucleation-builds docs", () => {
     expect(blocks.map((block) => block.id)).toEqual([
       "nucleation-beacon",
       "nucleation-nook",
+      "nucleation-parametric",
       "nucleation-glb-anywhere",
     ]);
   });
@@ -37,7 +38,7 @@ describe("nucleation-builds docs", () => {
   });
 
   it("the sheets export a surface and frame signals and declare their signals", () => {
-    for (const block of blocks.slice(0, 2)) {
+    for (const block of blocks.slice(0, 3)) {
       expect(block.body).toContain("export const liveSurfaces");
       expect(block.body).toContain("export const frameSignals");
       expect(block.body).toContain("anchorSignalDefaults(NOTES)");
