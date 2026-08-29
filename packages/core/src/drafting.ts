@@ -551,10 +551,10 @@ function paperGrain(
   options: { readonly amount?: number; readonly scale?: number },
   seed: number,
 ): MaterialEffect[] {
-  const amount = options.amount ?? 0.42;
-  const scale = options.scale ?? 6;
+  const amount = options.amount ?? 0.18;
+  const scale = options.scale ?? 8;
   return [
-    noise({ amount: amount * 0.22, scale: 0.3, seed }),
+    noise({ amount: amount * 0.5, scale: 0.3, seed }),
     noise({ amount, scale, seed: seed + 1 }),
   ];
 }
@@ -605,7 +605,7 @@ export function plate(
         offset: dropOptions.offset ?? [14, 20],
       }),
     );
-  if (options.grain !== false) effects.push(...paperGrain({ amount: 0.34, scale: 6 }, seed + 2));
+  if (options.grain !== false) effects.push(...paperGrain({ amount: 0.14, scale: 8 }, seed + 2));
   const d = rect(x, y, width, height);
   const label = options.label ?? "plate";
   return [
