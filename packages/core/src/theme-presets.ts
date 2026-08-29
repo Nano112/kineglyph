@@ -293,14 +293,14 @@ function draftingType(): NonNullable<ThemeOverride["typography"]> {
 export const draftingTheme: ThemeTokens = professionalTheme({
   name: "drafting",
   colors: {
-    canvas: "#0c0c0e",
+    canvas: "#050506",
     surface: "#141416",
     surfaceRaised: "#1b1b1f",
     surfaceMuted: "#08080a",
     text: "#dedee2",
     textMuted: "#82828a",
     accent: "#f0a45e",
-    accentContrast: "#0c0c0e",
+    accentContrast: "#050506",
     info: "#bf9be0",
     success: "#5fd3a0",
     warning: "#e8c766",

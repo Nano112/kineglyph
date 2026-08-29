@@ -686,6 +686,24 @@ export function sheet(f: FigureBuilder, options: SheetOptions): GroupNode {
       layer(f, grid(200), { label: "coarse grid", strokeWidth: 0.7, opacity: 0.12 }),
     );
   }
+  // The vignette sits above the grids so the ruling fades toward the edges the way ink on a
+  // curved sheet does, instead of staying uniformly bright out to the border.
+  if (options.paper !== false)
+    children.push(
+      layer(f, rect(0, 0, SHEET_WIDTH, SHEET_HEIGHT), {
+        label: "vignette",
+        stroke: "none",
+        strokeWidth: 0,
+        fill: radialGradient(
+          [
+            { at: 0, color: "canvas", opacity: 0 },
+            { at: 0.45, color: "canvas", opacity: 0.08 },
+            { at: 1, color: "canvas", opacity: 0.72 },
+          ],
+          { center: [0.46, 0.44], radius: 0.78 },
+        ),
+      }),
+    );
   if (options.frame !== false) {
     const border = frame();
     children.push(
