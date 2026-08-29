@@ -1,0 +1,63 @@
+{
+  "name": "@kineglyph/nucleation",
+  "version": "0.3.1",
+  "description": "Nucleation build animations on a Kineglyph live surface: animated GLB parsing, frame sampling, anchor projection, and a three.js renderer",
+  "license": "MIT",
+  "author": "Harrison (https://github.com/Nano112)",
+  "keywords": [
+    "nucleation",
+    "minecraft",
+    "gltf",
+    "three",
+    "animation",
+    "kineglyph"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/nucleation"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/nucleation#readme",
+  "bugs": {
+    "url": "https://github.com/Nano112/kineglyph/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!**/__tests__",
+    "!**/*.tsbuildinfo"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@kineglyph/core": "^0.3.1",
+    "@kineglyph/web": "^0.3.1",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "vite": "^8.2.1"
+  }
+}
