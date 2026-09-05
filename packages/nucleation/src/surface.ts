@@ -6,7 +6,11 @@
  * configuration, and renders. `onView` / `view()` hand the resulting view-projection matrix and
  * viewport to whoever needs to project anchors — the frame-signal helper in `anchors.ts`.
  */
-import { bindLiveSurface, type LiveSurfaceContext, type LiveSurfaceRenderer } from "@kineglyph/web";
+import {
+  bindLiveSurface,
+  type LiveSurfaceContext,
+  type LiveSurfaceRenderer,
+} from "@kineglyph/web/surfaces";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";

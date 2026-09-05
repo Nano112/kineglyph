@@ -113,6 +113,7 @@
     "access": "public"
   },
   "scripts": {
+    "build:surfaces": "tsc -p tsconfig.surfaces.json",
     "build": "tsc -p tsconfig.build.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

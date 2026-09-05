@@ -17,7 +17,7 @@ export default defineConfig({
       fileName: () => "index.js",
     },
     rollupOptions: {
-      external: ["@kineglyph/core", "@kineglyph/web"],
+      external: [/^@kineglyph\/(?:core|web)(?:\/|$)/],
     },
   },
 });
