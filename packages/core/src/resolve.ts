@@ -1089,7 +1089,12 @@ function layoutGroup(
           );
           return { basis: width, min: width, max: width, grow: 0, shrink: 0 };
         }
-        const minContent = Math.min(minContentWidth(child, context.layout), child.maxWidth);
+        // Explicit minima override the automatic min-content floor. This lets
+        // minWidth: 0 wrap long command arguments inside their allocated row.
+        const minContent =
+          child.node.minWidth === undefined
+            ? Math.min(minContentWidth(child, context.layout), child.maxWidth)
+            : child.minWidth;
         if (child.width === "fill") {
           const min = Math.max(child.minWidth, minContent);
           return {

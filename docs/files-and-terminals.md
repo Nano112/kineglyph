@@ -1,5 +1,26 @@
 # Files and terminals
 
+## Minecraft command input
+
+`f.minecraftCommand()` draws a square chat input with optional history and completion hints.
+It preserves `/` and `//` commands without adding a shell prompt. `f.typewrite()` types the
+input; previous chat and hints stay visible. Long arguments wrap at narrow widths.
+
+```ts
+const chat = f.minecraftCommand("//paste", {
+  context: "Multiplayer chat",
+  history: [{ kind: "success", text: "Clipboard loaded." }],
+  suggestions: ["//paste [-a]"],
+});
+f.root(chat);
+f.sequence([f.typewrite(chat, { characterDuration: 90 })]);
+```
+
+The recipe uses the scene's code font and surface colours. Set them in your theme to match
+the surrounding game illustration. It renders a demonstration; it does not send game commands.
+SVG, PNG, GIF, and the web runtime use the same nodes and seekable timeline. For article
+embeds, provide the complete command as copyable text and a still image for reduced motion.
+
 File structures and terminal sessions are first-class Kineglyph figures. They use the same layout,
 theme, timeline, responsive, inspection, and export paths as every other mark—there is no embedded
 terminal iframe and no screenshot hidden inside the SVG.
