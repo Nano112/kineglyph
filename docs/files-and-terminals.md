@@ -18,8 +18,20 @@ f.sequence([f.typewrite(chat, { characterDuration: 90 })]);
 
 The recipe uses the scene's code font and surface colours. Set them in your theme to match
 the surrounding game illustration. It renders a demonstration; it does not send game commands.
-SVG, PNG, GIF, and the web runtime use the same nodes and seekable timeline. For article
-embeds, provide the complete command as copyable text and a still image for reduced motion.
+Use `exportAnimatedSvg()` to keep typing as an SVG file, including in an ordinary `<img>`:
+
+```ts
+import { exportAnimatedSvg } from "@kineglyph/export";
+const svg = exportAnimatedSvg(resolvedScene, { fps: 24, background: "transparent" });
+```
+
+It samples the timeline into vector frames with CSS keyframes. It needs no JavaScript, video,
+or player. Playback runs once and holds the completed frame; `prefers-reduced-motion` shows
+that frame immediately. Set `repeat: "indefinite"` only when the host provides a way to stop
+motion. Fonts follow the SVG's normal font rules. More frames increase file size; unchanged
+consecutive frames are coalesced. Use `surfaces(time)` when a live surface needs rendered images.
+For game instructions, put each complete command in its own copyable block. Keep placeholder
+arguments and commands that must wait for one another out of a shared copy button.
 
 File structures and terminal sessions are first-class Kineglyph figures. They use the same layout,
 theme, timeline, responsive, inspection, and export paths as every other mark—there is no embedded
