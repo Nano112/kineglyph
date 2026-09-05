@@ -38,6 +38,9 @@ export async function exportVideo(
       : [
           "-crf",
           String(quality),
+          // H.264 4:2:0 needs even dimensions; scene layout may produce odd ones.
+          "-vf",
+          "pad=ceil(iw/2)*2:ceil(ih/2)*2",
           "-pix_fmt",
           "yuv420p",
           "-movflags",
