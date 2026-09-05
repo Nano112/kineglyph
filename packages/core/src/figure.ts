@@ -52,6 +52,7 @@ import {
   stack,
   tileNode,
   terminal,
+  minecraftCommand,
   terminalWindow,
   windowFrame,
   type CardOptions,
@@ -75,6 +76,7 @@ import {
   type TextOptions,
   type TerminalLine,
   type TerminalOptions,
+  type MinecraftCommandOptions,
   type TerminalPane,
   type TerminalWindowOptions,
   type TileNodeOptions,
@@ -172,6 +174,7 @@ export type FigurePortOptions = PortMarkOptions & { readonly id?: string };
 export type FigureTileNodeOptions = TileNodeOptions & { readonly id?: string };
 export type FigureKeyValueOptions = KeyValueOptions & { readonly id?: string };
 export type FigureTerminalOptions = TerminalOptions & { readonly id?: string };
+export type FigureMinecraftCommandOptions = MinecraftCommandOptions & { readonly id?: string };
 export type FigureTerminalWindowOptions = TerminalWindowOptions & { readonly id?: string };
 export type FigureWindowFrameOptions = WindowFrameOptions & { readonly id?: string };
 export type FigureFileTreeOptions = FileTreeOptions & { readonly id?: string };
@@ -453,6 +456,8 @@ export interface FigureBuilder {
   keyValue(key: string, value: string, options?: FigureKeyValueOptions): GroupNode;
   /** Structured terminal surface; pair with `f.typewrite(terminal)` for seekable typing. */
   terminal(lines: readonly (string | TerminalLine)[], options?: FigureTerminalOptions): GroupNode;
+  /** Minecraft chat input with static history and suggestions; animate with `f.typewrite`. */
+  minecraftCommand(command: string, options?: FigureMinecraftCommandOptions): GroupNode;
   /** Responsive one-or-many-pane terminal window with optional tmux-style status chrome. */
   terminalWindow(panes: readonly TerminalPane[], options?: FigureTerminalWindowOptions): GroupNode;
   /** Recursive directory tree with optional branch guides, details, and status badges. */
@@ -1944,6 +1949,11 @@ function createBuilder(
       const primary = rest.title ?? rest.label;
       const id = inferId("terminal", primary, explicit);
       return commit(terminal(id, lines, rest), where("terminal", primary));
+    },
+    minecraftCommand(command, options = {}) {
+      const { id: explicit, ...rest } = options;
+      const id = inferId("minecraft-command", command, explicit);
+      return commit(minecraftCommand(id, command, rest), where("minecraftCommand", command));
     },
     terminalWindow(panes, options = {}) {
       const { id: explicit, ...rest } = options;

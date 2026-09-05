@@ -4,7 +4,8 @@
     "rootDir": ".",
     "noEmit": true,
     "paths": {
-      "@kineglyph/web": ["./src/index.ts"]
+      "@kineglyph/web": ["./src/index.ts"],
+      "@kineglyph/web/*": ["./src/*.ts"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"]

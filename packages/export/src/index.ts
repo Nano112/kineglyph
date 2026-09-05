@@ -15,6 +15,7 @@ export {
   type EmbeddedFontMeasurer,
   type EmbeddedFontSource,
 } from "./font-shaping.js";
+export { exportAnimatedSvg, type AnimatedSvgExportOptions } from "./animated-svg.js";
 export { exportSvg } from "./svg.js";
 export type { ExportBackground, SvgExportOptions } from "./svg.js";
 export { exportPng } from "./png.js";

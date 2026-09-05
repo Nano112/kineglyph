@@ -1990,6 +1990,7 @@ export function terminal(
           ...(options.rows === undefined ? {} : { maxLines: options.rows }),
         }),
         wrap: wrapPolicy === "wrap",
+        ...(wrapPolicy === "wrap" ? { width: "fill" as const, grow: 1, minWidth: 0 } : {}),
         metadata: {
           terminalRole: "text",
           typing,
@@ -2011,6 +2012,7 @@ export function terminal(
     children.push(
       row(`${id}-line-${index + 1}-body`, body, {
         gap: kind === "command" ? 8 : 0,
+        ...(wrapPolicy === "wrap" ? { width: "fill" as const } : {}),
         grow: 1,
         minWidth: 0,
         align: "start",
@@ -2162,6 +2164,88 @@ export function terminal(
       },
     },
   );
+}
+
+export interface MinecraftCommandOptions extends ContainerOptions {
+  /** Chat already visible before the command is typed. It is never retyped. */
+  readonly history?: readonly (string | TerminalLine)[];
+  /** Static completion hints above the input. */
+  readonly suggestions?: readonly string[];
+  /** Optional label such as "Multiplayer chat" or "Singleplayer". */
+  readonly context?: string;
+  readonly cursor?: boolean | TerminalCursorOptions;
+}
+
+/** Minecraft-style chat input, compiled to ordinary terminal and text nodes. */
+export function minecraftCommand(
+  id: string,
+  command: string,
+  options: MinecraftCommandOptions = {},
+): GroupNode {
+  if (!command.startsWith("/") || /[\r\n]/.test(command)) {
+    throw new Error(
+      "minecraftCommand requires one slash-prefixed command, such as /schematio or //paste",
+    );
+  }
+  const { history = [], suggestions = [], context, cursor = false, ...container } = options;
+  const children: SceneNode[] = [];
+  if (context !== undefined) children.push(caption(`${id}-context`, context));
+  if (history.length > 0) {
+    children.push(
+      terminal(
+        `${id}-history`,
+        history.map((line) => ({
+          ...(typeof line === "string" ? { text: line, kind: "output" as const } : line),
+          typing: false,
+          cursor: false,
+        })),
+        {
+          chrome: "plain",
+          typing: false,
+          density: "compact",
+          padding: [6, 10],
+          frame: { fill: "surfaceMuted", stroke: "none", radius: 0 },
+        },
+      ),
+    );
+  }
+  if (suggestions.length > 0) {
+    children.push(
+      terminal(
+        `${id}-suggestions`,
+        suggestions.map((suggestion) => ({
+          text: suggestion,
+          kind: "output" as const,
+          tone: "warning" as const,
+          typing: false,
+        })),
+        {
+          chrome: "plain",
+          density: "compact",
+          padding: [6, 10],
+          frame: { fill: "surfaceMuted", stroke: "none", radius: 0 },
+          label: "Command suggestions",
+        },
+      ),
+    );
+  }
+  children.push(
+    terminal(`${id}-input`, [{ text: command, kind: "output", typing: true, cursor }], {
+      chrome: "plain",
+      density: "compact",
+      padding: [8, 10],
+      wrap: "wrap",
+      frame: { fill: "surfaceRaised", stroke: "border", radius: 0 },
+      label: "Minecraft command input",
+    }),
+  );
+  return stack(id, children, {
+    ...container,
+    gap: options.gap ?? 4,
+    width: options.width ?? "fill",
+    label: options.label ?? "Minecraft command",
+    metadata: { ...options.metadata, minecraftRole: "command" },
+  });
 }
 
 export interface TerminalPane {
