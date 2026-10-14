@@ -104,7 +104,7 @@ curl --fail-with-body -H 'Content-Type: application/json' \
   --data-binary @request.json http://127.0.0.1:4179/render.png -o dashboard.png
 ```
 
-POST returns image bytes, just like GET; it does **not** upload an image or allocate a stored
+POST to these render routes returns image bytes, just like GET; it does **not** allocate a stored
 image URL. A GET can carry the same request in the URL-encoded `spec` parameter. `spec` is
 exclusive: put all options inside it rather than mixing it with shorthand parameters.
 
@@ -188,8 +188,8 @@ edit in your target channel before relying on its cache behaviour.
 
 Query payloads are visible in URLs, logs, browser history, and the platforms displaying them.
 Encoding is **not encryption**. Do not include secrets or sensitive machine information in public
-image URLs. For private dashboards, choose a separate authenticated delivery/storage design;
-Discord's image fetcher does not send your custom Authorization header.
+image URLs. Use the authenticated publisher and signed snapshots below for header-free image
+delivery; Discord's image fetcher does not send your custom Authorization header.
 
 ## Embed the handler
 
@@ -221,13 +221,175 @@ server.listen(4179, "127.0.0.1");
 
 Handler options are server-owned, never query-controlled:
 
-- `concurrency`: default 2, maximum 8; includes admitted body readers. There is no waiting queue.
+- `concurrency`: default 2, maximum 8; bounds body readers plus workers. No queued render jobs.
+- `maxWaiters`: default 16, maximum 128; additional bounded singleflight subscribers.
 - `timeoutMs`: default 10,000, maximum 30,000; render worker wall-clock deadline.
 - `bodyTimeoutMs`: default 5,000, maximum 30,000; deadline to finish receiving JSON.
 - `cacheBytes`: default 0 (disabled), maximum 64,000,000; process-local LRU byte budget.
 
 Call `shutdown()` for an owned service, or `handler.close()` for an embedded handler, to stop
 admission and drain outstanding work. The application still owns an embedded HTTP listener.
+
+## Authentication and signed snapshots
+
+**The default is `auth: { mode: "none" }` (public rendering).** The CLI above is a local
+preview, not a secure publication configuration. Configure security through the Node-only
+`@kineglyph/server` entry (`startRenderServer` or `createRenderHandler`); the CLI does not accept
+a security JSON file or secrets as arguments. The browser-safe `/client` entry cannot sign URLs.
+
+A private publisher with publicly fetchable, expiring PNG capabilities:
+
+```js
+import { startRenderServer } from "@kineglyph/server";
+
+const publisherKey = process.env.KINEGLYPH_API_KEY;
+const signingKey = process.env.KINEGLYPH_SIGNING_KEY;
+if (!publisherKey || !signingKey) throw new Error("Missing Kineglyph credentials");
+
+const service = await startRenderServer({
+  host: "127.0.0.1",
+  port: 3000,
+  auth: { mode: "bearer", keys: { publisher: publisherKey } },
+  signing: { keys: { v1: signingKey }, keyId: "v1", maxTtlSeconds: 86400 },
+  snapshots: {
+    directory: "/absolute/private/kineglyph-snapshots",
+    publicBaseUrl: "https://glyph.example",
+    ttlSeconds: 86400,
+    retentionSeconds: 86400,
+    maxBytes: 256000000,
+    maxCount: 1000,
+  },
+  cacheBytes: 16000000,
+  rateLimit: { windowMs: 60000, global: 300, perPrincipal: 60, maxPrincipals: 1000 },
+});
+// At shutdown: await service.shutdown();
+```
+
+Store independently generated random secrets in your service's secret manager/environment,
+not source control, request URLs, command-line arguments, or logs. Bearer keys must be 16–1024
+printable non-space ASCII characters. Signing keys must be 32–1024 UTF-8 bytes; byte length
+alone does not guarantee entropy. Key IDs use 1–64 ASCII letters, digits, `_` or `-`.
+
+### Authorization modes
+
+- `none`: public render requests, limited by the actual socket peer address. Forwarded headers
+  are never used as identity; behind a proxy public clients share the proxy's quota.
+- `bearer`: `keys` maps up to 100 principal IDs to tokens. Send exactly one
+  `Authorization: Bearer <token>` header. Each key grants render and publish access.
+- `custom`: `authorize(request, permission)` is a **synchronous** hook. Return a stable nonempty
+  principal string (at most 128 characters) to allow, or `false` to deny. The handler invokes it
+  with `"render"` or `"publish"`; immutable image reads use signatures, not this hook. Exceptions
+  and invalid return values deny access without exposing hook errors. For example:
+  `auth: { mode: "custom", authorize: (req, permission) => permission === "publish" && trustedPublisher(req) ? "publisher" : false }`.
+  Supply your own `trustedPublisher` credential verifier; do not trust a user-controlled identity
+  header without authenticating it.
+- `hmac`: only signed GET/HEAD capabilities are accepted. Requires `signing`; rendering also
+  requires `signing.allowRender: true`. This read-only mode cannot publish snapshots.
+
+Authorization runs before body parsing, rendering, cache lookup, image reads, and conditional
+304 responses. Bearer/custom render responses are `private, no-store`. Failed authorization is
+401; duplicate Authorization headers are rejected. A signed request must not also carry an
+Authorization header. Snapshot configuration requires bearer/custom publisher auth plus signing
+keys, and its TTL must not exceed `signing.maxTtlSeconds`.
+
+### Publish once, fetch without rendering
+
+Send the same JSON `RenderRequest` used by `/render.png`:
+
+```sh
+curl --fail-with-body 'https://glyph.example/snapshots.png' \
+  -H "Authorization: Bearer $KINEGLYPH_API_KEY" \
+  -H 'Content-Type: application/json' --data-binary @request.json
+```
+
+The response is HTTP **201** JSON with exactly the publication URL:
+
+```json
+{ "url": "https://glyph.example/images/<sha256>.png?kid=v1&exp=<unix-seconds>&sig=<hex>" }
+```
+
+`POST /snapshots.png` accepts no query parameters and publishes PNG only. It renders validated
+data; it is not an arbitrary file upload. `/images/<sha256>.png` accepts signed GET/HEAD only,
+reads immutable persisted bytes, and never forks a renderer. Bearer credentials alone cannot
+read it. The returned origin comes exclusively from configured `publicBaseUrl` (an HTTP(S)
+origin without path, query, credentials, or fragment), never Host or forwarding headers.
+Prefer HTTPS in production. Disabled snapshot endpoints return 404.
+
+Put the returned URL in a Discord image embed. Discord need not know the publisher credential;
+only the publishing monitor does. Each new data snapshot is published independently. Treat the
+entire URL as a bearer capability: anyone who obtains it can read the image. Avoid logging query
+strings, use a separate origin for unrelated applications, and do not put secrets in chart data.
+
+Storage is bounded by `maxBytes`, `maxCount`, and `retentionSeconds`, with oldest-publication
+entries evicted first. **Storage pressure can evict a still-valid URL** (404). Republishing
+identical bytes deduplicates storage and durably refreshes retention, including across restart.
+Retention must cover the publication TTL. TTL is 1–2,592,000 seconds, retention at most
+31,536,000 seconds, count at most 100,000, and bytes at most 10,000,000,000. Each image is also
+subject to the output byte limit. An image larger than storage capacity returns 507.
+
+Use an absolute, dedicated directory owned by the service account, with mode 0700 and **one
+server process, no other writers**. Existing non-private roots, root/leaf symlinks, hard-linked
+entries and unexpected filenames fail closed. Files are atomically published with filesystem
+sync; recognized interrupted temporary writes are cleaned at startup. Inventory is pruned at
+startup and on reads/publications, not by a background timer. Bytes and signatures survive a
+restart when directory and verification keys are retained. This is bounded local storage, not
+a multi-process database or protection from a compromised service account.
+
+### Sign direct render URLs and rotate keys
+
+Direct signed rendering is opt-in because every cache miss may consume renderer capacity:
+
+```js
+import { signUrl } from "@kineglyph/server";
+import { chartUrl } from "@kineglyph/server/client";
+
+const secret = process.env.KINEGLYPH_SIGNING_KEY;
+if (!secret) throw new Error("Missing signing credential");
+const signing = {
+  keys: { v1: secret },
+  keyId: "v1",
+  maxTtlSeconds: 3600,
+  allowRender: true,
+};
+// Configure the server with this signing object and auth: { mode: "hmac" }.
+const url = signUrl(chartUrl("https://glyph.example", { data: [1, 2, 3] }), signing, 300);
+```
+
+`signUrl(absoluteUrl, signing, ttlSeconds, now?)` returns a signed URL. `now` is an optional Unix
+seconds clock for testing; normal callers should omit it. Positive integer TTL must not exceed
+`maxTtlSeconds` (itself at most 2,592,000). Signing allows up to 16 keys; `keyId` selects the
+issuing key while all configured keys can verify. Add a new key, switch `keyId`, retain old keys
+until existing capabilities expire, then remove old keys to deny them at the origin.
+
+GET and HEAD share the same capability; POST is never signed. HMAC-SHA256 binds the exact path
+and query (including key ID and expiry), using `kineglyph-v1\nGET\n<path-and-query-without-sig>`.
+The lowercase hex `sig` is the final parameter. Do not reorder, append, or re-encode a signed
+URL. Duplicate keys, encoded aliases of reserved authentication keys, altered paths, unknown
+keys and expired signatures fail closed. The scheme does **not** bind the origin; use separate
+keys for unrelated deployments. Signing authenticates but does not encrypt URL payloads.
+
+Signed image responses allow public caching only until capability expiry (`max-age` capped to
+remaining seconds, `must-revalidate`), with ETag support. Expiry/key removal blocks origin access,
+not copies already downloaded or cached by Discord or another recipient. This is not a remotely
+revocable confidential attachment service.
+
+### Rate limits and singleflight
+
+The built-in fixed-window limiter runs before parsing or authorization. Defaults are
+`{ windowMs: 60000, global: 1000, perPrincipal: 600, maxPrincipals: 1000 }`.
+The global counter includes unauthorized/malformed requests and cache hits. Authenticated
+requests also consume their principal quota; signed requests share `signed:<kid>`. A full
+principal table denies new identities without evicting existing counters. Windows reset all
+counters; 429 includes `Retry-After` in seconds. Bounds are 3,600,000 ms per window, 1,000,000
+requests per counter, and 100,000 principals. All four fields are required when configuring it;
+`rateLimit: false` explicitly disables it. Limits are process-local, not cluster-wide.
+
+Concurrent identical validated renders share one worker even with the cache disabled. Each
+subscriber is independently authenticated and rate-limited. `maxWaiters` defaults to 16 (0–128)
+and bounds additional admitted subscribers, not an unbounded job queue. Different cold renders
+are rejected with 503 when body readers plus workers fill `concurrency`. Disconnecting one
+subscriber does not cancel shared work; a worker remains bounded by its deadline and drains
+before shutdown. Cache storage additionally has a 1,024-entry cap.
 
 ## Operational boundaries
 

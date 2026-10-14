@@ -39,7 +39,7 @@ it("holds admission until killed subprocess closes, including disconnected clien
   await vi.waitFor(() => expect(child.send).toHaveBeenCalled());
   req.destroy();
   await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith("SIGKILL"));
-  expect((await fetch(url)).status).toBe(503);
+  expect((await fetch(url + ",2")).status).toBe(503);
   let drained = false;
   const closing = handler.close().then(() => {
     drained = true;
@@ -53,6 +53,56 @@ it("holds admission until killed subprocess closes, including disconnected clien
   expect(Object.keys(options.env!)).toEqual(["PATH"]);
   expect(options.execArgv).toEqual(["--max-old-space-size=128"]);
 });
+it("isolates a disconnected subscriber from the remaining singleflight waiter", async () => {
+  const child = fake();
+  const { url, handler } = await setup(3000);
+  const first = request(url);
+  first.on("error", () => {});
+  first.end();
+  await vi.waitFor(() => expect(child.send).toHaveBeenCalledOnce());
+  const second = fetch(url);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  first.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(child.kill).not.toHaveBeenCalled();
+  child.emit("message", { bytes: Buffer.from("<svg/>").toString("base64") });
+  child.emit("close", 0);
+  const response = await second;
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("<svg/>");
+  expect(fork).toHaveBeenCalledOnce();
+  await handler.close();
+});
+
+it("counts slow body readers against worker admission", async () => {
+  const child = fake();
+  const handler = createRenderHandler({ concurrency: 2, bodyTimeoutMs: 3000 });
+  const server = createServer(handler);
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const slow = request(`${base}/chart.svg`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  slow.on("error", () => {});
+  slow.write('{"data":[');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const first = fetch(`${base}/chart.svg?data=1`);
+  await vi.waitFor(() => expect(child.send).toHaveBeenCalledOnce());
+  const second = fetch(`${base}/chart.svg?data=2`);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const forks = vi.mocked(fork).mock.calls.length;
+  child.emit("message", { bytes: Buffer.from("<svg/>").toString("base64") });
+  child.emit("close", 0);
+  slow.destroy();
+  await first;
+  const response = await second;
+  await handler.close();
+  expect(forks).toBe(1);
+  expect(response.status).toBe(503);
+});
+
 it("enforces decoded output byte cap rather than only base64 length", async () => {
   const child = fake();
   const { url } = await setup();
