@@ -11,7 +11,8 @@ description: Build deterministic, responsive technical illustrations and
 author: Kineglyph contributors
 site_url: https://nano112.github.io/kineglyph/
 published: 2026-08-18
-updated: 2026-08-19
+# Omit article-wide updated: pages do not share a trustworthy modification date.
+# Per-page updated metadata may be supplied when it is maintained accurately.
 cover: media/cover-2x.gif
 # 2800x960 is a 2.92 ratio against the band's 3.0, so filling it crops about 3%
 # off the edges rather than letterboxing the wordmark inside a floating card.

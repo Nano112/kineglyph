@@ -122,7 +122,7 @@ const LAB_STYLES = `
 .kg-lab[data-view=source] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=source] .kg-lab__preview{display:none}.kg-lab[data-view=source] .kg-lab__editor{border-right:0}.kg-lab[data-view=preview] .kg-lab__workspace{display:block}.kg-lab[data-view=preview] .kg-lab__editor{display:none}.kg-lab[data-view=preview] .kg-lab__preview{min-height:var(--kg-lab-height,420px)}
 .kg-lab__preview-actions{display:none}.kg-lab__edit,.kg-lab__export-toggle{border-color:color-mix(in srgb,var(--kg-lab-muted) 38%,transparent)!important;padding:5px 8px!important;font-weight:550!important}.kg-lab__export{position:relative}.kg-lab__export[hidden],.kg-lab__export-menu[hidden]{display:none!important}.kg-lab__export-toggle[aria-expanded=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__export-chevron{display:inline-block;margin-left:3px;font-size:9px;transform:translateY(-1px)}.kg-lab__export-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:max-content;min-width:138px;padding:4px;border:1px solid var(--kg-lab-border);border-radius:9px;background:var(--kg-lab-surface);box-shadow:0 10px 28px color-mix(in srgb,#000 24%,transparent)}.kg-lab__export-menu button{display:block;width:100%;padding:8px 10px;text-align:left;white-space:nowrap}.kg-lab__export-menu small{display:block;margin-top:3px;color:var(--kg-lab-muted);font:10px/1.2 var(--kg-lab-mono)}.kg-lab__signals-toggle[aria-pressed=true]{border-color:color-mix(in srgb,var(--kg-lab-accent) 45%,var(--kg-lab-border))!important;color:var(--kg-lab-text);background:color-mix(in srgb,var(--kg-lab-accent) 8%,transparent)}.kg-lab__signals{max-height:220px;overflow:auto;margin:0;padding:6px 10px;border-top:1px solid var(--kg-lab-border);background:var(--kg-lab-surface);color:var(--kg-lab-text);font:11px/1.5 var(--kg-lab-mono)}.kg-lab__signals[hidden]{display:none}.kg-lab__signals table{width:100%;border-collapse:collapse}.kg-lab__signals td{padding:1px 8px 1px 0;vertical-align:top}.kg-lab__signals td:first-child{white-space:nowrap;color:var(--kg-lab-muted);cursor:copy}.kg-lab__signals td:first-child:hover{color:var(--kg-lab-text)}.kg-lab__signals td:last-child{width:100%;word-break:break-all}.kg-lab[data-view=preview] .kg-lab__signals{margin-top:6px;border:1px solid var(--kg-lab-border);border-radius:9px}.kg-lab__status{min-height:34px;margin:0;padding:9px 12px;border-top:1px solid var(--kg-lab-border);color:var(--kg-lab-muted);background:var(--kg-lab-surface);font:11px/1.35 var(--kg-lab-mono)}.kg-lab__status[data-kind=error]{color:#c63d52}.kg-lab__status[data-kind=success]{color:color-mix(in srgb,#25a46f 80%,var(--kg-lab-text))}
 .kg-lab[data-view=preview]{overflow:visible;border:0;border-radius:0;background:transparent}.kg-lab[data-view=preview] .kg-lab__bar,.kg-lab[data-view=preview] .kg-lab__status:not([data-kind=error]){display:none}.kg-lab[data-view=preview] .kg-lab__workspace,.kg-lab[data-view=preview] .kg-lab__preview{min-height:0}.kg-lab[data-view=preview] .kg-lab__preview{padding:0;background:transparent}.kg-lab[data-view=preview] .kg-figure__stage{background:transparent}.kg-lab[data-view=preview] .kg-lab__preview-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0 0;background:transparent}
-@container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:absolute;right:8px}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
+@container kg-lab (max-width:640px){.kg-lab__bar{align-items:flex-start;flex-direction:column}.kg-lab__actions{position:static;flex-wrap:wrap}.kg-lab__tabs{flex-wrap:wrap}.kg-lab__tabs button{padding-inline:8px}.kg-lab__shortcut{display:none}.kg-lab[data-view=split] .kg-lab__workspace{grid-template-columns:1fr}.kg-lab[data-view=split] .kg-lab__editor{height:min(46vh,360px);border-right:0;border-bottom:1px solid var(--kg-lab-border)}.kg-lab[data-view=split] .kg-lab__preview{min-height:300px}.kg-lab__workspace{min-height:0}}
 @media(prefers-reduced-motion:reduce){.kg-lab *{scroll-behavior:auto!important}}
 `;
 
@@ -486,7 +486,30 @@ class LabRuntime implements KineglyphLabController {
       button.type = "button";
       button.setAttribute("role", "tab");
       button.textContent = label;
-      button.addEventListener("click", () => this.setView(view));
+      button.addEventListener("click", () => {
+        this.setView(view);
+        // Preview removes the tab bar; keep keyboard focus on its visible return action.
+        if (view === "preview")
+          this.element.querySelector<HTMLButtonElement>(".kg-lab__edit")?.focus();
+      });
+      button.addEventListener("keydown", (event) => {
+        const index = labels.findIndex(([candidate]) => candidate === view);
+        const next =
+          event.key === "ArrowRight"
+            ? (index + 1) % labels.length
+            : event.key === "ArrowLeft"
+              ? (index + labels.length - 1) % labels.length
+              : event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? labels.length - 1
+                  : undefined;
+        if (next === undefined) return;
+        event.preventDefault();
+        // Manual activation: Enter/Space activates the focused native button.
+        // Merely arrowing to Preview must not hide the tablist under the user.
+        this.#buttons.get(labels[next]![0])?.focus();
+      });
       tabs.append(button);
       this.#buttons.set(view, button);
     }

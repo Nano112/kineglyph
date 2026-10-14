@@ -44,6 +44,35 @@ beforeEach(() => {
 });
 
 describe("mountKineglyphLab", () => {
+  it("navigates mode tabs with arrows and Home/End before activation", async () => {
+    const host = document.createElement("figure");
+    document.body.append(host);
+    const lab = mountKineglyphLab(host, {
+      source: "keyboard",
+      view: "source",
+      load: () => Promise.resolve(scene("keyboard")),
+    });
+    await lab.ready;
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    tabs[0]!.focus();
+    for (const [key, index] of [
+      ["ArrowRight", 1],
+      ["End", 2],
+      ["ArrowRight", 0],
+      ["ArrowLeft", 2],
+      ["Home", 0],
+    ] as const) {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+      expect(document.activeElement).toBe(tabs[index]);
+      expect(lab.view).toBe("source");
+    }
+    tabs[1]!.click();
+    expect(lab.view).toBe("split");
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
+    lab.destroy();
+  });
   it("renders the initial module, exposes three views, and swaps a successful edit in place", async () => {
     const host = document.createElement("figure");
     host.dataset.kineglyphLab = "";

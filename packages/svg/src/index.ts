@@ -1337,7 +1337,10 @@ function renderStructuredNode(
       kind !== "badge" &&
       kind !== "callout");
   const labelledBy = meaningful
-    ? [label && `${groupId}-title`, description && `${groupId}-description`]
+    ? [
+        label && `${rootId}-a11y-title-${domId(id)}`,
+        description && `${rootId}-a11y-description-${domId(id)}`,
+      ]
         .filter(Boolean)
         .join(" ")
     : "";
@@ -1397,8 +1400,13 @@ function renderStructuredNode(
   ];
   const accessible = meaningful
     ? [
-        label && element("title", [["id", `${groupId}-title`]], escapeXml(label)),
-        description && element("desc", [["id", `${groupId}-description`]], escapeXml(description)),
+        label && element("title", [["id", `${rootId}-a11y-title-${domId(id)}`]], escapeXml(label)),
+        description &&
+          element(
+            "desc",
+            [["id", `${rootId}-a11y-description-${domId(id)}`]],
+            escapeXml(description),
+          ),
       ]
         .filter(Boolean)
         .join("")
@@ -2102,7 +2110,10 @@ function renderLegacyNode(
   const rotation = finiteNumber(state.rotation, 0);
   const geometry = nodeGeometry(node);
   const transforms = nodeTransform(geometry, translateX, translateY, scale, precision, rotation);
-  const labelledBy = [label && `${groupId}-title`, description && `${groupId}-description`]
+  const labelledBy = [
+    label && `${rootId}-a11y-title-${domId(id)}`,
+    description && `${rootId}-a11y-description-${domId(id)}`,
+  ]
     .filter(Boolean)
     .join(" ");
   const metadata = mergeRecords(record(node.metadata), record(node.data));
@@ -2143,8 +2154,9 @@ function renderLegacyNode(
     ...metadataAttrs(metadata),
   ];
   const accessible = [
-    label && element("title", [["id", `${groupId}-title`]], escapeXml(label)),
-    description && element("desc", [["id", `${groupId}-description`]], escapeXml(description)),
+    label && element("title", [["id", `${rootId}-a11y-title-${domId(id)}`]], escapeXml(label)),
+    description &&
+      element("desc", [["id", `${rootId}-a11y-description-${domId(id)}`]], escapeXml(description)),
   ]
     .filter(Boolean)
     .join("");
