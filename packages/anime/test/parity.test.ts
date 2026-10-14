@@ -167,6 +167,22 @@ function expectNumericParity(a: string | null, b: string | null, digits = 2): vo
 }
 
 describe("live playback matches static frames", () => {
+  it("hands initial SVG transforms to CSS without leaving stale presentation transforms", () => {
+    const { live, animator } = mountAt(1000);
+    const box = live.querySelector<SVGElement>('[data-node-id="box"]');
+    expect(box?.style.transform).toBe("none");
+    // WebKit applies an SVG presentation transform even beneath CSS transform:none.
+    // A live frame must have one transform owner, including after replay.
+    expect(box?.hasAttribute("transform")).toBe(false);
+    animator.seek(0);
+    expect(box?.style.transform).toContain("scale(0.6)");
+    expect(box?.hasAttribute("transform")).toBe(false);
+    animator.seek(1000);
+    expect(box?.style.transform).toBe("none");
+    expect(box?.hasAttribute("transform")).toBe(false);
+    animator.dispose();
+  });
+
   it.each([0, 500, 1000])("path progress and dash pattern at %i ms", (time) => {
     const { live, static: fixed, animator } = mountAt(time);
     const selector = '.kg-node-shape[data-shape-of="line"]';
@@ -189,6 +205,56 @@ describe("live playback matches static frames", () => {
       expect(dashes.filter((value) => value > 0).length).toBeGreaterThanOrEqual(2);
     }
     expect(attr(live, selector, "stroke-linecap")).toBe(attr(fixed, selector, "stroke-linecap"));
+    animator.dispose();
+  });
+
+  it("preserves text nodes when seeking frames with unchanged line text", () => {
+    const { live, animator } = mountAt(0);
+    const span = live.querySelector('text[data-text-of="para"] tspan');
+    const textNode = span?.firstChild;
+    expect(textNode).not.toBeNull();
+    animator.seek(500);
+    expect(span?.firstChild).toBe(textNode);
+    animator.seek(1000);
+    expect(span?.firstChild).toBe(textNode);
+    animator.dispose();
+  });
+
+  it("preserves character text nodes between reveal steps and after replay", () => {
+    const scene = resolveScene(
+      {
+        ...definition,
+        root: {
+          id: "root",
+          type: "group",
+          children: [{ id: "para", type: "text", text: "Hello", reveal: "characters" }],
+        },
+        timeline: { duration: 1000, tracks: [definition.timeline!.tracks[0]!] },
+      },
+      { width: 480, theme },
+    );
+    const live = document.createElement("div");
+    live.innerHTML = renderSvg(seekTimeline(scene, 0));
+    document.body.append(live);
+    const animator = new KineglyphSceneAnimator({ root: live, scene });
+    const span = live.querySelector("tspan")!;
+    animator.seek(500);
+    expect(span.textContent).toBe("He");
+    const partial = span.firstChild;
+    animator.seek(510);
+    expect(span.firstChild).toBe(partial);
+    animator.seek(1000);
+    expect(span.textContent).toBe("Hello");
+    const complete = span.firstChild;
+    animator.seek(1000);
+    expect(span.firstChild).toBe(complete);
+    animator.restart(false);
+    expect(span.textContent).toBe("");
+    animator.seek(1000);
+    expect(span.textContent).toBe("Hello");
+    const replayed = span.firstChild;
+    animator.seek(1000);
+    expect(span.firstChild).toBe(replayed);
     animator.dispose();
   });
 

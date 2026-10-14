@@ -622,6 +622,10 @@ export class KineglyphSceneAnimator {
         .filter(Boolean)
         .join(" ");
       element.style.transform = css.length > 0 ? css : "none";
+      // Runtime CSS owns the node transform. WebKit otherwise retains the initial SVG
+      // presentation transform beneath `none`, leaving completed nodes at their initial scale.
+      // Shape-local path transforms are separate and must remain untouched.
+      element.removeAttribute("transform");
       const revealX = node.state.revealX ?? 1;
       const revealY = node.state.revealY ?? 1;
       const clipRect = element.querySelector(`[data-reveal-clip="${cssEscape(node.id)}"]`);
@@ -721,7 +725,8 @@ export class KineglyphSceneAnimator {
             const characters = Array.from(value);
             const visible = Math.max(0, Math.min(characters.length, remaining));
             remaining -= visible;
-            span.textContent = characters.slice(0, visible).join("");
+            const content = characters.slice(0, visible).join("");
+            if (span.textContent !== content) span.textContent = content;
             const fullWidth = Number(span.getAttribute("data-line-width") ?? "0");
             const width = characters.length === 0 ? 0 : fullWidth * (visible / characters.length);
             if (width > 0.5) {
@@ -738,7 +743,9 @@ export class KineglyphSceneAnimator {
         node.text?.lines.forEach((line, index) => {
           const span = spans[index];
           if (span === undefined) return;
-          span.textContent = line.text;
+          // Replacing identical tspan text each frame invalidates WebKit's SVG text paint
+          // while its ancestor is animating. Preserve the existing text node when unchanged.
+          if (span.textContent !== line.text) span.textContent = line.text;
           span.setAttribute("data-full-text", line.text);
         });
         const visible =

@@ -1067,7 +1067,8 @@ function layoutGroup(
           : child;
       });
       const total = finals.reduce((sum, child) => sum + child.height, 0) + totalGap;
-      const extent = innerHeight ?? total;
+      // minHeight contributes free space too, but must never cap intrinsic content.
+      const extent = innerHeight ?? Math.max(total, view.minHeight - pad.top - pad.bottom);
       const { lead, between } = distribute(finals.length, extent - total);
       let y = pad.top + lead;
       for (const child of finals) {
@@ -1118,7 +1119,13 @@ function layoutGroup(
       const naturals = children.map((child, index) =>
         layoutNode(child, widths[index] ?? 0, percentHeightBasis(child, innerHeight), context),
       );
-      const rowHeight = innerHeight ?? Math.max(0, ...naturals.map((child) => child.height));
+      const rowHeight =
+        innerHeight ??
+        Math.max(
+          0,
+          view.minHeight - pad.top - pad.bottom,
+          ...naturals.map((child) => child.height),
+        );
       const finals = naturals.map((child) =>
         stretchHeight(child.view, view.align) &&
         typeof child.view.height !== "number" &&
