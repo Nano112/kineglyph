@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 
 /**
  * Bundles three.js into one ESM file so a docs page (or any consumer) pays for the renderer only
- * when it loads this package. `@kineglyph/core` and `@kineglyph/web` stay external; declarations
+ * when it loads this package. `@kineglyph/core` and its surface adapters stay external; declarations
  * come from `tsc --emitDeclarationOnly` in the build script.
  */
 export default defineConfig({
@@ -17,7 +17,7 @@ export default defineConfig({
       fileName: () => "index.js",
     },
     rollupOptions: {
-      external: ["@kineglyph/core", "@kineglyph/web"],
+      external: ["@kineglyph/core", "@kineglyph/core/surfaces"],
     },
   },
 });

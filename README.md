@@ -329,20 +329,40 @@ import { KineglyphFigure } from "@kineglyph/react";
 The self-contained browser bundle also works from a plain script tag or a Blade component. See the
 working [Laravel example](./examples/laravel-blade/README.md).
 
+## Render over HTTP
+
+Run a separate rendering service while monitors and bots only collect data and build image URLs:
+
+```sh
+npm ci
+npm run bootstrap
+node packages/server/dist/cli.js serve --port 4179
+```
+
+```text
+http://127.0.0.1:4179/chart.png?data=12,18,45,32,21&title=CPU&unit=percent&theme=blueprint
+```
+
+Short chart URLs, named series, structured JSON, and portable scene definitions share the same
+renderer. SVG, PNG, and GIF responses work without a browser or database. See the
+[HTTP rendering guide](./docs/http-rendering.md) for the client-only URL builder, POST requests,
+embedding, limits, and Discord snapshot updates.
+
 ## Packages
 
-| Package                 | Responsibility                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `@kineglyph/core`       | scene schema, authoring, layout, edges, timelines, state machines                              |
-| `@kineglyph/svg`        | accessible scene SVGs plus runtime-free table microcharts                                      |
-| `@kineglyph/anime`      | scoped Anime.js frame application                                                              |
-| `@kineglyph/plot`       | typed plots, scales, marks, axes, annotations, and stable handles                              |
-| `@kineglyph/web`        | controller, live signals, WebSocket feeds, and browser bundle                                  |
-| `@kineglyph/react`      | React component and imperative handle                                                          |
-| `@kineglyph/export`     | SVG, PNG, GIF, and the `kineglyph-export` CLI                                                  |
-| `@kineglyph/scenes`     | twelve catalogue scenes, shared recipes, and three themes                                      |
-| `@kineglyph/math`       | TeX formulas as deterministic path marks (MathJax, loaded lazily)                              |
-| `@kineglyph/nucleation` | Nucleation build animations: animated-GLB frame source, three.js surface, anchor frame signals |
+| Package                 | Responsibility                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| `@kineglyph/core`       | scene schema, authoring, layout, edges, timelines, state machines                                  |
+| `@kineglyph/svg`        | accessible scene SVGs plus runtime-free table microcharts                                          |
+| `@kineglyph/anime`      | scoped Anime.js frame application                                                                  |
+| `@kineglyph/plot`       | typed plots, scales, marks, axes, annotations, and stable handles                                  |
+| `@kineglyph/web`        | controller, live signals, WebSocket feeds, and browser bundle                                      |
+| `@kineglyph/react`      | React component and imperative handle                                                              |
+| `@kineglyph/export`     | SVG, PNG, GIF, and the `kineglyph-export` CLI                                                      |
+| `@kineglyph/server`     | bounded HTTP image rendering, short chart URLs, structured requests, and a client-only URL builder |
+| `@kineglyph/scenes`     | twelve catalogue scenes, shared recipes, and three themes                                          |
+| `@kineglyph/math`       | TeX formulas as deterministic path marks (MathJax, loaded lazily)                                  |
+| `@kineglyph/nucleation` | Nucleation build animations: animated-GLB frame source, three.js surface, anchor frame signals     |
 
 ## Run the workbench
 

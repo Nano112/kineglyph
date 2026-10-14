@@ -1,0 +1,62 @@
+{
+  "name": "@kineglyph/server",
+  "version": "0.4.1",
+  "type": "module",
+  "license": "MIT",
+  "description": "Bounded HTTP chart and scene rendering for Kineglyph",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "development": "./src/client.ts",
+      "import": "./dist/client.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "development": "./src/schema.ts",
+      "import": "./dist/schema.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nano112/kineglyph.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/Nano112/kineglyph/tree/main/packages/server#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": [
+    "./dist/cli.js",
+    "./dist/worker.js"
+  ],
+  "bin": {
+    "kineglyph-server": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "assets",
+    "README.md",
+    "LICENSE",
+    "!**/*.test.*",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@kineglyph/core": "^0.3.1",
+    "@kineglyph/plot": "^0.3.1",
+    "@kineglyph/export": "^0.4.1",
+    "zod": "4.3.6"
+  }
+}

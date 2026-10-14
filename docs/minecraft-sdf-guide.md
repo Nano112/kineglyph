@@ -95,7 +95,9 @@ import {
 } from "kineglyph";
 
 export const theme = instrumentTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
 const loadNucleation = () => import(
   "https://cdn.jsdelivr.net/npm/nucleation@0.10.14/index.mjs"
 );
@@ -642,7 +644,9 @@ into unreadable pixels.
 import { bar, figure, plot, studioTheme } from "kineglyph";
 
 export const theme = studioTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
 const palette = [
   { block: "Warped wart", count: 733 },
   { block: "Dark prismarine", count: 645 },
@@ -694,8 +698,10 @@ Nucleation render, while the live page gets camera controls. Try dragging the mo
 import { figure, modelViewerSurface, studioTheme } from "kineglyph";
 
 export const theme = studioTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
-if (!customElements.get("model-viewer")) {
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
+if (typeof customElements !== "undefined" && !customElements.get("model-viewer")) {
   await import("https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js");
 }
 
@@ -786,3 +792,14 @@ fallback, panes, or theme and the preview is remounted through the normal hot-lo
 That division is the useful one: Kineglyph does not pretend to be a voxel engine, and Nucleation
 does not need to become a documentation UI. Portable scene nodes explain and frame the specialist
 renderer, while live surfaces let the specialist output stay interactive.
+
+## Example assets
+
+Download the assets used by the builder and model previews:
+
+- [Solar-system resource pack](../assets/nucleation/solar-system-pack.zip)
+- [Gyroid build animation](../assets/nucleation/gyroid-bloom.gif)
+- [Animated build model](../assets/nucleation/nucleation-build.glb)
+- [Static builder preview](../assets/nucleation/field-observatory.png)
+
+<!-- Keep runtime-loaded assets linked explicitly: Pagina's portable pack cannot discover asset(name) calls. -->

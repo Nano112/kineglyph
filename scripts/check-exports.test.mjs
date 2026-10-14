@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const packages = ["core", "svg", "anime", "plot", "scenes", "web", "react", "export"];
+const packages = ["core", "svg", "anime", "plot", "scenes", "web", "react", "export", "server"];
 
 describe("export conditions", () => {
   for (const name of packages) {

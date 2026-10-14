@@ -34,28 +34,10 @@ paths, the dimension), which is the quickest way to find the names when authorin
 import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kineglyph";
 
 export const theme = paperDraftingTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
-const { nucleation, pack, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
-const { AnimationEffect, BuildAnimation } = nucleation;
-
-// The build script — edit it and the sheet re-exports the GLB. Any block id works.
-const animation = BuildAnimation.create("beacon");
-animation.setStepMs(140);
-for (let x = -1; x <= 1; x += 1) {
-  for (let z = -1; z <= 1; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
-}
-animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
-animation.addAnchor("beacon", 0, 1.5, 0);
-animation.addAnchorToGroup(0, "first-gold", -1, 0.5, -1);
-const orbit = AnimationEffect.create(2_400);
-orbit.addTween("rotateY", -4, 4, "inOutSine");
-animation.animateCamera(orbit, 0);
-const glb = glbOf(animation);
-// The Export menu offers the animated GLB and the finished build as .schem / .litematic.
-export const exportItems = exportsOf(animation, "beacon");
-
-// Sheet layout: a raised plate holds the build view; notes sit in the right column.
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
@@ -63,33 +45,61 @@ const NOTES = [
   { anchor: "first-gold", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
 const DIMENSIONS = [{ from: "first-gold", to: "beacon", tone: "textMuted" }];
-const surface = build.buildSurface({
-  glb,
-  camera: { yaw: 28, pitch: 24, zoom: 0.8 },
-  interactive: true,
-  // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
-  leaders: { frame: VIEW, notes: NOTES },
-  // A dimension line between two anchors, also in the scene.
-  dimensions: DIMENSIONS,
-  // Click a note to ease the camera onto its anchor; click anywhere else to ease back.
-  focus: { "beacon-note": "beacon", "first-note": "first-gold" },
-});
-export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
-// The STEPS table: rows cover groups 0–8 and 9; a bar follows the group in progress.
-const STEP_ROWS = [[0, 8], [9, 9]];
-const rowBar = (row) => `M2004 ${722 + row * 54} h782 v46 h-782 z`;
-export const frameSignals = (time) => {
-  const s = anchors(time);
-  const row = STEP_ROWS.findIndex(([lo, hi]) => s.current >= lo && s.current <= hi);
-  return {
-    ...s,
-    placedLabel: `${s.placed} / ${s.groups} groups placed`,
-    dimLabel: s["dimension.first-gold.beacon.visible"] ? `first gold → beacon  ${s["dimension.first-gold.beacon"].toFixed(2)} bl` : "",
-    "steps.bar": row === -1 ? "M0 0" : rowBar(row),
-  };
-};
 const signals = { ...build.anchorSignalDefaults(NOTES, DIMENSIONS), placedLabel: "0 / 10 groups placed", dimLabel: "", "steps.bar": "M0 0" };
+
+export const liveSurfaces = {};
+export let exportItems = [];
+export let frameSignals;
+// Static prerender uses the same sheet and defaults, without loading browser WASM.
+if (typeof window !== "undefined") {
+  const { nucleation, pack, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+  const { AnimationEffect, BuildAnimation } = nucleation;
+
+  // The build script — edit it and the sheet re-exports the GLB. Any block id works.
+  const animation = BuildAnimation.create("beacon");
+  animation.setStepMs(140);
+  for (let x = -1; x <= 1; x += 1) {
+    for (let z = -1; z <= 1; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
+  }
+  animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
+  animation.addAnchor("beacon", 0, 1.5, 0);
+  animation.addAnchorToGroup(0, "first-gold", -1, 0.5, -1);
+  const orbit = AnimationEffect.create(2_400);
+  orbit.addTween("rotateY", -4, 4, "inOutSine");
+  animation.animateCamera(orbit, 0);
+  const glb = glbOf(animation);
+  // The Export menu offers the animated GLB and the finished build as .schem / .litematic.
+  exportItems = exportsOf(animation, "beacon");
+
+  // Sheet layout: a raised plate holds the build view; notes sit in the right column.
+
+  const surface = build.buildSurface({
+    glb,
+    camera: { yaw: 28, pitch: 24, zoom: 0.8 },
+    interactive: true,
+    // The in-view part of each leader is drawn in the scene, depth-tested against the blocks.
+    leaders: { frame: VIEW, notes: NOTES },
+    // A dimension line between two anchors, also in the scene.
+    dimensions: DIMENSIONS,
+    // Click a note to ease the camera onto its anchor; click anywhere else to ease back.
+    focus: { "beacon-note": "beacon", "first-note": "first-gold" },
+  });
+  liveSurfaces["build-view"] = surface;
+  const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
+  // The STEPS table: rows cover groups 0–8 and 9; a bar follows the group in progress.
+  const STEP_ROWS = [[0, 8], [9, 9]];
+  const rowBar = (row) => `M2004 ${722 + row * 54} h782 v46 h-782 z`;
+  frameSignals = (time) => {
+    const s = anchors(time);
+    const row = STEP_ROWS.findIndex(([lo, hi]) => s.current >= lo && s.current <= hi);
+    return {
+      ...s,
+      placedLabel: `${s.placed} / ${s.groups} groups placed`,
+      dimLabel: s["dimension.first-gold.beacon.visible"] ? `first gold → beacon  ${s["dimension.first-gold.beacon"].toFixed(2)} bl` : "",
+      "steps.bar": row === -1 ? "M0 0" : rowBar(row),
+    };
+  };
+}
 
 export default figure("nucleation-beacon", {
   title: "Beacon build",
@@ -161,47 +171,10 @@ front window, and a torch.
 import { drafting as D, figure, loadBuildSurface, paperDraftingTheme } from "kineglyph";
 
 export const theme = paperDraftingTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
-const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
-const { AnimationEffect, BuildAnimation } = nucleation;
-
-const animation = BuildAnimation.create("crafting_nook");
-animation.setStepMs(520);
-animation.beginGroup();
-for (let x = 0; x < 5; x += 1) {
-  for (let z = 0; z < 5; z += 1) animation.setBlock(x, 0, z, "minecraft:spruce_planks");
-}
-animation.endGroup();
-animation.beginGroup();
-for (const y of [1, 2, 3]) {
-  for (let x = 0; x < 5; x += 1) {
-    const block = x === 2 && y === 2 ? "minecraft:light_blue_stained_glass"
-      : x === 0 || x === 4 ? "minecraft:stripped_spruce_log[axis=y]" : "minecraft:oak_planks";
-    animation.setBlock(x, y, 0, block);
-  }
-  for (let z = 1; z < 5; z += 1) {
-    const block = z === 2 && y === 2 ? "minecraft:light_blue_stained_glass"
-      : z === 4 ? "minecraft:stripped_spruce_log[axis=y]" : "minecraft:oak_planks";
-    animation.setBlock(0, y, z, block);
-  }
-}
-animation.addAnchor("window", 2, 2, 0);
-animation.endGroup();
-animation.withEffect(AnimationEffect.spinIn(620, 1)).setBlock(1, 1, 1, "minecraft:crafting_table");
-animation.addAnchor("crafting-table", 1, 1.5, 1);
-animation.setBlock(3, 1, 1, "minecraft:chest[facing=south]");
-animation.beginGroup();
-animation.setBlock(4, 2, 1, "minecraft:wall_torch[facing=south]");
-animation.setBlock(1, 2, 4, "minecraft:wall_torch[facing=east]");
-animation.addAnchor("torch", 4, 2, 1);
-animation.endGroup();
-const orbit = AnimationEffect.create(3_000);
-orbit.addTween("rotateY", -5, 6, "inOutSine");
-animation.animateCamera(orbit, 0);
-const glb = glbOf(animation);
-export const exportItems = exportsOf(animation, "crafting-nook");
-
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
@@ -210,25 +183,72 @@ const NOTES = [
   { anchor: "torch", x: 2000, y: 980, side: "top-left", tone: "warning" },
 ];
 const DIMENSIONS = [{ from: "crafting-table", to: "torch", tone: "textMuted" }];
-const surface = build.buildSurface({
-  glb,
-  camera: { yaw: 35, pitch: 28, zoom: 0.92 },
-  interactive: true,
-  leaders: { frame: VIEW, notes: NOTES },
-  dimensions: DIMENSIONS,
-  focus: { "table-note": "crafting-table", "window-note": "window", "torch-note": "torch" },
-});
-export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
-export const frameSignals = (time) => {
-  const s = anchors(time);
-  return {
-    ...s,
-    placedLabel: `${s.placed} / ${s.groups} groups placed`,
-    dimLabel: s["dimension.crafting-table.torch.visible"] ? `table → torch  ${s["dimension.crafting-table.torch"].toFixed(2)} bl` : "",
-  };
-};
 const signals = { ...build.anchorSignalDefaults(NOTES, DIMENSIONS), placedLabel: "0 / 5 groups placed", dimLabel: "" };
+
+export const liveSurfaces = {};
+export let exportItems = [];
+export let frameSignals;
+// Static prerender uses the same sheet and defaults, without loading browser WASM.
+if (typeof window !== "undefined") {
+  const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+  const { AnimationEffect, BuildAnimation } = nucleation;
+
+  const animation = BuildAnimation.create("crafting_nook");
+  animation.setStepMs(520);
+  animation.beginGroup();
+  for (let x = 0; x < 5; x += 1) {
+    for (let z = 0; z < 5; z += 1) animation.setBlock(x, 0, z, "minecraft:spruce_planks");
+  }
+  animation.endGroup();
+  animation.beginGroup();
+  for (const y of [1, 2, 3]) {
+    for (let x = 0; x < 5; x += 1) {
+      const block = x === 2 && y === 2 ? "minecraft:light_blue_stained_glass"
+        : x === 0 || x === 4 ? "minecraft:stripped_spruce_log[axis=y]" : "minecraft:oak_planks";
+      animation.setBlock(x, y, 0, block);
+    }
+    for (let z = 1; z < 5; z += 1) {
+      const block = z === 2 && y === 2 ? "minecraft:light_blue_stained_glass"
+        : z === 4 ? "minecraft:stripped_spruce_log[axis=y]" : "minecraft:oak_planks";
+      animation.setBlock(0, y, z, block);
+    }
+  }
+  animation.addAnchor("window", 2, 2, 0);
+  animation.endGroup();
+  animation.withEffect(AnimationEffect.spinIn(620, 1)).setBlock(1, 1, 1, "minecraft:crafting_table");
+  animation.addAnchor("crafting-table", 1, 1.5, 1);
+  animation.setBlock(3, 1, 1, "minecraft:chest[facing=south]");
+  animation.beginGroup();
+  animation.setBlock(4, 2, 1, "minecraft:wall_torch[facing=south]");
+  animation.setBlock(1, 2, 4, "minecraft:wall_torch[facing=east]");
+  animation.addAnchor("torch", 4, 2, 1);
+  animation.endGroup();
+  const orbit = AnimationEffect.create(3_000);
+  orbit.addTween("rotateY", -5, 6, "inOutSine");
+  animation.animateCamera(orbit, 0);
+  const glb = glbOf(animation);
+  exportItems = exportsOf(animation, "crafting-nook");
+
+
+  const surface = build.buildSurface({
+    glb,
+    camera: { yaw: 35, pitch: 28, zoom: 0.92 },
+    interactive: true,
+    leaders: { frame: VIEW, notes: NOTES },
+    dimensions: DIMENSIONS,
+    focus: { "table-note": "crafting-table", "window-note": "window", "torch-note": "torch" },
+  });
+  liveSurfaces["build-view"] = surface;
+  const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
+  frameSignals = (time) => {
+    const s = anchors(time);
+    return {
+      ...s,
+      placedLabel: `${s.placed} / ${s.groups} groups placed`,
+      dimLabel: s["dimension.crafting-table.torch.visible"] ? `table → torch  ${s["dimension.crafting-table.torch"].toFixed(2)} bl` : "",
+    };
+  };
+}
 
 export default figure("nucleation-nook", {
   title: "Crafting nook build",
@@ -285,27 +305,10 @@ come straight from the engine's `frameJson(t)` rather than the GLB's sampled tra
 import { drafting as D, figure, loadBuildSurface, paperDraftingTheme, parametric } from "kineglyph";
 
 export const theme = paperDraftingTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
 const build = await loadBuildSurface();
-const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
-const { AnimationEffect, BuildAnimation } = nucleation;
-
-// The build as a function of its parameters.
-function record(radius, stepMs) {
-  const animation = BuildAnimation.create("beacon_parametric");
-  animation.setStepMs(stepMs);
-  for (let x = -radius; x <= radius; x += 1) {
-    for (let z = -radius; z <= radius; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
-  }
-  animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
-  animation.addAnchor("beacon", 0, 1.5, 0);
-  animation.addAnchorToGroup(0, "corner", -radius, 0.5, -radius);
-  const orbit = AnimationEffect.create(animation.durationMs() + 400);
-  orbit.addTween("rotateY", -6, 6, "inOutSine");
-  animation.animateCamera(orbit, 0);
-  return animation;
-}
-
 const params = parametric(
   {
     radius: { value: 1, label: "Base radius (blocks)", min: 1, max: 2, step: 1 },
@@ -320,9 +323,6 @@ const params = parametric(
 );
 export const deriveSignals = params.deriveSignals;
 
-let latest = record(1, 140);
-// Exports read whatever the sliders last recorded.
-export const exportItems = exportsOf(() => latest, "beacon-parametric");
 const PLATE = { x: 330, y: 330, width: 1440, height: 1240 };
 const VIEW = { x: PLATE.x + 36, y: PLATE.y + 36, width: PLATE.width - 72, height: PLATE.height - 72 };
 const NOTES = [
@@ -330,36 +330,67 @@ const NOTES = [
   { anchor: "corner", x: 2000, y: 1180, side: "top-left", tone: "info" },
 ];
 const DIMENSIONS = [{ from: "corner", to: "beacon", tone: "textMuted" }];
-const surface = build.buildSurface({
-  // Rebuilt whenever a watched signal changes; the live source reads the same engine object.
-  glb: (context) => {
-    latest = record(Number(context.signals.baseRadius ?? 1), Number(context.signals.stepMs ?? 140));
-    return glbOf(latest);
-  },
-  watch: ["baseRadius", "stepMs"],
-  source: (glb) => build.fromBuildAnimation(latest, glb),
-  camera: { yaw: 28, pitch: 24, zoom: 0.8 },
-  interactive: true,
-  leaders: { frame: VIEW, notes: NOTES },
-  dimensions: DIMENSIONS,
-  focus: { "beacon-note": "beacon", "corner-note": "corner" },
-});
-export const liveSurfaces = { "build-view": surface };
-const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
-export const frameSignals = (time) => {
-  const s = anchors(time);
-  return {
-    ...s,
-    placedLabel: `${s.placed} / ${s.groups} groups placed`,
-    dimLabel: s["dimension.corner.beacon.visible"] ? `corner → beacon  ${s["dimension.corner.beacon"].toFixed(2)} bl` : "",
-  };
-};
 const signals = {
   ...params.signals,
   ...build.anchorSignalDefaults(NOTES, DIMENSIONS),
   placedLabel: "0 / 10 groups placed",
   dimLabel: "",
 };
+
+export const liveSurfaces = {};
+export let exportItems = [];
+export let frameSignals;
+// Static prerender uses the same sheet and defaults, without loading browser WASM.
+if (typeof window !== "undefined") {
+  const { nucleation, glbOf, exportsOf } = await (await import(asset("setup.mjs"))).loadNucleation();
+  const { AnimationEffect, BuildAnimation } = nucleation;
+
+  // The build as a function of its parameters.
+  function record(radius, stepMs) {
+    const animation = BuildAnimation.create("beacon_parametric");
+    animation.setStepMs(stepMs);
+    for (let x = -radius; x <= radius; x += 1) {
+      for (let z = -radius; z <= radius; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
+    }
+    animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
+    animation.addAnchor("beacon", 0, 1.5, 0);
+    animation.addAnchorToGroup(0, "corner", -radius, 0.5, -radius);
+    const orbit = AnimationEffect.create(animation.durationMs() + 400);
+    orbit.addTween("rotateY", -6, 6, "inOutSine");
+    animation.animateCamera(orbit, 0);
+    return animation;
+  }
+
+
+  let latest = record(1, 140);
+  // Exports read whatever the sliders last recorded.
+  exportItems = exportsOf(() => latest, "beacon-parametric");
+
+  const surface = build.buildSurface({
+    // Rebuilt whenever a watched signal changes; the live source reads the same engine object.
+    glb: (context) => {
+      latest = record(Number(context.signals.baseRadius ?? 1), Number(context.signals.stepMs ?? 140));
+      return glbOf(latest);
+    },
+    watch: ["baseRadius", "stepMs"],
+    source: (glb) => build.fromBuildAnimation(latest, glb),
+    camera: { yaw: 28, pitch: 24, zoom: 0.8 },
+    interactive: true,
+    leaders: { frame: VIEW, notes: NOTES },
+    dimensions: DIMENSIONS,
+    focus: { "beacon-note": "beacon", "corner-note": "corner" },
+  });
+  liveSurfaces["build-view"] = surface;
+  const anchors = build.anchorFrameSignals({ view: surface.view, frame: VIEW, notes: NOTES, embedded: true, dimensions: DIMENSIONS });
+  frameSignals = (time) => {
+    const s = anchors(time);
+    return {
+      ...s,
+      placedLabel: `${s.placed} / ${s.groups} groups placed`,
+      dimLabel: s["dimension.corner.beacon.visible"] ? `corner → beacon  ${s["dimension.corner.beacon"].toFixed(2)} bl` : "",
+    };
+  };
+}
 
 export default figure("nucleation-parametric", {
   title: "Parametric beacon build",
@@ -419,37 +450,43 @@ and all — the anchors are empty child nodes, so any tool that reads glTF can f
 import { figure, modelViewerSurface, paperDraftingTheme } from "kineglyph";
 
 export const theme = paperDraftingTheme;
-const asset = (name) => new URL(`../assets/nucleation/${name}`, location.href).href;
-if (!customElements.get("model-viewer")) {
+const asset = (name) => typeof location === "undefined"
+  ? `../assets/nucleation/${name}`
+  : new URL(`../assets/nucleation/${name}`, location.href).href;
+if (typeof customElements !== "undefined" && !customElements.get("model-viewer")) {
   await import("https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js");
 }
-async function loadEngine() {
-  try {
-    return await import(asset("engine/index.mjs"));
-  } catch {
-    return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
+export const liveSurfaces = {};
+// Prerender keeps the image below; only the browser loads the engine.
+if (typeof window !== "undefined") {
+  async function loadEngine() {
+    try {
+      return await import(asset("engine/index.mjs"));
+    } catch {
+      return await import("https://cdn.jsdelivr.net/npm/nucleation@0.10.15/index.mjs");
+    }
   }
-}
-const { AnimationEffect, BuildAnimation, ResourcePack } = await loadEngine();
-const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
-const pack = ResourcePack.fromBytes(Array.from(packBytes));
-const animation = BuildAnimation.create("beacon");
-animation.setStepMs(140);
-for (let x = -1; x <= 1; x += 1) {
-  for (let z = -1; z <= 1; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
-}
-animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
-animation.addAnchor("beacon", 0, 1.5, 0);
-const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
+  const { AnimationEffect, BuildAnimation, ResourcePack } = await loadEngine();
+  const packBytes = new Uint8Array(await (await fetch(asset("build-pack.zip"))).arrayBuffer());
+  const pack = ResourcePack.fromBytes(Array.from(packBytes));
+  const animation = BuildAnimation.create("beacon");
+  animation.setStepMs(140);
+  for (let x = -1; x <= 1; x += 1) {
+    for (let z = -1; z <= 1; z += 1) animation.setBlock(x, 0, z, "minecraft:gold_block");
+  }
+  animation.withEffect(AnimationEffect.spinIn(680, 1)).setBlock(0, 1, 0, "minecraft:beacon");
+  animation.addAnchor("beacon", 0, 1.5, 0);
+  const glb = Uint8Array.from(atob(animation.toAnimatedGlbB64(pack, 30)), (c) => c.charCodeAt(0));
 
-export const liveSurfaces = {
-  "beacon-model": modelViewerSurface({
-    source: glb,
-    alt: "The beacon build as an animated GLB",
-    cameraControls: true,
-    attributes: { autoplay: "", "shadow-intensity": "0.6", "camera-orbit": "35deg 65deg auto" },
-  }),
-};
+  Object.assign(liveSurfaces, {
+    "beacon-model": modelViewerSurface({
+      source: glb,
+      alt: "The beacon build as an animated GLB",
+      cameraControls: true,
+      attributes: { autoplay: "", "shadow-intensity": "0.6", "camera-orbit": "35deg 65deg auto" },
+    }),
+  });
+}
 
 export default figure("nucleation-glb-anywhere", {
   title: "Animated GLB in model-viewer",
@@ -512,3 +549,13 @@ The engine loaded above comes from `docs/assets/nucleation/engine/` when
 otherwise; `python3 scripts/nucleation-pack.py` cuts a vanilla resource pack down to what the
 mesher reads — every block's state, model, and texture, so any block id works when you edit a
 build script above — and leaves out the GUI, item, and language assets.
+
+## Example assets
+
+These are the source assets used by the live examples and their static fallbacks:
+
+- [Shared engine setup module](../assets/nucleation/setup.mjs)
+- [Build resource pack](../assets/nucleation/build-pack.zip)
+- [Static build preview](../assets/nucleation/field-observatory.png)
+
+<!-- Keep runtime-loaded assets linked explicitly: Pagina's portable pack cannot discover asset(name) calls. -->

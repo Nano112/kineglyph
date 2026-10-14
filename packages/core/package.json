@@ -30,6 +30,11 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./surfaces": {
+      "types": "./dist/surfaces.d.ts",
+      "development": "./src/surfaces.ts",
+      "import": "./dist/surfaces.js"
     }
   },
   "files": [

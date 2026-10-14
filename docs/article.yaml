@@ -55,5 +55,6 @@ nav:
     children:
       - { title: Embedding and theming, page: embedding-and-theming.md }
       - { title: Live data and microcharts, page: live-data-and-microcharts.md }
+      - { title: HTTP image rendering, page: http-rendering.md }
       - { title: Tooling, scale, and output, page: tooling-and-scale.md }
       - { title: Architecture, page: architecture.md }

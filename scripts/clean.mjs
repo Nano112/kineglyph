@@ -5,12 +5,15 @@ import { rmSync } from "node:fs";
 const targets = [
   "packages/core",
   "packages/svg",
+  "packages/math",
+  "packages/nucleation",
   "packages/anime",
   "packages/plot",
   "packages/scenes",
   "packages/web",
   "packages/react",
   "packages/export",
+  "packages/server",
   "apps/playground",
 ];
 

@@ -56,4 +56,5 @@ npx vite build "$REPO_ROOT/examples/microchart-limits" \
   --emptyOutDir
 
 cp "$WORK/kineglyph.pgz" "$OUT.pgz"
+node "$REPO_ROOT/scripts/check-docs-assets.mjs" "$OUT"
 echo "==> wrote $OUT and $OUT.pgz"
