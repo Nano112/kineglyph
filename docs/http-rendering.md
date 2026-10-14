@@ -63,7 +63,7 @@ and other special characters correctly.
 - `x.min` / `x.max`, `y.min` / `y.max`: paired domain endpoints. Numeric x domains require numeric
   x-values and a compatible mark. Invalid or reversed domains are errors.
 - `theme`: `light` (default), `dark`, `kineglyph`, `blueprint`, `swiss`, `ledger`, `field-manual`,
-  `studio`, or `civic`. The service fixes the font family to bundled Geist Mono across themes.
+  `studio`, `civic`, `anatomy`, or `anatomy-dark`. The service fixes the font family to bundled Geist Mono across themes.
 - `width`: layout/container width, 240–1600 (default 960), not merely an image resize.
 - `scale`: output scaling, 0.25–3 (default 1), without changing the layout breakpoint.
 - `time`: a still-frame time in milliseconds, 0–2000, for SVG/PNG. Omit for the final frame.

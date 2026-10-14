@@ -92,7 +92,13 @@ describe("glyph style themes", () => {
     expect(signalTheme.name).toBe("signal");
     expect(integrationTheme.name).toBe("integration");
     expect(instrumentTheme.name).toBe("instrument");
-    expect(Object.keys(glyphStyleThemes)).toEqual(["signal", "integration", "instrument"]);
+    expect(Object.keys(glyphStyleThemes)).toEqual([
+      "signal",
+      "integration",
+      "instrument",
+      "anatomy",
+      "anatomy-dark",
+    ]);
     for (const theme of [signalTheme, integrationTheme])
       for (const material of Object.values(theme.materials))
         expect(material.effects ?? []).toEqual([]);

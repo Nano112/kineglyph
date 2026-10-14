@@ -863,13 +863,101 @@ export const editorialCircuitTheme: ThemeTokens = createTheme(
   counterTerminalTheme,
 );
 
-export type GlyphStyleThemeName = "signal" | "integration" | "instrument";
+/** Anatomy-inspired technical plates; palette attribution: docs/anatomy-theme.md. */
+function anatomyPreset(dark: boolean): ThemeTokens {
+  const page = dark ? "#0b0b0b" : "#f2f2ef";
+  const strong = dark ? "#e6e6e6" : "#18181a";
+  const text = dark ? "#a3a3a3" : "#57575a";
+  const muted = dark ? "#6e6e6e" : "#8c8c90";
+  const red = dark ? "#ff6b6b" : "#e5484d";
+  const green = dark ? "#6be0a0" : "#30a46c";
+  const blue = dark ? "#6b9bff" : "#3e63dd";
+  const family = '"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  const typography = typeDirection({
+    family,
+    code: family,
+    displaySize: 28,
+    displayWeight: 500,
+    titleWeight: 500,
+    bodySize: 14,
+    labelSpacing: 0.6,
+  });
+  return createTheme({
+    name: dark ? "anatomy-dark" : "anatomy",
+    declareColors: "all",
+    colors: {
+      canvas: page,
+      surface: dark ? "#131313" : "#fbfbfa",
+      surfaceRaised: dark ? "#1b1b1b" : "#ffffff",
+      surfaceMuted: dark ? "#181818" : "#ededea",
+      text,
+      textMuted: muted,
+      accent: blue,
+      accentContrast: page,
+      info: blue,
+      success: green,
+      warning: dark ? "#d8b85d" : "#94691d",
+      danger: red,
+      connector: dark ? "#6a6a6a" : "#8a8a8f",
+      border: dark ? "#2a2a2a" : "#d4d4d6",
+      chart1: blue,
+      chart2: green,
+      chart3: red,
+      chart4: dark ? "#6a6a6a" : "#8a8a8f",
+      chart5: text,
+      chart6: strong,
+      chartPositive: green,
+      chartNegative: red,
+      chartNeutral: muted,
+    },
+    typography: {
+      ...typography,
+      label: {
+        ...defaultTheme.typography.label,
+        family,
+        size: 10.5,
+        weight: 500,
+        letterSpacing: 0.6,
+      },
+    },
+    radii: { sm: 0, md: 0, lg: 0, pill: 0 },
+    strokes: { hairline: 0.6, thin: 0.75, regular: 1, bold: 1.5 },
+    ornament: { grid: "none", surface: "outlined", lineCap: "butt", eyebrow: false },
+    motion: { fast: 120, normal: 260, slow: 600, easing: "easeInOut" },
+    materials: {
+      ...FLAT_MATERIALS,
+      raised: {
+        fill: "surfaceRaised",
+        stroke: "connector",
+        strokeWidth: 0.6,
+        radius: 0,
+        effects: [
+          shadow({
+            color: dark ? "canvas" : "chart6",
+            opacity: dark ? 0.45 : 0.08,
+            blur: 6,
+            offset: [0, 3],
+          }),
+        ],
+      },
+      floating: { fill: "surfaceRaised", stroke: "connector", strokeWidth: 0.75, radius: 0 },
+    },
+  });
+}
+
+export const anatomyTheme: ThemeTokens = anatomyPreset(false);
+export const anatomyDarkTheme: ThemeTokens = anatomyPreset(true);
+
+export type GlyphStyleThemeName =
+  "signal" | "integration" | "instrument" | "anatomy" | "anatomy-dark";
 
 /** Deliberately different render directions for the same semantic scene graph. */
 export const glyphStyleThemes: Readonly<Record<GlyphStyleThemeName, ThemeTokens>> = {
   signal: signalTheme,
   integration: integrationTheme,
   instrument: instrumentTheme,
+  anatomy: anatomyTheme,
+  "anatomy-dark": anatomyDarkTheme,
 };
 
 export type ProfessionalThemeName =

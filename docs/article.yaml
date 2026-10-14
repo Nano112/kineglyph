@@ -37,6 +37,7 @@ nav:
   - { title: Visual gallery, page: gallery.md }
   - { title: Professional themes, page: theme-gallery.md }
   - { title: Glyph style laboratory, page: glyph-style-lab.md }
+  - { title: Anatomy technical plates, page: anatomy-theme.md }
   - { title: Drafting sheets, page: drafting-sheets.md }
   - { title: Drafting styles, page: drafting-styles.md }
   - { title: Build animations, page: nucleation-builds.md }

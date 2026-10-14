@@ -56,7 +56,13 @@ describe("bundle export disambiguation", () => {
     expect(bundle.signalTheme.name).toBe("signal");
     expect(bundle.integrationTheme.name).toBe("integration");
     expect(bundle.instrumentTheme.name).toBe("instrument");
-    expect(Object.keys(bundle.glyphStyleThemes)).toEqual(["signal", "integration", "instrument"]);
+    expect(Object.keys(bundle.glyphStyleThemes)).toEqual([
+      "signal",
+      "integration",
+      "instrument",
+      "anatomy",
+      "anatomy-dark",
+    ]);
     expect(typeof bundle.tileNode).toBe("function");
     expect(typeof bundle.port).toBe("function");
     expect(typeof bundle.gridPlane).toBe("function");

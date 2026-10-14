@@ -98,6 +98,8 @@ export const requestSchema = z
         "field-manual",
         "studio",
         "civic",
+        "anatomy",
+        "anatomy-dark",
       ])
       .default("light"),
     time: z.number().finite().min(0).max(2000).optional(),

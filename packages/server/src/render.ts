@@ -7,6 +7,8 @@ import {
   defaultTheme,
   linearGradient,
   professionalThemes,
+  anatomyTheme,
+  anatomyDarkTheme,
 } from "@kineglyph/core";
 import { plot } from "@kineglyph/plot";
 import { exportSvg } from "@kineglyph/export/svg";
@@ -92,9 +94,13 @@ export async function render(input: unknown, format: string): Promise<Uint8Array
             connector: "#91a2be",
           },
         })
-      : r.theme === "light"
-        ? defaultTheme
-        : professionalThemes[r.theme === "field-manual" ? "fieldManual" : r.theme];
+      : r.theme === "anatomy"
+        ? anatomyTheme
+        : r.theme === "anatomy-dark"
+          ? anatomyDarkTheme
+          : r.theme === "light"
+            ? defaultTheme
+            : professionalThemes[r.theme === "field-manual" ? "fieldManual" : r.theme];
   // Fixed bundled family: never accept user-controlled CSS/font names.
   const theme = createTheme(
     {
